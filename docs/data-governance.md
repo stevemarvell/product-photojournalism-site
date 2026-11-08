@@ -15,7 +15,7 @@ workflows that read it have nothing to read.
 | --- | --- |
 | `CLAUDE_CODE_OAUTH_TOKEN` | `.github/workflows/claude-code-review.yml`, `claude.yml` |
 | `GRAFANA_CLOUD_OTLP_ENDPOINT`, `GRAFANA_CLOUD_OTLP_AUTH` | the same two workflows |
-| `VERCEL_TOKEN` | `.github/workflows/preview-prune.yml`; expires 2027-11-08 |
+| `VERCEL_TOKEN` | `.github/workflows/preview-prune.yml` (expiry: `README.md`, Secrets) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `.github/workflows/telegram-notify.yml` |
 
 The review jobs check out a pull request and run a script from that checkout
