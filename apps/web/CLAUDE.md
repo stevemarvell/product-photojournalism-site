@@ -40,5 +40,10 @@ npm install && npm run dev      # on http://localhost:5173
 node scripts/verify-apps.mjs web   # typecheck, eslint, vitest, build, e2e
 ```
 
+The home page fetches `/health` from the API at `VITE_API_URL` (build-time;
+default `http://localhost:8000`) and shows the database status, or a plain
+error if the API is unreachable. Run the API alongside it for local use; the
+e2e suite mocks the API with `page.route`.
+
 Once deployed, read the `deployment` skill under `.claude/skills/` here
 (written by `deploy:add`) before changing anything that deploys.

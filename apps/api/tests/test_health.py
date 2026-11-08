@@ -10,10 +10,18 @@ import api.main
 def test_health_is_ok_without_a_commit_locally(monkeypatch) -> None:
     monkeypatch.delenv("VERCEL_GIT_COMMIT_SHA", raising=False)
     module = importlib.reload(api.main)
-    assert TestClient(module.create_app()).get("/health").json() == {"ok": True, "commit": None}
+    assert TestClient(module.create_app()).get("/health").json() == {
+        "ok": True,
+        "commit": None,
+        "database": {"adapter": "memory", "reachable": True},
+    }
 
 
 def test_health_reports_the_deployed_commit(monkeypatch) -> None:
     monkeypatch.setenv("VERCEL_GIT_COMMIT_SHA", "abc123")
     module = importlib.reload(api.main)
-    assert TestClient(module.create_app()).get("/health").json() == {"ok": True, "commit": "abc123"}
+    assert TestClient(module.create_app()).get("/health").json() == {
+        "ok": True,
+        "commit": "abc123",
+        "database": {"adapter": "memory", "reachable": True},
+    }

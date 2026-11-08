@@ -29,5 +29,17 @@ uv run ruff check . && uv run pytest -q                            # its checks
 `API_ENVIRONMENT=development` opts back into Swagger UI, ReDoc and
 `/openapi.json`, all three off by default.
 
+Hexagonal layers under `src/api/`: `domain/` and `application/` (ports) import
+no FastAPI, psycopg or `api.adapters` (a test enforces it); `adapters/` hold the
+implementations; `composition.py` picks them from environment variables, and
+`/health` adds the database status (503 when unreachable, no connection string).
+
+| Variable | Values (default first) |
+| --- | --- |
+| `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`) |
+| `IMAGE_STORE` / `IMAGE_DIR` | `filesystem` / `.data/images` |
+| `IDENTITY_PROVIDER` | `stub`; the app refuses to start with it when `VERCEL_ENV` is set |
+| `CORS_ALLOWED_ORIGINS` | comma-separated; `http://localhost:5173,http://127.0.0.1:5173`; never `*` |
+
 Once deployed, read the `deployment` skill under `apps/api/.claude/skills/`
 (written by `deploy:add`) before changing anything that deploys.

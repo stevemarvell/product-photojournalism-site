@@ -26,6 +26,8 @@ async function settleThenUnmount(unmount: () => void): Promise<void> {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // Tests that do not care about the API get one that never answers.
+  vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
 });
 
 afterEach(async () => {
@@ -57,10 +59,32 @@ describe('App', () => {
     expect(screen.getByText('stand-in-app')).toBeTruthy();
   });
 
-  it('calls no API', () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+  it('shows the value fetched from the API', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ ok: true, commit: null, database: { adapter: 'memory', reachable: true } }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
     render(<App />);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+    expect(fetchSpy).toHaveBeenCalledWith('http://localhost:8000/health');
+    expect(screen.getByTestId('api-status').textContent).toContain('memory, reachable');
+  });
+
+  it('shows a plain error when the API is unreachable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    render(<App />);
+    await vi.runAllTimersAsync();
+    expect(screen.getByTestId('api-error').textContent).toBe('The API could not be reached.');
+  });
+
+  it('shows the same error when the API answers with a failure status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 503 })));
+    render(<App />);
+    await vi.runAllTimersAsync();
+    expect(screen.getByTestId('api-error')).toBeTruthy();
   });
 
   /**
