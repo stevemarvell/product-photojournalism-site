@@ -1,0 +1,9 @@
+# Check out LF everywhere. A CRLF checkout on Windows breaks Vite's shebang
+# stripping: it removes "#!...\n" but not "#!...\r\n", so the "#!" survives
+# into the module and the import fails to parse. CI never saw it, because
+# Linux runners check out LF.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

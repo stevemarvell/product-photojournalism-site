@@ -1,0 +1,22 @@
+# Opt-in overlay that also forwards local metrics to Grafana Cloud, so the
+# laptop and the GitHub runners land in one store.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+#
+# Needs GRAFANA_CLOUD_OTLP_ENDPOINT and GRAFANA_CLOUD_AUTH_HEADER in .env.
+# Without the overlay the stack is purely local and needs no credentials at all,
+# which stays the default.
+
+services:
+  collector:
+    command:
+      - '--config=/etc/otel/config.yaml'
+      - '--config=/etc/otel/cloud.yaml'
+    volumes:
+      # Compose merges volume lists by container path, so the base mount has to
+      # be repeated or it is lost.
+      - ./otel-collector.yaml:/etc/otel/config.yaml:ro
+      - ./otel-collector.cloud.yaml:/etc/otel/cloud.yaml:ro
+    environment:
+      GRAFANA_CLOUD_OTLP_ENDPOINT: ${GRAFANA_CLOUD_OTLP_ENDPOINT:?set it in telemetry/.env}
+      GRAFANA_CLOUD_AUTH_HEADER: ${GRAFANA_CLOUD_AUTH_HEADER:?set it in telemetry/.env}

@@ -1,0 +1,103 @@
+version: 2
+
+# Actions in .github/workflows are pinned to commit SHAs, which is what stops
+# a tag being repointed under us — and also what freezes them. This is the
+# other half: Dependabot resolves each pinned SHA back to its tag, notices a
+# newer release, and opens a pull request that moves the SHA *and* rewrites
+# the trailing `# v4` comment. Without it the pins are a promise never to take
+# a security fix.
+#
+# npm and uv are declared too (#227): one weekly pull request per ecosystem
+# for minor and patch updates, and each major as its own pull request, because
+# a major can break things and should be reviewed alone. An update that
+# matches no group is opened individually (Dependabot options reference,
+# `groups`), so leaving `major` out of `update-types` is all it takes.
+#
+# This file is the one source of every product's copy. scripts/assemble.mjs
+# writes a product's .github/dependabot.yml from it, keeping the entries whose
+# ecosystem the product has: github-actions and npm always, uv only when a
+# chosen starter has a Python app. So an entry can name only what every product
+# of its ecosystem has, or what a glob can find:
+#
+#   npm   `/`. The root package.json is generated for every product, with
+#         `workspaces: ["apps/*"]`, and Dependabot reads the workspace
+#         members through it. Do not list a workspace directory as well: two
+#         entries for one manifest is the overlap the reference forbids.
+#   uv    `/apps/*`. Each Python app has its own pyproject.toml and uv.lock,
+#         and `directories` (not `directory`) is what accepts a glob. A
+#         directory without a manifest is skipped, but the docs are silent on
+#         a glob that finds none, and dependabot-core fails the job when none
+#         of the directories has a manifest. So a product with no Python app
+#         gets no uv entry (#236).
+#
+# scripts/test/dependabot.test.ts holds this file to project.json.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # A bumped action is one line in one file; batching them keeps a routine
+    # week down to a single pull request rather than five.
+    groups:
+      actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: ci
+    # No `labels:` here on purpose. A label named in this file has to already
+    # exist on the repository or Dependabot errors; left out, it creates and
+    # applies its own `dependencies` label.
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Delays proposing a new release by three days, so a yanked or malicious one can be pulled first.
+    cooldown:
+      default-days: 3
+    groups:
+      npm-minor-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    # Majors that cannot land, so their pull requests would only sit open and
+    # come back every week (#260). Syntax: `ignore` with `dependency-name` and
+    # `update-types`, github/docs content/code-security/reference/
+    # supply-chain-security/dependabot-options-reference.md. Minor and patch
+    # updates of both are still proposed.
+    ignore:
+      # typescript-eslint@8.72.0 does not accept typescript@7 as a peer, so
+      # `npm ci` fails with ERESOLVE (#242). Remove this when typescript-eslint
+      # supports TypeScript 7.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      # CI runs Node 22 (verify.yml `node-version`); types for a later major
+      # would describe APIs the runtime lacks (#249). Move this major together
+      # with that `node-version`; scripts/test/dependabot.test.ts fails if
+      # they differ.
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: uv
+    directories:
+      - '/apps/*'
+    schedule:
+      interval: weekly
+    # Delays proposing a new release by three days, so a yanked or malicious one can be pulled first.
+    cooldown:
+      default-days: 3
+    groups:
+      uv-minor-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: deps

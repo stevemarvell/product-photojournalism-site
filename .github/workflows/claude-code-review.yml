@@ -1,0 +1,434 @@
+name: Claude Code Review
+
+# Two reviews, both before merge, both advisory.
+#
+# WHEN. A review is worth having at the moment somebody can still act on it,
+# which on this repository is the pull request and nowhere else. `smoke` runs
+# after a merge and is the right shape for a deployment check; a security
+# finding that arrives then is an incident report, not a review. So both jobs
+# run on `pull_request` and neither runs on the push to `develop`.
+#
+# WHAT THIS GUARDS AGAINST. Without a dedicated security review, every
+# security finding here is found by a person or an ad-hoc session instead of
+# on every pull request automatically. A generic, unconfigured code review
+# can pass a change that omits a load-bearing flag from its own verify
+# script and say nothing — the "present but inert" class this repository
+# watches for. A reviewer given .claude/agents/code-checker.md catches that;
+# .claude/trials/model-tiering.md has the comparison this repository ran.
+#
+# MODEL. `--model sonnet`, from that trial rather than from taste. The same
+# pull request reviewed by Sonnet and by Haiku: Sonnet found real findings
+# and reproduced one by experiment, Haiku found none and said it would
+# merge. Haiku's review reads like diligence and contains nothing. Pinning
+# matters even though Sonnet is the current default — an unpinned default
+# that drifted downwards would empty these reviews without changing a line
+# here, and there is nothing downstream to catch a review that is wrong.
+#
+# NOT REQUIRED, and that is deliberate. `verify` stays the only required
+# check, as CLAUDE.md records. Three of the twenty review runs before this
+# change failed with `is_error: true` for reasons that had nothing to do with
+# the code under review, and a gate that goes red for its own reasons is one
+# people learn to click past. What this file does instead is make a review
+# that produced nothing *say so* — see "Check a review was actually produced"
+# below. Branch protection is not changed here; see the pull request body for
+# what would be worth changing and when.
+#
+# NO CREDENTIAL ON A DEPENDABOT PR, NO REVIEW. A run triggered by
+# `dependabot[bot]` gets Dependabot's secrets, not this repository's, so
+# CLAUDE_CODE_OAUTH_TOKEN is empty there and no session can start (#244). Each
+# review job asks first (the "Is the review credential available?" step) and,
+# when the token is empty and the author is Dependabot, skips everything else
+# including the assertion, and ends green with a notice that says why. An
+# empty token on any other pull request still fails, with a warning naming the
+# cause. A token present means a review exactly as before, Dependabot's pull
+# requests included, so adding the token as a Dependabot secret turns those
+# reviews on with no change here.
+#
+# SANDBOXED. Both jobs read a pull request's head — untrusted content, by
+# `docs/data-governance.md`'s own definition — with a Bash tool `gh pr diff`
+# and `gh pr view` can run, and two credentials live in the step around it.
+# `--allowedTools` already narrows that Bash tool to those two commands; the
+# "Enable the sandbox" step in each job puts Claude Code's own OS-level
+# sandbox around it too, so what those two commands can reach is bounded by
+# bubblewrap rather than by the model choosing not to run anything else.
+# `docs/sops.md` SOP 10.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+concurrency:
+  group: claude-code-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Which reviews this pull request is worth spending a session on. One job so
+  # the rule is computed once and both reviewers read the same answer; the rule
+  # itself is scripts/review-scope.mjs, which has tests, because a path filter
+  # that is silently wrong is this repository's signature failure — a build-skip
+  # filter has left a whole class of commit silently undeployed with nothing
+  # to say so.
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    # Reads the pull request's file list and nothing else.
+    permissions:
+      contents: read
+      pull-requests: read
+
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+      security: ${{ steps.scope.outputs.security }}
+      workflows: ${{ steps.scope.outputs.workflows }}
+
+    steps:
+      # `ref:` is the base commit, not the merge ref every other job here
+      # checks out, and that is the point: a pull request that edits
+      # review-scope.mjs to return `{code: false, security: false}` would
+      # otherwise skip both of its own reviews and print a log saying so, in a
+      # sentence it also wrote. A rule a change can rewrite before being
+      # measured against it is not a rule. The cost is real and small: an edit
+      # to the rule takes effect on the pull request after the one that makes
+      # it, so its own reviews run under the old rule. The file list still
+      # comes from the API below — this checkout supplies the rule, nothing
+      # else.
+      #
+      # Same shape, not closed here and worth knowing: the reviewers read
+      # .claude/agents/*.md from the branch, so a pull request can still
+      # rewrite the rubric it is judged by. The .claude/** exception in
+      # review-scope.mjs ensures a review happens; it does not ensure the
+      # standard held.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+
+      - name: Work out which reviews this change needs
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          # No `set -e` and a `|| true`: if this API call fails the file list is
+          # empty, and review-scope.mjs answers an empty list with "run both".
+          # Failing towards spending money is the correct direction here — the
+          # failure being guarded against is a change going unreviewed quietly.
+          gh api "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --paginate \
+            --jq '.[].filename' > changed-files.txt || true
+          echo "changed files:"
+          cat changed-files.txt
+          node scripts/review-scope.mjs < changed-files.txt | tee -a "$GITHUB_STEP_SUMMARY"
+
+  code-review:
+    name: code review
+    needs: scope
+    # `!= 'false'`, not `== 'true'`. A scope job that died leaves this output
+    # empty, and an empty output must mean "review it" rather than "skip it".
+    if: needs.scope.outputs.code != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      issues: read
+      id-token: write
+      # Written, not read: track_progress posts and updates the comment that
+      # carries the verdict. Without it a review with no findings produces no
+      # inline comments and therefore no visible output at all, which can
+      # look like assurance while saying nothing.
+      pull-requests: write
+
+    # Telemetry for the unattended runs. This job fires on every pull request
+    # and nobody watches it, which makes it the spend most worth measuring and
+    # the spend least likely to be noticed.
+    #
+    # Only the credential lives here. Everything else the session needs is
+    # written by the step below to a file outside this checkout, loaded with
+    # --settings in claude_args. Not .claude/settings.local.json any more:
+    # this job checks out a pull request's head to review it, and because
+    # that content is untrusted, claude-code-action deletes and restores
+    # .claude (among other paths) from the base branch immediately before the
+    # CLI starts — see scripts/write-ci-telemetry-settings.mjs's header. A
+    # settings.local.json written before that restore does not survive it,
+    # which is why writing to the out-of-checkout file instead is what lets
+    # every CI session actually carry an environment=ci label.
+    env:
+      GRAFANA_CLOUD_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
+      GRAFANA_CLOUD_OTLP_AUTH: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
+      # Distinct from the security label below, so the two reviews can be told
+      # apart in the store rather than summing into one "review bot" figure.
+      CI_TELEMETRY_WORKFLOW: claude-code-review
+
+    steps:
+      # Is the credential here at all? `secrets` is not available to a job-level
+      # `if:`, so the question is asked in a step and answered as an output that
+      # every later step reads. `dependabot[bot]` runs get Dependabot's own
+      # secrets, not this repository's, so on its pull requests
+      # CLAUDE_CODE_OAUTH_TOKEN is empty and a review cannot start (#244). The
+      # job then ends green with a notice that says why, rather than red with a
+      # failure that means nothing. The secret reaches this step only through
+      # `env:`, is tested for emptiness and is never printed.
+      #
+      # Dependabot's pull requests only. An empty token on anyone else's pull
+      # request means the repository secret has expired or been deleted, and
+      # that must stay red: skipping on "empty" alone would turn the loss of
+      # every review into a green tick with a notice nobody reads. So that case
+      # writes available=true, warns, and lets the review step and the
+      # assertion fail as they always have. The author arrives through `env:`
+      # too, never interpolated into the script.
+      #
+      # `!= 'false'` everywhere below, as with the scope outputs: if this step
+      # dies the output is empty, and empty must mean "review it" so the
+      # assertion at the end fails loudly instead of the job skipping silently.
+      - name: Is the review credential available?
+        id: token
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Code review skipped::CLAUDE_CODE_OAUTH_TOKEN is not available to this run: a Dependabot pull request gets Dependabot's own secrets rather than this repository's. No code review ran; review this pull request by hand. See #244."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Code review has no credential::CLAUDE_CODE_OAUTH_TOKEN is missing on a pull request that is not Dependabot's, so no review can start and the assertion below will fail. The repository secret has probably expired or been deleted. See #244."
+          fi
+
+      - name: Checkout repository
+        if: steps.token.outputs.available != 'false'
+        # Pinned to a commit SHA rather than the tag — see verify.yml.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Point this session's telemetry at Grafana Cloud
+        if: steps.token.outputs.available != 'false'
+        run: node scripts/write-ci-telemetry-settings.mjs
+
+      # This job reads a pull request's head to review it — see the comment
+      # by the checkout step above the telemetry one. A permission gate
+      # decides whether `gh pr diff` runs, but nothing before this stopped it
+      # from reaching anywhere the runner could reach once it did. The two steps
+      # below put Claude Code's own OS-level sandbox around this job's Bash
+      # tool instead: bubblewrap enforces it, `scripts/write-ci-sandbox-settings.mjs`
+      # configures it into the same out-of-checkout file the telemetry step
+      # just wrote (see that script's header for why it is not
+      # `.claude/settings.json`), and `docs/sops.md` SOP 10 has the rest.
+      - name: Install the sandbox's OS dependencies
+        if: steps.token.outputs.available != 'false'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+          # With failIfUnavailable set, a sandbox that cannot start fails the
+          # review rather than running it unsandboxed. Prove it can start here,
+          # so a runner that refuses it says so in this step, not mid-review.
+          # Ubuntu 24.04 lets only AppArmor-profiled binaries create the user
+          # namespace bubblewrap needs. Grant that to /usr/bin/bwrap alone --
+          # Ubuntu's documented route -- rather than lifting the restriction
+          # system-wide.
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' \
+            'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' \
+            | sudo tee /etc/apparmor.d/bwrap >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true \
+            || { echo "bubblewrap cannot start a sandbox on this runner" >&2; exit 1; }
+          echo "bubblewrap started a network-isolated sandbox"
+
+      - name: Enable the sandbox for this session's Bash tool
+        if: steps.token.outputs.available != 'false'
+        run: node scripts/write-ci-sandbox-settings.mjs
+
+      - name: Review the change against this repository's rubric
+        if: steps.token.outputs.available != 'false'
+        id: review
+        # So the assertion below always runs and explains what happened,
+        # rather than the job dying on the action's own error text.
+        continue-on-error: true
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          # The rubric lives in the repository, not in this file: the same
+          # .claude/agents/code-checker.md is what a session spawns by hand,
+          # so CI and a laptop review against one standard. Nothing from the
+          # pull request's title, body or comments is interpolated here — only
+          # the number and the repository, both of which GitHub controls.
+          prompt: |
+            Review pull request ${{ github.event.pull_request.number }} of ${{ github.repository }}.
+
+            Read `.claude/agents/code-checker.md` and follow it exactly. It is
+            this repository's review rubric and it supersedes any default
+            review habit you have. Read `CLAUDE.md` and `docs/sops.md` as that
+            file instructs, before forming an opinion.
+
+            Get the diff with `gh pr diff ${{ github.event.pull_request.number }}`.
+
+            Post each finding as an inline comment on the line it concerns,
+            with mcp__github_inline_comment__create_inline_comment. End your
+            final message with the one-line verdict the rubric asks for: would
+            you merge this, and what would you want changed first.
+
+            If you have no findings, say that in as many words. An empty
+            review is a real result and has to be stated; silence is not the
+            same thing, and has been mistaken for assurance here before.
+          # --model: see the header. --allowedTools is read-only by
+          # construction — the session can read the repository and the diff and
+          # comment, and can run nothing. That is a deliberate loss: trial 2's
+          # better reviewer found its finding by *running* an experiment, and
+          # this one cannot. The trade is that this job holds
+          # CLAUDE_CODE_OAUTH_TOKEN and the Grafana credentials, and arbitrary
+          # Bash in it is a larger hole than the finding is worth. A reviewer
+          # that needs to run something asks for it on the pull request.
+          #
+          # Note what is not here: a plugin pulled from a Git URL resolved at
+          # run time. That would make this credential-bearing job run
+          # third-party code that could change between two runs of the same
+          # commit and could not be pinned. The rubric lives in this
+          # repository instead.
+          claude_args: |
+            --model sonnet
+            --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
+            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
+
+      - name: Check a review was actually produced
+        if: always() && steps.token.outputs.available != 'false'
+        env:
+          KIND: code
+          CONCLUSION: ${{ steps.review.outputs.conclusion }}
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          # Whether the action's workflow-validation rule can be the reason a
+          # session never started. Empty if the scope job died, which the
+          # script reads as "unknown" rather than as "no".
+          WORKFLOW_CHANGED: ${{ needs.scope.outputs.workflows }}
+        run: node scripts/assert-review-ran.mjs
+
+  security-review:
+    name: security review
+    needs: scope
+    if: needs.scope.outputs.security != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      issues: read
+      id-token: write
+      pull-requests: write
+
+    env:
+      GRAFANA_CLOUD_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
+      GRAFANA_CLOUD_OTLP_AUTH: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
+      CI_TELEMETRY_WORKFLOW: claude-security-review
+
+    steps:
+      # Is the credential here at all? `secrets` is not available to a job-level
+      # `if:`, so the question is asked in a step and answered as an output that
+      # every later step reads. `dependabot[bot]` runs get Dependabot's own
+      # secrets, not this repository's, so on its pull requests
+      # CLAUDE_CODE_OAUTH_TOKEN is empty and a review cannot start (#244). The
+      # job then ends green with a notice that says why, rather than red with a
+      # failure that means nothing. The secret reaches this step only through
+      # `env:`, is tested for emptiness and is never printed.
+      #
+      # `!= 'false'` everywhere below, as with the scope outputs: if this step
+      # dies the output is empty, and empty must mean "review it" so the
+      # assertion at the end fails loudly instead of the job skipping silently.
+      - name: Is the review credential available?
+        id: token
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Security review skipped::CLAUDE_CODE_OAUTH_TOKEN is not available to this run: a Dependabot pull request gets Dependabot's own secrets rather than this repository's. No security review ran; review this pull request by hand. See #244."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Security review has no credential::CLAUDE_CODE_OAUTH_TOKEN is missing on a pull request that is not Dependabot's, so no review can start and the assertion below will fail. The repository secret has probably expired or been deleted. See #244."
+          fi
+
+      - name: Checkout repository
+        if: steps.token.outputs.available != 'false'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Point this session's telemetry at Grafana Cloud
+        if: steps.token.outputs.available != 'false'
+        run: node scripts/write-ci-telemetry-settings.mjs
+
+      # See the same two steps in the code-review job above for why:
+      # docs/sops.md SOP 10.
+      - name: Install the sandbox's OS dependencies
+        if: steps.token.outputs.available != 'false'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+          # With failIfUnavailable set, a sandbox that cannot start fails the
+          # review rather than running it unsandboxed. Prove it can start here,
+          # so a runner that refuses it says so in this step, not mid-review.
+          # Ubuntu 24.04 lets only AppArmor-profiled binaries create the user
+          # namespace bubblewrap needs. Grant that to /usr/bin/bwrap alone --
+          # Ubuntu's documented route -- rather than lifting the restriction
+          # system-wide.
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' \
+            'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' \
+            | sudo tee /etc/apparmor.d/bwrap >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true \
+            || { echo "bubblewrap cannot start a sandbox on this runner" >&2; exit 1; }
+          echo "bubblewrap started a network-isolated sandbox"
+
+      - name: Enable the sandbox for this session's Bash tool
+        if: steps.token.outputs.available != 'false'
+        run: node scripts/write-ci-sandbox-settings.mjs
+
+      - name: Review the change for exposure
+        if: steps.token.outputs.available != 'false'
+        id: review
+        continue-on-error: true
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          prompt: |
+            Review pull request ${{ github.event.pull_request.number }} of ${{ github.repository }} for exposure.
+
+            Read `.claude/agents/security-checker.md` and follow it exactly.
+            It is this repository's security rubric and it supersedes any
+            generic checklist you would otherwise reach for. Read `CLAUDE.md`,
+            `docs/sops.md` and `docs/data-governance.md` as that file
+            instructs, before forming an opinion — the deployed apps serve no
+            data at all today, and reporting "the API is unauthenticated" as
+            a finding with nothing behind it is noise.
+
+            Get the diff with `gh pr diff ${{ github.event.pull_request.number }}`.
+
+            Post each finding as an inline comment on the line it concerns,
+            with mcp__github_inline_comment__create_inline_comment, ranked by
+            how bad it actually is here. End your final message with the one
+            line the rubric asks for: does this change belong on `develop` as
+            it stands.
+
+            If you have no findings, say that in as many words. An empty
+            review is a real result and has to be stated; silence is not the
+            same thing.
+          claude_args: |
+            --model sonnet
+            --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
+            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
+
+      - name: Check a review was actually produced
+        if: always() && steps.token.outputs.available != 'false'
+        env:
+          KIND: security
+          CONCLUSION: ${{ steps.review.outputs.conclusion }}
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          WORKFLOW_CHANGED: ${{ needs.scope.outputs.workflows }}
+        run: node scripts/assert-review-ran.mjs

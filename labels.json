@@ -1,0 +1,72 @@
+[
+  {
+    "name": "critical",
+    "color": "b60205",
+    "description": "Do first. Wrong answers, real exposure, or work blocked until it lands."
+  },
+  {
+    "name": "high",
+    "color": "fbca04",
+    "description": "Do next. A real defect, bounded today by something written down."
+  },
+  {
+    "name": "medium",
+    "color": "0e8a16",
+    "description": "Do eventually. Worth doing; nothing is wrong while it waits."
+  },
+  {
+    "name": "human",
+    "color": "db54b7",
+    "description": "The task is marked for to work on. Should also be marked \"do not automate\"."
+  },
+  {
+    "name": "do not automate",
+    "color": "b60205",
+    "description": "Do not automate this ask before discussion with a human."
+  },
+  {
+    "name": "template",
+    "color": "c5def5",
+    "description": "A blank structure to copy, not a task to work — never automated"
+  },
+  {
+    "name": "security",
+    "color": "d73a4a",
+    "description": "Exposure or hardening"
+  },
+  {
+    "name": "blocked: no paid plan",
+    "color": "6a737d",
+    "description": "Needs a paid tier this project will not buy — see #64. Permanently blocked, not pending."
+  },
+  {
+    "name": "postmortem",
+    "color": "0b2e6b",
+    "description": "A record of an incident: what happened, why, and what changed"
+  },
+  {
+    "name": "aia0",
+    "color": "5319e7",
+    "description": "Step 0 — Gated: permission, infrastructure, governance"
+  },
+  {
+    "name": "aia1",
+    "color": "1d76db",
+    "description": "Step 1 — Assisted: the verification loop, and what it costs"
+  },
+  {
+    "name": "aia2",
+    "color": "006b75",
+    "description": "Step 2 — Parallel: orchestration and review at scale"
+  },
+  {
+    "name": "aia3",
+    "color": "0a3069",
+    "description": "Step 3 — Supervised autonomy: agents at scale, loops and routines"
+  },
+  {
+    "name": "aia4",
+    "color": "24292f",
+    "description": "Step 4 — AI-native: steering by intent, monitoring by exception"
+  }
+]

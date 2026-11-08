@@ -1,0 +1,359 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { SMOKE_SCHEDULE, addDeploy, ownerSteps, parseArgs, renderTemplate, withPlaceholders, withSmokeSchedule, smokeScheduleProblem } from '../deploy/add.mjs';
+import { loadProject, type Project } from '../project.mjs';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const SMOKE = '.github/workflows/smoke.yml';
+const realSmoke = () => readFileSync(join(REPO_ROOT, SMOKE), 'utf8');
+/** Top-level `schedule:` trigger lines: two-space indent, so a comment or a nested key never counts. */
+const scheduleLines = (text: string) => text.split('\n').filter((line) => /^ {2}schedule:/.test(line));
+
+describe('parseArgs', () => {
+  it('parses the provider, --app and the optional flags', () => {
+    expect(
+      parseArgs(['vercel', '--app', 'api', '--team', 't', '--project', 'p', '--url', 'https://x.example', '--commit-endpoint', '/health']),
+    ).toEqual({ provider: 'vercel', app: 'api', team: 't', project: 'p', url: 'https://x.example', commitEndpoint: '/health' });
+  });
+
+  it('requires a provider', () => {
+    expect(() => parseArgs([])).toThrow(/usage/);
+  });
+
+  it('requires --app', () => {
+    expect(() => parseArgs(['vercel'])).toThrow(/--app/);
+  });
+
+  it('refuses an unknown flag', () => {
+    expect(() => parseArgs(['vercel', '--app', 'api', '--nope', 'x'])).toThrow(/unknown flag/);
+  });
+
+  it('refuses a flag with no value', () => {
+    expect(() => parseArgs(['vercel', '--app'])).toThrow(/needs a value/);
+  });
+});
+
+describe('withPlaceholders', () => {
+  it('fills in whatever is missing with an obvious placeholder, never a guess', () => {
+    expect(withPlaceholders({})).toEqual({
+      team: '<team>',
+      project: '<project>',
+      url: 'https://<project>.vercel.app',
+      commitEndpoint: '/health',
+    });
+  });
+
+  it('keeps whatever is given', () => {
+    expect(withPlaceholders({ team: 't', project: 'p', url: 'https://p.example', commitEndpoint: '/h' })).toEqual({
+      team: 't',
+      project: 'p',
+      url: 'https://p.example',
+      commitEndpoint: '/h',
+    });
+  });
+
+  it('falls back to the existing values before reaching for a placeholder', () => {
+    const existing = { team: 't', project: 'p', url: 'https://p.example', commitEndpoint: '/h' };
+    expect(withPlaceholders({ commitEndpoint: '/health', existing })).toEqual({
+      team: 't',
+      project: 'p',
+      url: 'https://p.example',
+      commitEndpoint: '/health',
+    });
+  });
+
+  it('still falls back to a placeholder when existing has nothing for that key', () => {
+    expect(withPlaceholders({ team: 't', existing: {} })).toEqual({
+      team: 't',
+      project: '<project>',
+      url: 'https://<project>.vercel.app',
+      commitEndpoint: '/health',
+    });
+  });
+});
+
+describe('renderTemplate', () => {
+  it('replaces every <key> with its value', () => {
+    expect(renderTemplate('node x.mjs <app> for <team>/<project>', { app: 'api', team: 't', project: 'p' })).toBe('node x.mjs api for t/p');
+  });
+});
+
+describe('ownerSteps', () => {
+  it("names the app's Root Directory, and the VERCEL_TOKEN step", () => {
+    const steps = ownerSteps({ app: 'api', team: 't', project: 'p' });
+    expect(steps.some((s) => s.includes('apps/api'))).toBe(true);
+    expect(steps.some((s) => s.includes('VERCEL_TOKEN'))).toBe(true);
+    expect(steps.some((s) => s.includes('data-governance.md'))).toBe(true);
+  });
+});
+
+describe('addDeploy', () => {
+  let root: string;
+  let manifestPath: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'deploy-add-'));
+    mkdirSync(join(root, 'apps/api'), { recursive: true });
+    manifestPath = join(root, 'project.json');
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({ name: 'thing', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }, null, 2),
+    );
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('writes the deploy block, vercel.json and the deployment skill, filling in placeholders', () => {
+    const { values } = addDeploy({
+      provider: 'vercel',
+      app: 'api',
+      team: 't',
+      project: 'thing-api',
+      url: 'https://thing-api.example',
+      commitEndpoint: '/health',
+      root,
+      manifestPath,
+    });
+    expect(values).toEqual({ team: 't', project: 'thing-api', url: 'https://thing-api.example', commitEndpoint: '/health' });
+
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    expect(manifest.apps.api.deploy).toEqual({
+      provider: 'vercel',
+      team: 't',
+      project: 'thing-api',
+      url: 'https://thing-api.example',
+      commitEndpoint: '/health',
+    });
+
+    const vercelJson = readFileSync(join(root, 'apps/api/vercel.json'), 'utf8');
+    expect(vercelJson).toContain('vercel-ignore.mjs api');
+    expect(vercelJson).not.toContain('<app>');
+
+    const skill = readFileSync(join(root, 'apps/api/.claude/skills/deployment/SKILL.md'), 'utf8');
+    expect(skill).toContain('thing-api');
+    expect(skill).not.toContain('<project>');
+    expect(skill).not.toContain('<app>');
+  });
+
+  it("puts the skill inside the app it is about, one per app, and writes none under apps/ itself", () => {
+    mkdirSync(join(root, 'apps/web'), { recursive: true });
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.apps.web = { path: 'apps/web', toolchain: 'node', reads: ['apps/web'] };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+    addDeploy({ provider: 'vercel', app: 'api', project: 'thing-api', root, manifestPath });
+    addDeploy({ provider: 'vercel', app: 'web', project: 'thing-web', root, manifestPath });
+
+    expect(readFileSync(join(root, 'apps/api/.claude/skills/deployment/SKILL.md'), 'utf8')).toContain('thing-api');
+    expect(readFileSync(join(root, 'apps/web/.claude/skills/deployment/SKILL.md'), 'utf8')).toContain('thing-web');
+    expect(existsSync(join(root, 'apps/.claude'))).toBe(false);
+  });
+
+  it('fills in obvious placeholders, never a guess at the real values, when flags are left out', () => {
+    const { values } = addDeploy({ provider: 'vercel', app: 'api', root, manifestPath });
+    expect(values.team).toBe('<team>');
+    expect(values.url).toBe('https://<project>.vercel.app');
+  });
+
+  it('is idempotent: running it again overwrites the block and the files', () => {
+    addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'p1', url: 'https://p1.example', commitEndpoint: '/health', root, manifestPath });
+    addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'p2', url: 'https://p2.example', commitEndpoint: '/health', root, manifestPath });
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    expect(manifest.apps.api.deploy.project).toBe('p2');
+    expect(readFileSync(join(root, 'apps/api/vercel.json'), 'utf8')).not.toContain('p1');
+  });
+
+  it('a partial re-run keeps the real values it was not given, and only updates the flag it was', () => {
+    addDeploy({
+      provider: 'vercel',
+      app: 'api',
+      team: 'real-team',
+      project: 'real-project',
+      url: 'https://real-project.example',
+      commitEndpoint: '/old-health',
+      root,
+      manifestPath,
+    });
+
+    const { values } = addDeploy({ provider: 'vercel', app: 'api', commitEndpoint: '/health', root, manifestPath });
+
+    expect(values).toEqual({
+      team: 'real-team',
+      project: 'real-project',
+      url: 'https://real-project.example',
+      commitEndpoint: '/health',
+    });
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    expect(manifest.apps.api.deploy).toEqual({
+      provider: 'vercel',
+      team: 'real-team',
+      project: 'real-project',
+      url: 'https://real-project.example',
+      commitEndpoint: '/health',
+    });
+  });
+
+  it('refuses an app project.json does not declare, before writing anything', () => {
+    expect(() => addDeploy({ provider: 'vercel', app: 'nope', root, manifestPath })).toThrow(/no app named "nope"/);
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    expect(manifest.apps.api.deploy).toBeUndefined();
+  });
+
+  it('refuses a provider nothing registers, before writing anything', () => {
+    expect(() => addDeploy({ provider: 'nope', app: 'api', root, manifestPath })).toThrow(/unknown deploy provider "nope"/);
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    expect(manifest.apps.api.deploy).toBeUndefined();
+  });
+});
+
+describe('the scheduled smoke run (#254)', () => {
+  it('is not in the committed smoke.yml: with nothing deployed, a schedule would start a runner for nothing', () => {
+    const text = realSmoke();
+    expect(scheduleLines(text)).toEqual([]);
+    expect(text).not.toMatch(/^\s*-?\s*cron:/m);
+    // The triggers that cost nothing while nothing is deployed stay.
+    expect(text).toMatch(/^ {2}push:\n {4}branches: \[develop\]/m);
+    expect(text).toMatch(/^ {2}workflow_dispatch:/m);
+  });
+
+  it('withSmokeSchedule adds exactly the schedule block, above workflow_dispatch, and nothing else', () => {
+    const base = realSmoke();
+    const scheduled = withSmokeSchedule(base);
+    expect(scheduleLines(scheduled)).toHaveLength(1);
+    expect(scheduled).toContain("- cron: '17 */3 * * *'");
+    expect(scheduled.indexOf('  schedule:')).toBeLessThan(scheduled.indexOf('  workflow_dispatch:'));
+    expect(scheduled.replace(SMOKE_SCHEDULE, '')).toBe(base);
+  });
+
+  it('withSmokeSchedule is idempotent, and leaves an existing schedule alone, whatever its cron', () => {
+    const once = withSmokeSchedule(realSmoke());
+    expect(withSmokeSchedule(once)).toBe(once);
+    const custom = realSmoke().replace('  workflow_dispatch:', "  schedule:\n    - cron: '0 6 * * *'\n  workflow_dispatch:");
+    expect(withSmokeSchedule(custom)).toBe(custom);
+  });
+
+  it('withSmokeSchedule ignores a job named schedule: only the triggers before jobs: count', () => {
+    const text = realSmoke().replace('\njobs:\n', '\njobs:\n  schedule:\n    runs-on: ubuntu-latest\n    steps: []\n');
+    expect(scheduleLines(text)).toHaveLength(1); // the job, which is not a trigger
+    const scheduled = withSmokeSchedule(text);
+    expect(scheduled).not.toBe(text);
+    expect(scheduled.slice(0, scheduled.indexOf('\njobs:'))).toContain("- cron: '17 */3 * * *'");
+    expect(withSmokeSchedule(scheduled)).toBe(scheduled);
+  });
+
+  it('withSmokeSchedule refuses a workflow with nowhere to put the schedule, rather than guess', () => {
+    expect(() => withSmokeSchedule('name: smoke\non:\n  push:\n')).toThrow(/workflow_dispatch/);
+  });
+
+  describe('through addDeploy', () => {
+    let root: string;
+    let manifestPath: string;
+
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'deploy-add-smoke-'));
+      mkdirSync(join(root, '.github/workflows'), { recursive: true });
+      writeFileSync(join(root, SMOKE), realSmoke());
+      manifestPath = join(root, 'project.json');
+      writeFileSync(
+        manifestPath,
+        JSON.stringify(
+          {
+            name: 'thing',
+            apps: {
+              api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] },
+              web: { path: 'apps/web', toolchain: 'node', reads: ['apps/web'] },
+            },
+          },
+          null,
+          2,
+        ),
+      );
+    });
+
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it('a repo that has never run deploy:add has no schedule; the first run gives it back', () => {
+      expect(scheduleLines(readFileSync(join(root, SMOKE), 'utf8'))).toEqual([]);
+      const { smoke } = addDeploy({ provider: 'vercel', app: 'api', root, manifestPath });
+      expect(smoke).toBe('scheduled');
+      expect(scheduleLines(readFileSync(join(root, SMOKE), 'utf8'))).toHaveLength(1);
+      expect(readFileSync(join(root, SMOKE), 'utf8')).toBe(withSmokeSchedule(realSmoke()));
+    });
+
+    it('running it again, or for a second app, leaves one schedule and the file byte-identical', () => {
+      addDeploy({ provider: 'vercel', app: 'api', root, manifestPath });
+      const after = readFileSync(join(root, SMOKE), 'utf8');
+      expect(addDeploy({ provider: 'vercel', app: 'api', root, manifestPath }).smoke).toBe('unchanged');
+      expect(addDeploy({ provider: 'vercel', app: 'web', root, manifestPath }).smoke).toBe('unchanged');
+      expect(readFileSync(join(root, SMOKE), 'utf8')).toBe(after);
+      expect(scheduleLines(after)).toHaveLength(1);
+    });
+
+    it('stops with nothing written when smoke.yml has nowhere to put the schedule', () => {
+      writeFileSync(join(root, SMOKE), 'name: smoke\non:\n  push:\n');
+      expect(() => addDeploy({ provider: 'vercel', app: 'api', root, manifestPath })).toThrow(/workflow_dispatch/);
+      expect(JSON.parse(readFileSync(manifestPath, 'utf8')).apps.api.deploy).toBeUndefined();
+      expect(existsSync(join(root, 'apps/api/vercel.json'))).toBe(false);
+    });
+
+    it('a repo with no smoke.yml gets its deploy block and says it added no schedule', () => {
+      rmSync(join(root, SMOKE));
+      const { smoke } = addDeploy({ provider: 'vercel', app: 'api', root, manifestPath });
+      expect(smoke).toBe('absent');
+      expect(JSON.parse(readFileSync(manifestPath, 'utf8')).apps.api.deploy.provider).toBe('vercel');
+      expect(existsSync(join(root, SMOKE))).toBe(false);
+    });
+  });
+});
+
+describe('smokeScheduleProblem: a sync must not silently drop the uptime check', () => {
+  const deployedProject = (): Project => ({
+    name: 'thing',
+    apps: {
+      api: {
+        path: 'apps/api',
+        toolchain: 'python',
+        reads: ['apps/api'],
+        deploy: { provider: 'vercel', team: 't', project: 'p', url: 'https://p.example', commitEndpoint: '/health' },
+      },
+    },
+  });
+  const undeployedProject = (): Project => ({ name: 'thing', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } });
+
+  it('passes in this repository, where nothing is deployed and smoke.yml has no schedule', () => {
+    expect(smokeScheduleProblem(loadProject(), realSmoke())).toBeNull();
+  });
+
+  it('flags an app with a deploy block when smoke.yml has no schedule, naming the fix', () => {
+    const problem = smokeScheduleProblem(deployedProject(), realSmoke());
+    expect(problem).toMatch(/deploy/);
+    expect(problem).toContain('npm run deploy:add');
+    expect(problem).toContain('withSmokeSchedule');
+  });
+
+  it('flags it when the only "schedule:" is a job, not a trigger', () => {
+    const text = realSmoke().replace('\njobs:\n', '\njobs:\n  schedule:\n    runs-on: ubuntu-latest\n    steps: []\n');
+    expect(smokeScheduleProblem(deployedProject(), text)).not.toBeNull();
+  });
+
+  it('passes once the schedule is there, which is what deploy:add leaves', () => {
+    expect(smokeScheduleProblem(deployedProject(), withSmokeSchedule(realSmoke()))).toBeNull();
+  });
+
+  it('does not mind a schedule where nothing is deployed', () => {
+    expect(smokeScheduleProblem(undeployedProject(), withSmokeSchedule(realSmoke()))).toBeNull();
+  });
+
+  it('is what the committed files satisfy', () => {
+    const project = loadProject();
+    expect(smokeScheduleProblem(project, realSmoke()), 'run npm run deploy:add again').toBeNull();
+  });
+});

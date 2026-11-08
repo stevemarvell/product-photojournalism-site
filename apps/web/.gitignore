@@ -1,0 +1,4 @@
+# Built by scripts/build-docs.mjs on every web build. Vite copies it into the
+# bundle; it is output, not content. Here rather than in the root .gitignore so
+# the ignore moves with the app (#173's proof found the root naming apps/web).
+public/

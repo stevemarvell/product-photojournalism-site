@@ -1,0 +1,29 @@
+.idea
+
+# Agent worktrees live inside the repo; they are not content.
+.claude/worktrees/
+
+# node
+.env*.local
+node_modules/
+dist/
+.vercel/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+test-results/
+playwright-report/
+
+# Local secrets — telemetry/.env holds the Grafana admin password. An app's
+# committed .env.production (a public URL) is deliberately not matched by this.
+# Each app's own build output is ignored by that app's .gitignore (#173).
+.env
+
+# Written by scripts/write-ci-telemetry-settings.mjs on a runner, and by
+# anyone overriding project settings locally. Never committed.
+.claude/settings.local.json
+

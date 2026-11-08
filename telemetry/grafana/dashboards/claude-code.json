@@ -1,0 +1,311 @@
+{
+  "uid": "boris-claude-code",
+  "title": "Claude Code — cost of the loop",
+  "tags": ["claude-code", "boris"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Output per merged change",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Tokens per merged PR",
+      "description": "The headline number from docs/BACKLOG.md: token spend divided by pull requests created over the selected range. The divisor is clamped to 1, so with no PR in the window this reads as raw tokens rather than infinity.",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum(increase(claude_code_token_usage[$__range])) / clamp_min(sum(increase(claude_code_pull_request_count[$__range])), 1)",
+          "instant": true,
+          "legendFormat": "tokens/PR"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Tokens",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum(increase(claude_code_token_usage[$__range]))",
+          "instant": true,
+          "legendFormat": "tokens"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Pull requests",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 6, "w": 4, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum(increase(claude_code_pull_request_count[$__range]))",
+          "instant": true,
+          "legendFormat": "PRs"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Active time",
+      "description": "claude_code.active_time.total — wall-clock seconds Claude Code was actually working, not session length.",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 6, "w": 4, "x": 16, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 0 }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum(increase(claude_code_active_time_total[$__range]))",
+          "instant": true,
+          "legendFormat": "active"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Cost",
+      "description": "Reported per session by Claude Code. On a subscription plan this is a modelled figure, not an invoice.",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 6, "w": 4, "x": 20, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum(increase(claude_code_cost_usage[$__range]))",
+          "instant": true,
+          "legendFormat": "cost"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Where the tokens go",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokens by type",
+      "description": "Cache reads dwarf everything else on a healthy loop. A rising input share with flat output usually means context is being rebuilt rather than used.",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" },
+            "fillOpacity": 70,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum by (type) (increase(claude_code_token_usage[$__interval]))",
+          "legendFormat": "{{type}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokens by model",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" },
+            "fillOpacity": 70,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum by (model) (increase(claude_code_token_usage[$__interval]))",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Throughput",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Sessions, commits, pull requests",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum(increase(claude_code_session_count[$__interval]))",
+          "legendFormat": "sessions"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum(increase(claude_code_commit_count[$__interval]))",
+          "legendFormat": "commits"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum(increase(claude_code_pull_request_count[$__interval]))",
+          "legendFormat": "pull requests"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Lines of code changed",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" },
+            "fillOpacity": 70,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum by (type) (increase(claude_code_lines_of_code_count[$__interval]))",
+          "legendFormat": "{{type}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Permission decisions",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Edit tool decisions",
+      "description": "claude_code.code_edit_tool.decision, split by accept and reject. A rising reject rate is the signal that the allowlist in .claude/settings.json is wrong.",
+      "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 26 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" },
+            "fillOpacity": 70,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "boris-prometheus" },
+          "expr": "sum by (decision, tool) (increase(claude_code_code_edit_tool_decision[$__interval]))",
+          "legendFormat": "{{tool}} — {{decision}}"
+        }
+      ]
+    }
+  ]
+}

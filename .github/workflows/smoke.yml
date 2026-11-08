@@ -1,0 +1,68 @@
+name: smoke
+
+# Runs after a merge reaches develop, once Vercel has had time to redeploy.
+# Catches the class of failure that unit and e2e tests cannot: the deployed
+# build's configuration.
+#
+# Nothing here names the application. scripts/smoke.mjs reads
+# project.json and, for each deployed app in turn, waits for the freshness
+# gate — the deployment is this commit, or one whose inputs match — and then
+# runs the checks that app owns (its `smoke` script, e.g. apps/api/smoke.sh).
+# Why the gate exists, and why each app's checks retry, is written there.
+#
+# This repository's own default is nothing deployed. This still runs — a
+# project with no deployment gets every workflow green, not a red one it has
+# to learn to ignore — but `node scripts/project.mjs --has-deploy` (exit code
+# 0 iff something is) gates the one step that would otherwise have nothing to
+# check against zero deployed apps.
+#
+# There is no `schedule:` trigger here, on purpose. A scheduled run starts a
+# runner even when it finds nothing to check, and a runner minute is drawn from
+# the account's shared Actions allowance: while nothing is deployed, an
+# every-3-hours cron spent about 127 minutes a month on a green no-op (#254).
+# `npm run deploy:add` (scripts/deploy/add.mjs) inserts the trigger, as the
+# `schedule:` block directly above `workflow_dispatch:`, the first time an app
+# gets a `deploy` block. It is then an uptime check: the same workflow, run
+# against whatever is live in production rather than waiting for a new commit.
+# On that trigger scripts/smoke.mjs skips the freshness gate (gateForEvent) and
+# checks whatever is currently deployed, still reporting which commit it found.
+# A manual dispatch behaves the same way, for the same reason: neither names a
+# commit the deployment is expected to match. Only a push does.
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Read-only. The job curls the deployments; the checkout is so the gate
+    # can ask git whether an older deployment's inputs match this commit.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check whether anything is deployed
+        id: deploy
+        run: |
+          if node scripts/project.mjs --has-deploy; then
+            echo "has-deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Gate and check every deployed app
+        if: steps.deploy.outputs.has-deploy == 'true'
+        run: node scripts/smoke.mjs
+
+      - name: Nothing is deployed
+        if: steps.deploy.outputs.has-deploy != 'true'
+        run: echo "::notice::project.json declares nothing deployed; smoke has nothing to check."

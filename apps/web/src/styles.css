@@ -1,0 +1,7 @@
+.centred {
+  display: grid;
+  place-content: center;
+  gap: 0.5rem;
+  min-height: 60vh;
+  text-align: center;
+}

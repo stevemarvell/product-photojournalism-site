@@ -1,0 +1,156 @@
+# product-photojournalism-site
+
+product-photojournalism-site is assembled from a shared engine and the starters listed below.
+Replace this paragraph with what the product is for.
+
+The AI layer — `.claude/`, `scripts/`, `.github/`, `telemetry/` — is the
+engine: the loop of verify, review, isolate, deploy, smoke and triage.
+It learns about the apps only from `project.json`. Each app's own rules, layout and run
+commands are in the `CLAUDE.md` inside its directory; read it before working
+there.
+
+## Layout
+
+| Path | Holds |
+| --- | --- |
+| `apps/api/` | A Python API on FastAPI with security headers and a /health endpoint, tested with pytest and linted with ruff. Its own rules are in `apps/api/CLAUDE.md`. |
+| `apps/web/` | An Ionic React web app on Vite, with a Playwright end-to-end suite and a documentation site built into its bundle at /docs/. Its own rules are in `apps/web/CLAUDE.md`. |
+| `project.json` | The one place the AI layer learns about the apps: paths, toolchains, build inputs. Read through `scripts/project.mjs`. |
+| `docs/` | `sops.md`, how agent work is run; `data-governance.md`, a stub to rewrite before anything real is deployed. |
+
+<!-- shared:begin — the AI layer's rules, identical in every repository built
+from boris. Edit them in boris and sync; a local edit here is lost on the next
+sync. Repository-specific facts go in the sections outside this block. -->
+
+## Rules
+
+- **`npm run verify` is the contract.** It runs the AI layer's own tests, then
+  every app's own `verify` commands from `project.json`. Never report work as
+  done until it passes — run it yourself rather than asking someone else to. A
+  `Stop` hook runs it automatically when tracked files have changed, so a red
+  loop blocks the turn rather than producing a claim.
+
+- **Every behaviour change ships with a test.** A bug fix means a test that
+  fails before the fix. A new feature means the happy path and the error path.
+  A change that ends up with *fewer* tests than its base says so in the pull
+  request body, in a line beginning `Removes tests:` — the `test census` check
+  counts both sides and goes red without one.
+
+- **Code is written by `implementer` agents.** The coordinating session — the
+  one talking to the person — triages, briefs, checks work on its preview,
+  replies to reviews and merges. It does not write application or AI-layer
+  code itself, including fixes for review findings: those go back to an
+  implementer (`drive-pr` step 3), and new work is handed over the same way
+  (`work-backlog` step 2). The coordinator edits only docs, logs and issue
+  text. **Read the `delegate` skill** before any agent work.
+
+- **Every change ships as a pull request, and the coordinator merges it.**
+  Branch off `develop`, push the branch, open a PR against `develop` (the
+  GitHub MCP tools; `gh pr create` is GraphQL, which cloud sessions refuse),
+  and merge once `verify` is green — without
+  asking; a green PR left open is work that looks finished and is not. Never
+  commit or push directly to `develop`. Whether anything mechanical enforces
+  these is a repository setting, recorded under *Repository settings* below,
+  not assumed.
+
+- **Decide and act; report after.** The test is **recoverability, not scope**:
+  stop for work nobody can get back, for money, and for anything reaching a
+  third party. Everything else is decided, done, and recorded in the pull
+  request body where the reviewers read it. Recoverable is established by a
+  command, not by eye. `docs/sops.md` SOP 6.
+
+- **`docs/adoption.md` preserves the source wording.** It is a rendering of the
+  original document, not a rewrite. Restructure the layout freely, but do not
+  reword, summarise, or drop content, and keep every link intact.
+
+- **Config and operating knowledge live in the repo.** A setting only visible
+  in a web console, or a rule that lives in one machine's memory, is missing
+  for everyone else and from every fresh clone.
+
+- **No paid tiers.** Anything a paid plan gates — GitHub Pro rulesets, Claude
+  Team or Enterprise features, Vercel Pro — is permanently unavailable, not
+  pending. An issue that needs one is labelled `blocked: no paid plan`.
+
+- **Issues are user stories.** Every issue, filed by a person or an agent,
+  uses the sections of `.github/ISSUE_TEMPLATE/story.md` (GitHub's
+  "New issue" button offers it): persona, story,
+  Given/When/Then acceptance criteria (unhappy paths included), tech notes,
+  testing notes, references, then its `Depends on #<n>` lines. The issue
+  labelled `template` is the blank copy: nobody fills that one in, and triage
+  never picks it.
+
+- **Diagrams in Markdown are Mermaid blocks**, never ASCII art.
+
+- **Every loop declares a maximum, and reports when it hits it.** No skill,
+  command, or agent retries until it succeeds — an unbounded loop has no upper
+  bound on cost, and subagents do get killed mid-task by session limits.
+  Reaching the ceiling means stop and say what failed; it is the procedure
+  working, not a failure to hide. The declared ceilings, and which are
+  mechanically enforced and which are only discipline, are in `docs/sops.md`.
+
+- **Work that needs a person is labelled, not attempted.** A dashboard behind
+  a login, a credential, a subjective judgement, a purchase: label the issue
+  `human` *and* `do not automate`, and assign it. An agent that meets one
+  mid-task stops there and reports what remains. `docs/sops.md` SOP 2.
+
+- **Context is the budget.** Every request carries the whole conversation, so
+  cost tracks context size rather than effort. Clear between unrelated tasks,
+  keep this file under 200 lines with specialised knowledge in skills, and
+  filter verbose output in a hook rather than reading it. `docs/sops.md` SOP 4
+  has the order of operations; model choice is the smallest lever, not the
+  first.
+
+- **Known gaps live in GitHub issues, not in a file.** A backlog file goes
+  stale, because nothing connects a merge to a line in it. Close an item the
+  way the work closes it — a `Closes #<n>` line in a pull request body. Write
+  that example with a placeholder, never a real number: spelling one out to
+  illustrate the rule closes that issue on merge. Where the issue's done-when
+  is confirmation *outside* the repository, `Closes` belongs on the pull
+  request that confirms, not the one that fixes — merging a fix is not
+  evidence it worked. Labels carry the structure: `aia0`/`aia1`/`aia2` for
+  the adoption step, `security` for exposure, and one of
+  `critical`/`high`/`medium` for how bad it is and therefore when it gets
+  done.
+
+- **One scale ranks everything.** `critical`/`high`/`medium` carries both how
+  bad a thing is and when it gets done. There is no second severity axis: two
+  rankings drift apart, and the one in the label wins by default. The same goes
+  for any fact written in two places. Anything below `critical` is a claim that
+  something bounds it — the issue says what, and what would void it.
+  `docs/sops.md` SOP 5.
+
+## Running it
+
+**Editing dependencies needs npm 11.** npm 10 cannot resolve `vitest` 4's
+optional peer set — its arborist crashes with *"Cannot read properties of
+null (reading 'edgesOut')"* on `npm install`, `npm install --workspace` and
+`npm ci` alike. The committed lockfile is lockfileVersion 3 and `npm ci`
+reads it fine under npm 10, which is what CI runs; but if you change a
+dependency, do the lock step with `npx npm@11 install`.
+
+```bash
+npm run verify                     # everything, about a minute
+npm run verify:harness             # the AI layer's own tests, scripts/test
+npm run verify:apps                # every app's own checks, from project.json
+node scripts/verify-apps.mjs web   # one app's: typecheck, eslint, vitest, build, e2e
+```
+
+CI runs `verify` on every pull request and on pushes to `develop`; it is the
+one check the coordinator waits for before merging. A `smoke` workflow runs
+after each merge: for each deployed app in `project.json`, it waits for the
+deployment to be this commit, then runs that app's own checks
+(`scripts/smoke.mjs`). Claude Code Review comments on every pull request; it
+is advisory.
+
+## Agents and skills
+
+| To | Use |
+| --- | --- |
+| Pick what to work next | `node scripts/triage.mjs`, or the `work-backlog` skill to work it |
+| Hand code or a review to an agent in `.claude/agents/` | **the `delegate` skill** — the brief, the ceiling, what comes back |
+| Take a pull request to merged | the `drive-pr` skill |
+| Isolate, and later clean up, an agent's checkout | the `worktrees` skill |
+| Verify, commit and open a PR | `/ship`; just verify: `/gate` |
+| Sync this block and `.claude/` with boris or a repository built from it | the `sync-ai-layer` skill |
+
+<!-- shared:end -->

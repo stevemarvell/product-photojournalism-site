@@ -1,0 +1,101 @@
+name: preview-prune
+
+# Vercel never deletes a preview deployment: it outlives the merge and the
+# branch, and Deployment Retention is not on this plan. This deletes a branch's
+# previews, across every Vercel-deployed app, when its pull request closes —
+# and, run by hand, every preview whose branch no longer exists (the
+# backlog). Both also trim production history, which Vercel keeps one per
+# merge, forever: everything but the deployment serving each app and the
+# newest few built ones (scripts/deploy/vercel/vercel-prune.mjs `history`,
+# KEEP_PRODUCTION).
+#
+# When no app's `deploy` block names "vercel" — this repository's own
+# default — there is nothing to prune. `node scripts/project.mjs --has-deploy`
+# gates the actual work so the job still finishes green rather than running a
+# script with no VERCEL_TOKEN to act with.
+#
+# It holds VERCEL_TOKEN, a token scoped to the Vercel team the deployed apps
+# name, and is built so that no branch code ever runs beside it:
+#
+# - `pull_request_target`, not `pull_request`: the workflow file is develop's,
+#   not the pull request's, so a branch cannot rewrite what runs here.
+# - The checkout is develop, explicitly. Nothing from the pull request is
+#   checked out or executed; its branch name is the only thing read from it,
+#   passed as data through `env:` and URL-encoded by the script.
+# - Same-repository pull requests only. A fork's branch name is not ours to
+#   act on.
+#
+# docs/data-governance.md records this job among what CI holds, and why it
+# sits outside the "branch code with a credential" class the others are in.
+on:
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: List the stale previews without deleting them
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: prune
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          persist-credentials: false
+
+      - name: Check whether anything is deployed
+        id: deploy
+        run: |
+          if node scripts/project.mjs --has-deploy; then
+            echo "has-deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Nothing is deployed
+        if: steps.deploy.outputs.has-deploy != 'true'
+        run: echo "::notice::project.json declares nothing deployed; nothing to prune."
+
+      - name: Delete the closed branch's previews
+        if: steps.deploy.outputs.has-deploy == 'true' && github.event_name == 'pull_request_target'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: node scripts/deploy/vercel/vercel-prune.mjs branch "$BRANCH"
+
+      # Every merge adds a production deployment; trimming on each close keeps
+      # the count bounded without a schedule.
+      - name: Trim production history
+        if: steps.deploy.outputs.has-deploy == 'true' && github.event_name == 'pull_request_target'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: node scripts/deploy/vercel/vercel-prune.mjs history
+
+      - name: Delete previews of branches that no longer exist
+        if: steps.deploy.outputs.has-deploy == 'true' && github.event_name == 'workflow_dispatch'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          # The branches that still exist are the ones to keep. The script
+          # refuses an empty list rather than read it as "delete everything".
+          gh api "repos/$GITHUB_REPOSITORY/branches" --paginate --jq '.[].name' > "$RUNNER_TEMP/live-branches.txt"
+          echo "$(wc -l < "$RUNNER_TEMP/live-branches.txt") live branches"
+          flag=''
+          [ "$DRY_RUN" = true ] && flag=--dry-run
+          node scripts/deploy/vercel/vercel-prune.mjs stale "$RUNNER_TEMP/live-branches.txt" $flag
+          node scripts/deploy/vercel/vercel-prune.mjs history $flag
