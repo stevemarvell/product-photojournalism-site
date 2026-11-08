@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   IonApp,
   IonContent,
@@ -8,6 +9,8 @@ import {
   setupIonicReact,
 } from '@ionic/react';
 
+import { ApiNotConfiguredError, fetchHealth } from './api';
+
 setupIonicReact();
 
 /**
@@ -16,6 +19,26 @@ setupIonicReact();
  * replaces it.
  */
 export function App() {
+  const [status, setStatus] = useState<'loading' | 'ok' | 'error' | 'unconfigured'>('loading');
+  const [database, setDatabase] = useState('');
+
+  useEffect(() => {
+    let live = true;
+    fetchHealth()
+      .then((h) => {
+        if (!live) return;
+        setDatabase(`${h.database.adapter}, ${h.database.reachable ? 'reachable' : 'unreachable'}`);
+        setStatus('ok');
+      })
+      .catch((e: unknown) => {
+        if (!live) return;
+        setStatus(e instanceof ApiNotConfiguredError ? 'unconfigured' : 'error');
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   return (
     <IonApp>
       <IonHeader>
@@ -28,6 +51,18 @@ export function App() {
           <IonText color="medium">
             <p>No application here yet.</p>
           </IonText>
+          {status === 'loading' && <p data-testid="api-status">Contacting the API…</p>}
+          {status === 'ok' && <p data-testid="api-status">API ok. Database: {database}</p>}
+          {status === 'unconfigured' && (
+            <p data-testid="api-error" role="alert">
+              API address not configured.
+            </p>
+          )}
+          {status === 'error' && (
+            <p data-testid="api-error" role="alert">
+              The API could not be reached.
+            </p>
+          )}
           <a href="/docs/">The project documentation</a>
         </div>
       </IonContent>

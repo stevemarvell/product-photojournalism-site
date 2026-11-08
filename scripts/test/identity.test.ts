@@ -93,12 +93,6 @@ const ALLOW: Allowed[] = [
   { file: 'package-lock.json', pattern: /"name": "boris"/, because: "this repository's own package name", base: true },
   { file: 'project.json', pattern: /"name": "boris"/, because: "this repository's own name, which project.json declares", base: true },
 
-  // telemetry/ is shared AI-layer infra naming, unrelated to the application
-  // and out of scope for identity work that isn't about telemetry itself.
-  { file: 'telemetry/docker-compose.yml', pattern: /name: boris-telemetry/, because: 'local compose project namespace, out of this issue\'s scope' },
-  { file: 'telemetry/grafana/dashboards/claude-code.json', pattern: /boris/, because: 'Grafana dashboard/datasource naming, out of this issue\'s scope' },
-  { file: 'telemetry/grafana/provisioning/dashboards/dashboards.yml', pattern: /name: boris/, because: 'Grafana provisioning naming, out of this issue\'s scope' },
-  { file: 'telemetry/grafana/provisioning/datasources/prometheus.yml', pattern: /uid: boris-prometheus/, because: 'Grafana datasource naming, out of this issue\'s scope' },
 
   // The setup instructions clone this repository by its real path, so
   // README.md's Quick start names it literally.

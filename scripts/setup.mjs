@@ -315,21 +315,21 @@ export const OWNER_ISSUES = [
   {
     title: 'Optional: Grafana CI telemetry',
     rank: 'medium',
-    body:
+    body: () =>
       'Set the `GRAFANA_CLOUD_OTLP_ENDPOINT` and `GRAFANA_CLOUD_OTLP_AUTH` repository secrets to send Claude Code '
       + "CI usage to Grafana Cloud (telemetry/README.md). Skip this and CI telemetry goes nowhere; local sessions are unaffected.",
   },
   {
     title: "Merge Dependabot's first PR",
     rank: 'high',
-    body:
+    body: () =>
       "Dependabot opens its first pull request once there is a dependency to bump. Review and merge it so the " +
       'dependency-update loop is proven to work end to end, not just configured.',
   },
   {
     title: 'Rewrite README and CLAUDE.md around the product',
     rank: 'high',
-    body:
+    body: () =>
       "`setup create` writes a CLAUDE.md and README.md that carry the shared rules and a stub paragraph. The intro " +
       'and the Layout still describe the starters it was assembled from, not the product. Rewrite them once this ' +
       'repository has a real application; see CLAUDE.md\'s own rule that a shared file never names the ' +

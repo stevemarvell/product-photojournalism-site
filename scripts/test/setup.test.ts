@@ -262,7 +262,8 @@ describe('runCheck', () => {
     return async (cmd, args) => {
       const key = `${cmd} ${args.join(' ')}`;
       for (const [prefix, result] of Object.entries(responses)) {
-        if (key.startsWith(prefix)) return result;
+        // A leading `*` matches anywhere in the command, for routes that name a root the test does not control.
+        if (prefix.startsWith('*') ? key.includes(prefix.slice(1)) : key.startsWith(prefix)) return result;
       }
       throw new Error(`unexpected call: ${key}`);
     };
@@ -275,6 +276,16 @@ describe('runCheck', () => {
   // exactly wrong recursed into from inside this test run — every test below
   // stubs it unless it is itself testing this path.
   const identityOk = () => ({ ok: true, output: '' });
+
+  // A root whose project.json deploys nothing. The default root is this repository, and a repository
+  // built from it that has run `deploy:add` has a deploy block there: `check` then also asks Vercel
+  // whether the app answers and gh for VERCEL_TOKEN, none of which these tests stub or are about.
+  let neutral: string;
+  beforeEach(() => {
+    neutral = mkdtempSync(join(tmpdir(), 'setup-neutral-'));
+    writeFileSync(join(neutral, 'project.json'), JSON.stringify({ name: 'acme', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }));
+  });
+  afterEach(() => rmSync(neutral, { recursive: true, force: true }));
 
   const restIssue = (title: string, labels: string[] = []) => ({ title, labels: labels.map((name) => ({ name })) });
   const repoJson = (over: Record<string, unknown> = {}) =>
@@ -298,14 +309,14 @@ describe('runCheck', () => {
     'gh secret list': { status: 0, stdout: JSON.stringify([{ name: 'CLAUDE_CODE_OAUTH_TOKEN' }]), stderr: '' },
     'gh api repos/octo/proj': { status: 0, stdout: repoJson(), stderr: '' },
     // `check` names the repository from origin; gh's {owner}/{repo} placeholders prompt when there are two remotes.
-    [`git -C ${ROOT} remote get-url origin`]: { status: 0, stdout: 'git@github.com:octo/proj.git\n', stderr: '' },
+    '* remote get-url origin': { status: 0, stdout: 'git@github.com:octo/proj.git\n', stderr: '' },
     // Only a product records the base commit it came from, and then `check` asks git how far behind it is.
     // These tests run in whichever repository this file is in, so git answers with nothing here.
     'git -C': { status: 0, stdout: '', stderr: '' },
   };
 
   it('exits 0 when every check is already satisfied', async () => {
-    const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
+    const result = await runCheck({ root: neutral, run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
     expect(result.exitCode).toBe(0);
     expect(result.lines.some((l) => l.startsWith(MARK.owner))).toBe(false);
   });
@@ -315,9 +326,10 @@ describe('runCheck', () => {
     const swap = (k: string, v: RunResultLike): [string, RunResultLike] => [k.replace('octo/proj', 'acme/widget'), v];
     const inner = run({
       ...Object.fromEntries(Object.entries(baseResponses).map(([k, v]) => swap(k, v))),
-      [`git -C ${ROOT} remote get-url origin`]: { status: 0, stdout: 'https://github.com/acme/widget.git\n', stderr: '' },
+      '* remote get-url origin': { status: 0, stdout: 'https://github.com/acme/widget.git\n', stderr: '' },
     });
     const result = await runCheck({
+      root: neutral,
       run: async (cmd, args) => {
         calls.push([cmd, ...args]);
         return inner(cmd, args);
@@ -408,6 +420,7 @@ describe('runCheck', () => {
   it('files a missing owner issue, labelled human and do not automate, and reports it fixed', async () => {
     const calls: string[][] = [];
     const result = await runCheck({
+      root: neutral,
       run: async (cmd, args) => {
         calls.push([cmd, ...args]);
         if (cmd === 'gh' && args[0] === 'api' && args[1]!.includes('/issues?state=all')) {
@@ -428,6 +441,39 @@ describe('runCheck', () => {
     // REST, never `gh issue create` (GraphQL, refused from cloud sessions).
     expect(calls.some((c) => c[1] === 'issue')).toBe(false);
     expect(result.lines.some((l) => l.includes(OWNER_ISSUES[0]!.title) && l.startsWith(MARK.fixed))).toBe(true);
+  });
+
+  it('every owner issue body is a function returning a non-empty string', () => {
+    for (const issue of OWNER_ISSUES) {
+      expect(typeof issue.body, issue.title).toBe('function');
+      const text = issue.body('o/n');
+      expect(typeof text, issue.title).toBe('string');
+      expect(text.length, issue.title).toBeGreaterThan(0);
+    }
+  });
+
+  it('files every owner issue when all are missing, without throwing, each with a string body', async () => {
+    const calls: string[][] = [];
+    await runCheck({
+      run: async (cmd, args) => {
+        calls.push([cmd, ...args]);
+        if (cmd === 'gh' && args[0] === 'api' && args[1]!.includes('/issues?state=all')) {
+          return { status: 0, stdout: JSON.stringify([]), stderr: '' };
+        }
+        if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
+        return run(baseResponses)(cmd, args);
+      },
+      skipVerify: true,
+      runIdentityTest: identityOk,
+    });
+    for (const issue of OWNER_ISSUES) {
+      const call = calls.find((c) => c.includes('POST') && c.includes(`title=${issue.title}`));
+      expect(call, issue.title).toBeDefined();
+      const body = call!.find((a) => a.startsWith('body='));
+      expect(body, issue.title).toBeDefined();
+      expect(body!.length, issue.title).toBeGreaterThan('body='.length);
+      expect(body).not.toContain('undefined');
+    }
   });
 
   it('files the template issue from .github/ISSUE_TEMPLATE/story.md, body equal to the file minus its front matter', async () => {
@@ -509,7 +555,7 @@ describe('runCheck', () => {
     // No runIdentityTest override: this exercises the real default, which
     // spawns scripts/test/identity.test.ts itself via vitest — proving the
     // census is the actual test, not a second copy of what it allows.
-    const result = await runCheck({ run: run(baseResponses), skipVerify: true });
+    const result = await runCheck({ root: neutral, run: run(baseResponses), skipVerify: true });
     const line = result.lines.find((l) => l.includes('identity census'));
     expect(line).toBeDefined();
     expect(line).toMatch(new RegExp(`^${MARK.done}`));
@@ -526,8 +572,8 @@ describe('runCheck', () => {
     expect(result.lines.some((l) => l.includes('verify') && l.startsWith(MARK.owner))).toBe(true);
   });
 
-  it('reports no deployed app to check when project.json deploys nothing, which is this repository today', async () => {
-    const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
+  it('reports no deployed app to check when project.json deploys nothing', async () => {
+    const result = await runCheck({ root: neutral, run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
     expect(result.lines.some((l) => l.includes('no app has a deploy block'))).toBe(true);
   });
 

@@ -2,6 +2,12 @@
 
 A stub. Nothing here serves, stores or exposes data yet.
 
+The API (`apps/api`) now connects to a Neon Postgres database in production
+(`VERCEL_ENV=production`). It stores nothing in it yet. Previews use the
+in-memory adapter by default and reach the database only if `STORY_REPOSITORY`
+is set explicitly. `/health` exposes only the adapter name and whether it is
+reachable, never the connection string.
+
 Rewrite this page before anything that serves, stores or exposes data ships:
 what is exposed, to whom, why that is deliberate, and what would change it.
 
@@ -15,7 +21,7 @@ workflows that read it have nothing to read.
 | --- | --- |
 | `CLAUDE_CODE_OAUTH_TOKEN` | `.github/workflows/claude-code-review.yml`, `claude.yml` |
 | `GRAFANA_CLOUD_OTLP_ENDPOINT`, `GRAFANA_CLOUD_OTLP_AUTH` | the same two workflows |
-| `VERCEL_TOKEN` | `.github/workflows/preview-prune.yml` |
+| `VERCEL_TOKEN` | `.github/workflows/preview-prune.yml` (expiry: `README.md`, Secrets) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `.github/workflows/telegram-notify.yml` |
 
 The review jobs check out a pull request and run a script from that checkout

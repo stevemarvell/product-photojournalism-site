@@ -2,7 +2,7 @@
   "$comment": "The one place the AI layer (.claude/, scripts/, .github/) learns about the application. Swap the app by editing apps/ and this file. scripts/project.mjs reads and validates it; its tests pin the shape. Nothing here is deployed by default; `npm run deploy:add` adds an app's `deploy` block.",
   "name": "product-photojournalism-site",
   "engine": {
-    "commit": "2787107618fa792a8ac9e449f2001bc42e2741ce"
+    "commit": "1c953f42329d9563a95e465207f737283dd83ab3"
   },
   "apps": {
     "api": {
@@ -18,7 +18,14 @@
       ],
       "ignores": [
         "apps/api/smoke.sh"
-      ]
+      ],
+      "deploy": {
+        "provider": "vercel",
+        "team": "stevemarvell-team",
+        "project": "photojournalism-site-api",
+        "url": "https://photojournalism-site-api-stevemarvell-team.vercel.app",
+        "commitEndpoint": "/version"
+      }
     },
     "web": {
       "path": "apps/web",
@@ -43,7 +50,14 @@
         "apps/web/e2e",
         "**/*.test.ts",
         "**/*.test.tsx"
-      ]
+      ],
+      "deploy": {
+        "provider": "vercel",
+        "team": "stevemarvell-team",
+        "project": "photojournalism-site",
+        "url": "https://photojournalism-site-stevemarvell-team.vercel.app",
+        "commitEndpoint": "/version.json"
+      }
     }
   }
 }

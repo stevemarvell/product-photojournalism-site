@@ -5,3 +5,9 @@ product.
 
 `npm run bootstrap` installs everything; `npm run verify` is the contract.
 Read `CLAUDE.md` first.
+
+## Secrets
+
+| Secret | Expires |
+| --- | --- |
+| `VERCEL_TOKEN` | 2027-11-08 |

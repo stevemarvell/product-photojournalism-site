@@ -67,10 +67,10 @@ describe('ciTelemetryEnv', () => {
     expect(env).not.toHaveProperty('OTEL_LOG_TOOL_CONTENT');
   });
 
-  it('switches telemetry off rather than leaving the committed endpoint to apply', () => {
+  it('switches telemetry off rather than leaving the committed enable flag to apply', () => {
     // The failure this guards: with no block at all, .claude/settings.json
-    // applies on the runner and the session exports to localhost:4317, where
-    // nothing listens, for the life of the job.
+    // enables telemetry on the runner and names the Grafana gateway, so the
+    // session sends unauthenticated exports there for the life of the job.
     expect(ciTelemetryEnv({})).toEqual({ CLAUDE_CODE_ENABLE_TELEMETRY: '0' });
     expect(ciTelemetryEnv({ GRAFANA_CLOUD_OTLP_ENDPOINT: CREDENTIAL.GRAFANA_CLOUD_OTLP_ENDPOINT })).toEqual(
       { CLAUDE_CODE_ENABLE_TELEMETRY: '0' },
@@ -82,7 +82,7 @@ describe('ciTelemetryEnv', () => {
 
   it('rejects an endpoint that is not https', () => {
     expect(() =>
-      ciTelemetryEnv({ ...CREDENTIAL, GRAFANA_CLOUD_OTLP_ENDPOINT: 'http://localhost:4317' }),
+      ciTelemetryEnv({ ...CREDENTIAL, GRAFANA_CLOUD_OTLP_ENDPOINT: 'http://otlp.example/otlp' }),
     ).toThrow(/must be https/);
   });
 
@@ -102,12 +102,36 @@ describe('ciTelemetryEnv', () => {
   });
 
   it('rejects the collector spelling of the auth header', () => {
-    // "Basic <base64>" is what telemetry/otel-collector.cloud.yaml takes; the
+    // "Basic <base64>" is what an OpenTelemetry collector's own config takes; the
     // SDK wants "Authorization=Basic <base64>". Swapping them produces a 401
     // that reads exactly like a bad token.
     expect(() =>
       ciTelemetryEnv({ ...CREDENTIAL, GRAFANA_CLOUD_OTLP_AUTH: 'Basic aW5zdGFuY2U6dG9rZW4=' }),
     ).toThrow(/key=value/);
+  });
+});
+
+describe('committed .claude/settings.json', () => {
+  const committed = JSON.parse(readFileSync(join(REPO_ROOT, '.claude', 'settings.json'), 'utf8'));
+
+  // Cloud sessions do not receive the environment's OTEL_EXPORTER_OTLP_*
+  // variables, so the endpoint and protocol are committed here. Auth stays
+  // with the environment's network secret, so no headers are committed.
+  it('points at the Grafana Cloud gateway, because cloud sessions do not receive the environment value', () => {
+    expect(committed.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(
+      'https://otlp-gateway-prod-gb-south-1.grafana.net/otlp',
+    );
+    expect(committed.env.OTEL_EXPORTER_OTLP_PROTOCOL).toBe('http/protobuf');
+  });
+
+  it('commits no OTLP headers; auth is the network secret', () => {
+    for (const key of [
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
+      'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT',
+    ]) {
+      expect(committed.env, key).not.toHaveProperty(key);
+    }
   });
 });
 
@@ -127,8 +151,8 @@ describe('defaultSettingsPath', () => {
   // whole .claude directory — restoring only paths tracked on the base
   // branch — immediately before starting the CLI, because a reviewed pull
   // request's head is untrusted. settings.local.json is gitignored, so it
-  // never comes back, and CI silently falls through to the committed
-  // localhost:4317 endpoint with no line in any log to say so. Asserting the
+  // never comes back, and CI silently runs without its endpoint and
+  // credential, with no line in any log to say so. Asserting the
   // invariant rather than the path: anywhere inside the checkout is
   // reachable by that restore, so anywhere inside the checkout is wrong.
   it('never puts the file inside the checkout, where the action would delete it', () => {
