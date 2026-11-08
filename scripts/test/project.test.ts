@@ -201,6 +201,18 @@ describe('validate', () => {
     expect(() => validate(ok)).toThrow(/templateHashes\.vercelJson/);
   });
 
+  it('rejects a templateHashes key deploy:add does not write, naming it', () => {
+    const typo = minimal();
+    typo.apps.ui!.deploy!.templateHashes = { vercelJSON: 'a'.repeat(64) } as never;
+    expect(() => validate(typo)).toThrow(/templateHashes\.vercelJSON/);
+  });
+
+  it('accepts both known templateHashes keys together', () => {
+    const ok = minimal();
+    ok.apps.ui!.deploy!.templateHashes = { vercelJson: 'a'.repeat(64), skill: 'b'.repeat(64) };
+    expect(() => validate(ok)).not.toThrow();
+  });
+
   it("keeps an app's smoke script inside that app, however the path is spelled", () => {
     for (const smoke of [
       'scripts/evil.sh',

@@ -61,6 +61,9 @@ function isContainedPath(path) {
   return typeof path === 'string' && path !== '' && inside('.', path);
 }
 
+/** The files deploy:add records a template hash for: the only keys `deploy.templateHashes` may hold. */
+export const TEMPLATE_HASH_KEYS = ['vercelJson', 'skill'];
+
 /** Throws, naming the field, unless `project` has the shape project.json documents. */
 export function validate(project) {
   const fail = (what) => {
@@ -118,6 +121,9 @@ export function validate(project) {
         const hashes = deploy.templateHashes;
         if (!hashes || typeof hashes !== 'object' || Array.isArray(hashes)) fail(`${at}.deploy.templateHashes must be an object`);
         for (const [kind, hash] of Object.entries(hashes)) {
+          if (!TEMPLATE_HASH_KEYS.includes(kind)) {
+            fail(`${at}.deploy.templateHashes.${kind} is not a known key (expected ${TEMPLATE_HASH_KEYS.join(' or ')})`);
+          }
           if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash)) fail(`${at}.deploy.templateHashes.${kind} must be a sha256 hex string`);
         }
       }

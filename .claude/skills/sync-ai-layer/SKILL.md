@@ -80,7 +80,16 @@ on.
    again; `verify` fails until it does). Re-running it is safe for the app's
    own files: it leaves an existing `apps/<app>/vercel.json` and `deployment`
    skill untouched and names each one it kept (only `--overwrite` replaces
-   them), so a product's customised rewrites survive. A kept file that differs from the current template also gets a line: "template has changed since it was written" (deploy:add records a hash of the template in `deploy.templateHashes` whenever it writes a file) means the template fix has not reached the product, so compare the two and run `--overwrite` only if the template's version is wanted; "differs only by your customisation" is informational; "unknown" means an older `deploy` block with no recorded hash, so compare by hand. Open a pull request;
+   them), so a product's customised rewrites survive. A kept file that differs
+   from the current template also gets a line (deploy:add records a hash of
+   the template in `deploy.templateHashes` whenever it writes a file). "The
+   template for the vercel.json has changed since it was written" (or "...for
+   the deployment skill ...") means the template fix has not reached the
+   product, so compare the two and run `--overwrite` only if the template's
+   version is wanted. "Differs from the template only by your customisation"
+   is informational. "Whether the template for the ... has moved is unknown"
+   means an older `deploy` block with no recorded hash, so compare by hand.
+   Open a pull request;
    its body lists any file that is still intentionally different, and why.
 5. **Check.** After both merge, re-run step 1: only files outside the
    catalogue's engine list may still differ. Then run
