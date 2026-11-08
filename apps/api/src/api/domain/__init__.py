@@ -1,5 +1,5 @@
 """The domain: plain dataclasses, no framework or driver imports."""
 
-from api.domain.models import Image, Story, User
+from api.domain.models import OWNER, Image, Story, User
 
-__all__ = ["Image", "Story", "User"]
+__all__ = ["OWNER", "Image", "Story", "User"]
