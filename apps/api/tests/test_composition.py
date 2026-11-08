@@ -1,5 +1,7 @@
 """Scenarios: local config, adapters by configuration, stub sign-in refused when deployed."""
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,7 +11,12 @@ from api.adapters.memory import InMemoryStoryRepository
 from api.adapters.no_identity import NoIdentityProvider
 from api.adapters.postgres import PostgresStoryRepository
 from api.adapters.stub_identity import StubIdentityProvider
-from api.composition import ConfigError, build_container
+from api.composition import (
+    DEFAULT_CORS_ORIGINS,
+    DEPLOYED_CORS_ORIGINS,
+    ConfigError,
+    build_container,
+)
 from api.main import create_app
 
 UNREACHABLE = "postgresql://photo:s3cret-pw@127.0.0.1:1/photos"
@@ -87,8 +94,24 @@ def test_stub_identity_refuses_to_start_when_deployed(vercel_env: str) -> None:
 
 
 def test_deployed_default_starts_with_no_identity() -> None:
-    app = create_app(env={"VERCEL_ENV": "production"})
-    assert TestClient(app).get("/health").status_code == 200
+    env = {"VERCEL_ENV": "production", "DATABASE_URL": UNREACHABLE}
+    assert isinstance(build_container(env).identity, NoIdentityProvider)
+    assert create_app(env=env) is not None
+
+
+def test_deployed_defaults_to_postgres_and_refuses_without_a_url() -> None:
+    c = build_container({"VERCEL_ENV": "preview", "POSTGRES_URL": UNREACHABLE})
+    assert isinstance(c.stories, PostgresStoryRepository)
+    with pytest.raises(ConfigError):
+        build_container({"VERCEL_ENV": "preview"})
+
+
+def test_deployed_defaults_to_a_writable_image_dir_and_the_web_origin() -> None:
+    c = build_container({"VERCEL_ENV": "production", "DATABASE_URL": UNREACHABLE})
+    assert isinstance(c.images, FilesystemImageStore)
+    assert c.images._root == Path("/tmp/images")
+    assert c.cors_origins == DEPLOYED_CORS_ORIGINS
+    assert build_container({}).cors_origins == DEFAULT_CORS_ORIGINS
 
 
 def test_filesystem_image_store_round_trips_and_refuses_path_traversal(tmp_path) -> None:

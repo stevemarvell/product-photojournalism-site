@@ -31,6 +31,11 @@ name: smoke
 on:
   push:
     branches: [develop]
+  schedule:
+    # Every 3 hours, offset from the hour so it doesn't pile onto :00 with
+    # everyone else's crons. Added by `npm run deploy:add`: the engine ships
+    # without it, so nothing here costs a runner minute until an app deploys.
+    - cron: '17 */3 * * *'
   workflow_dispatch:
 
 jobs:

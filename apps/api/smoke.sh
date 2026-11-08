@@ -25,6 +25,20 @@ healthy() (
   exit 1
 )
 
+database_reachable() (
+  # The deployed done-when: /health reports Postgres, not memory, and reachable.
+  for attempt in $(seq 1 30); do
+    body=$(curl -fsS --max-time 30 "$API/health" || true)
+    echo "attempt $attempt: $body"
+    case "$body" in
+      *'"adapter":"postgres"'*'"reachable":true'*) echo "database reachable"; exit 0;;
+    esac
+    sleep 15
+  done
+  echo "the API never reported its Postgres database reachable" >&2
+  exit 1
+)
+
 schema_withheld() (
   # Swagger UI, ReDoc and the OpenAPI document are development-only
   # (api.main); production must answer 404 for all three.
@@ -55,4 +69,5 @@ check() {
 }
 
 check 'the API reports ok' healthy
+check 'the API reports its Postgres database reachable' database_reachable
 check 'the API withholds its OpenAPI schema' schema_withheld
