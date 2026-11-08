@@ -2,6 +2,12 @@
 
 A stub. Nothing here serves, stores or exposes data yet.
 
+The API (`apps/api`) now connects to a Neon Postgres database in production
+(`VERCEL_ENV=production`). It stores nothing in it yet. Previews use the
+in-memory adapter by default and reach the database only if `STORY_REPOSITORY`
+is set explicitly. `/health` exposes only the adapter name and whether it is
+reachable, never the connection string.
+
 Rewrite this page before anything that serves, stores or exposes data ships:
 what is exposed, to whom, why that is deliberate, and what would change it.
 

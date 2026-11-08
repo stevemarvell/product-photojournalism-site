@@ -1,8 +1,9 @@
 """Composition root: the one place that picks adapters, from environment variables.
 
-STORY_REPOSITORY   memory (default) | postgres (needs DATABASE_URL, or POSTGRES_URL,
-                   which the Vercel/Neon integration injects). Where VERCEL_ENV is set the
-                   default is postgres, so a deployment never silently runs on memory.
+STORY_REPOSITORY   memory | postgres (needs DATABASE_URL, or POSTGRES_URL, which the
+                   Vercel/Neon integration injects). The default is postgres only where
+                   VERCEL_ENV=production, so a deployment never silently runs on memory
+                   and a preview never gets the database unless it is asked for.
 IMAGE_STORE        filesystem (default); IMAGE_DIR sets where (default .data/images,
                    /tmp/images where VERCEL_ENV is set: the bundle is read-only there)
 IDENTITY_PROVIDER  none (default, signs nobody in) | stub (only with
@@ -60,7 +61,10 @@ def build_container(env: Mapping[str, str]) -> Container:
         raise ConfigError(f"unknown IDENTITY_PROVIDER {identity_name!r}")
 
     deployed = bool(env.get("VERCEL_ENV"))
-    repo_name = env.get("STORY_REPOSITORY", "postgres" if deployed else "memory")
+    # Only production reaches the database by default: a preview runs branch
+    # code, so it gets the database only when STORY_REPOSITORY asks for it.
+    production = env.get("VERCEL_ENV") == "production"
+    repo_name = env.get("STORY_REPOSITORY", "postgres" if production else "memory")
     stories: StoryRepository
     if repo_name == "memory":
         stories = InMemoryStoryRepository()

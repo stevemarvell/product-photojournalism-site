@@ -27,15 +27,33 @@ healthy() (
 
 database_reachable() (
   # The deployed done-when: /health reports Postgres, not memory, and reachable.
+  # The body is parsed as JSON (node is on the smoke runner), not glob-matched,
+  # so key order and spacing do not matter. $verdict says which way it failed.
   for attempt in $(seq 1 30); do
-    body=$(curl -fsS --max-time 30 "$API/health" || true)
-    echo "attempt $attempt: $body"
-    case "$body" in
-      *'"adapter":"postgres"'*'"reachable":true'*) echo "database reachable"; exit 0;;
-    esac
+    if body=$(curl -fsS --max-time 30 "$API/health" 2>/dev/null); then
+      verdict=$(printf '%s' "$body" | node -e '
+        let s = ""; process.stdin.on("data", (c) => (s += c)).on("end", () => {
+          let h;
+          try { h = JSON.parse(s); } catch { console.log("unparseable"); return; }
+          const d = h && h.database;
+          if (!d || d.adapter !== "postgres") console.log("wrong-adapter:" + (d && d.adapter));
+          else if (d.reachable !== true) console.log("not-reachable");
+          else console.log("ok");
+        });')
+    else
+      body=''
+      verdict=unreachable
+    fi
+    echo "attempt $attempt: $verdict $body"
+    if [ "$verdict" = ok ]; then echo "database reachable"; exit 0; fi
     sleep 15
   done
-  echo "the API never reported its Postgres database reachable" >&2
+  case "$verdict" in
+    unreachable) echo "the API never answered /health 2xx (unreachable or reporting the database down)" >&2;;
+    unparseable) echo "the API's /health body was not parseable JSON" >&2;;
+    wrong-adapter:*) echo "the API's /health reports adapter ${verdict#wrong-adapter:}, not postgres" >&2;;
+    *) echo "the API reported its Postgres database not reachable" >&2;;
+  esac
   exit 1
 )
 

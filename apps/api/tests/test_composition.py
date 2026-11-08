@@ -1,5 +1,6 @@
 """Scenarios: local config, adapters by configuration, stub sign-in refused when deployed."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -13,12 +14,12 @@ from api.adapters.postgres import PostgresStoryRepository
 from api.adapters.stub_identity import StubIdentityProvider
 from api.composition import (
     DEFAULT_CORS_ORIGINS,
-    DEPLOYED_CORS_ORIGINS,
     ConfigError,
     build_container,
 )
 from api.main import create_app
 
+PROJECT = json.loads((Path(__file__).resolve().parents[3] / "project.json").read_text())
 UNREACHABLE = "postgresql://photo:s3cret-pw@127.0.0.1:1/photos"
 
 
@@ -96,21 +97,39 @@ def test_stub_identity_refuses_to_start_when_deployed(vercel_env: str) -> None:
 def test_deployed_default_starts_with_no_identity() -> None:
     env = {"VERCEL_ENV": "production", "DATABASE_URL": UNREACHABLE}
     assert isinstance(build_container(env).identity, NoIdentityProvider)
-    assert create_app(env=env) is not None
+    r = TestClient(create_app(env=env)).get("/health")
+    assert r.status_code == 503
+    assert r.json()["database"] == {"adapter": "postgres", "reachable": False}
 
 
-def test_deployed_defaults_to_postgres_and_refuses_without_a_url() -> None:
-    c = build_container({"VERCEL_ENV": "preview", "POSTGRES_URL": UNREACHABLE})
+def test_production_defaults_to_postgres_and_refuses_without_a_url() -> None:
+    c = build_container({"VERCEL_ENV": "production", "POSTGRES_URL": UNREACHABLE})
     assert isinstance(c.stories, PostgresStoryRepository)
     with pytest.raises(ConfigError):
-        build_container({"VERCEL_ENV": "preview"})
+        build_container({"VERCEL_ENV": "production"})
+
+
+def test_preview_defaults_to_memory_even_with_a_database_url() -> None:
+    env = {"VERCEL_ENV": "preview", "DATABASE_URL": UNREACHABLE, "POSTGRES_URL": UNREACHABLE}
+    assert isinstance(build_container(env).stories, InMemoryStoryRepository)
+    assert isinstance(build_container({"VERCEL_ENV": "preview"}).stories, InMemoryStoryRepository)
+
+
+def test_preview_honours_an_explicit_postgres_choice() -> None:
+    env = {"VERCEL_ENV": "preview", "STORY_REPOSITORY": "postgres", "DATABASE_URL": UNREACHABLE}
+    assert isinstance(build_container(env).stories, PostgresStoryRepository)
+
+
+def test_production_honours_an_explicit_memory_choice() -> None:
+    env = {"VERCEL_ENV": "production", "STORY_REPOSITORY": "memory"}
+    assert isinstance(build_container(env).stories, InMemoryStoryRepository)
 
 
 def test_deployed_defaults_to_a_writable_image_dir_and_the_web_origin() -> None:
     c = build_container({"VERCEL_ENV": "production", "DATABASE_URL": UNREACHABLE})
     assert isinstance(c.images, FilesystemImageStore)
-    assert c.images._root == Path("/tmp/images")
-    assert c.cors_origins == DEPLOYED_CORS_ORIGINS
+    assert c.images.root == Path("/tmp/images")
+    assert c.cors_origins == (PROJECT["apps"]["web"]["deploy"]["url"],)
     assert build_container({}).cors_origins == DEFAULT_CORS_ORIGINS
 
 
@@ -121,3 +140,16 @@ def test_filesystem_image_store_round_trips_and_refuses_path_traversal(tmp_path)
     assert store.get("missing") is None
     with pytest.raises(ValueError):
         store.put("../escape", b"x")
+
+
+def test_the_web_build_points_at_the_api_project_json_deploys() -> None:
+    env_file = Path(__file__).resolve().parents[3] / "apps/web/.env.production"
+    values = dict(
+        line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line
+    )
+    assert values["VITE_API_URL"] == PROJECT["apps"]["api"]["deploy"]["url"]
+
+
+def test_the_api_commit_endpoint_is_version_not_health() -> None:
+    # /health returns 503 when the database is down; the gate must not depend on it.
+    assert PROJECT["apps"]["api"]["deploy"]["commitEndpoint"] == "/version"
