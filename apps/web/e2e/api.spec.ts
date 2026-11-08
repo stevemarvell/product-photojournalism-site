@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test';
 
 // The API is mocked at the network layer: the built bundle makes a real
 // cross-origin fetch to VITE_API_URL's default, and the browser answers it from here.
-const API = 'http://localhost:8000/health';
+// The e2e build sets VITE_API_URL to this (playwright.config.ts); a production
+// build has no localhost fallback.
+const API = 'http://api.e2e.invalid/health';
 
 test.describe('the home page and the API', () => {
   test('shows the value fetched from the API', async ({ page }) => {

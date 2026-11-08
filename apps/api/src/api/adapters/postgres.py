@@ -6,7 +6,7 @@ unreachable database does not fail the app's startup.
 
 import psycopg
 
-TIMEOUT_S = 3
+TIMEOUT_S = 2
 
 
 class PostgresStoryRepository:

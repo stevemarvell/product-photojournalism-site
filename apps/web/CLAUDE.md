@@ -41,7 +41,9 @@ node scripts/verify-apps.mjs web   # typecheck, eslint, vitest, build, e2e
 ```
 
 The home page fetches `/health` from the API at `VITE_API_URL` (build-time;
-default `http://localhost:8000`) and shows the database status, or a plain
+`http://localhost:8000` is the default under `npm run dev` only, a production
+build without it shows "API address not configured." and fetches nothing)
+and shows the database status, or a plain
 error if the API is unreachable. Run the API alongside it for local use; the
 e2e suite mocks the API with `page.route`.
 

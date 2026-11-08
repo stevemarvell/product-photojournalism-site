@@ -34,6 +34,7 @@ afterEach(async () => {
   await settleThenUnmount(cleanup);
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -78,6 +79,26 @@ describe('App', () => {
     render(<App />);
     await vi.runAllTimersAsync();
     expect(screen.getByTestId('api-error').textContent).toBe('The API could not be reached.');
+  });
+
+  it('says so, and makes no fetch, in a production build without VITE_API_URL', async () => {
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('VITE_API_URL', '');
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    render(<App />);
+    await vi.runAllTimersAsync();
+    expect(screen.getByTestId('api-error').textContent).toBe('API address not configured.');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses VITE_API_URL when set', async () => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example');
+    const fetchSpy = vi.fn().mockRejectedValue(new TypeError('x'));
+    vi.stubGlobal('fetch', fetchSpy);
+    render(<App />);
+    await vi.runAllTimersAsync();
+    expect(fetchSpy).toHaveBeenCalledWith('https://api.example/health');
   });
 
   it('shows the same error when the API answers with a failure status', async () => {

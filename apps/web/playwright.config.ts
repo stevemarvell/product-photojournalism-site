@@ -22,7 +22,7 @@ export default defineConfig({
     {
       // The built bundle, not the dev server, so build configuration is
       // exercised — that is where every deployment failure has come from.
-      command: `npm run build && npx vite preview --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
+      command: `VITE_API_URL=http://api.e2e.invalid npm run build && npx vite preview --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: !process.env['CI'],
       timeout: 120_000,

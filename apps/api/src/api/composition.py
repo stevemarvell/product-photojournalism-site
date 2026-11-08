@@ -2,7 +2,8 @@
 
 STORY_REPOSITORY   memory (default) | postgres (needs DATABASE_URL)
 IMAGE_STORE        filesystem (default); IMAGE_DIR sets where (default .data/images)
-IDENTITY_PROVIDER  stub (default; refused when VERCEL_ENV is set)
+IDENTITY_PROVIDER  none (default, signs nobody in) | stub (only with
+                   API_ENVIRONMENT=development; refused when VERCEL_ENV is set)
 CORS_ALLOWED_ORIGINS  comma-separated origins (default: the local Vite dev server)
 """
 
@@ -13,6 +14,7 @@ from pathlib import Path
 from api.adapters.clock import SystemClock
 from api.adapters.filesystem import FilesystemImageStore
 from api.adapters.memory import InMemoryStoryRepository
+from api.adapters.no_identity import NoIdentityProvider
 from api.adapters.postgres import PostgresStoryRepository
 from api.adapters.stub_identity import StubIdentityProvider
 from api.application import Clock, IdentityProvider, ImageStore, StoryRepository
@@ -35,11 +37,18 @@ class Container:
 
 
 def build_container(env: Mapping[str, str]) -> Container:
-    identity_name = env.get("IDENTITY_PROVIDER", "stub")
-    if identity_name == "stub":
+    identity_name = env.get("IDENTITY_PROVIDER", "none")
+    identity: IdentityProvider
+    if identity_name == "none":
+        identity = NoIdentityProvider()
+    elif identity_name == "stub":
+        # Signs in as the owner, so it must be asked for twice over: explicitly,
+        # and in development, and never where Vercel has set VERCEL_ENV.
         if env.get("VERCEL_ENV"):
             raise ConfigError("IDENTITY_PROVIDER=stub is not allowed when VERCEL_ENV is set")
-        identity: IdentityProvider = StubIdentityProvider()
+        if env.get("API_ENVIRONMENT") != "development":
+            raise ConfigError("IDENTITY_PROVIDER=stub needs API_ENVIRONMENT=development")
+        identity = StubIdentityProvider()
     else:
         raise ConfigError(f"unknown IDENTITY_PROVIDER {identity_name!r}")
 

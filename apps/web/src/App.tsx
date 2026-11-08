@@ -9,7 +9,7 @@ import {
   setupIonicReact,
 } from '@ionic/react';
 
-import { fetchHealth } from './api';
+import { ApiNotConfiguredError, fetchHealth } from './api';
 
 setupIonicReact();
 
@@ -19,7 +19,7 @@ setupIonicReact();
  * replaces it.
  */
 export function App() {
-  const [status, setStatus] = useState<'loading' | 'ok' | 'error'>('loading');
+  const [status, setStatus] = useState<'loading' | 'ok' | 'error' | 'unconfigured'>('loading');
   const [database, setDatabase] = useState('');
 
   useEffect(() => {
@@ -30,8 +30,9 @@ export function App() {
         setDatabase(`${h.database.adapter}, ${h.database.reachable ? 'reachable' : 'unreachable'}`);
         setStatus('ok');
       })
-      .catch(() => {
-        if (live) setStatus('error');
+      .catch((e: unknown) => {
+        if (!live) return;
+        setStatus(e instanceof ApiNotConfiguredError ? 'unconfigured' : 'error');
       });
     return () => {
       live = false;
@@ -52,6 +53,11 @@ export function App() {
           </IonText>
           {status === 'loading' && <p data-testid="api-status">Contacting the API…</p>}
           {status === 'ok' && <p data-testid="api-status">API ok. Database: {database}</p>}
+          {status === 'unconfigured' && (
+            <p data-testid="api-error" role="alert">
+              API address not configured.
+            </p>
+          )}
           {status === 'error' && (
             <p data-testid="api-error" role="alert">
               The API could not be reached.
