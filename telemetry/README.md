@@ -30,8 +30,9 @@ carries the **endpoint and protocol**, because cloud sessions do not receive
 the environment's `OTEL_EXPORTER_OTLP_*` variables (observed 2026-11-08). A
 settings file beats the process environment ("Claude Code writes each `env`
 entry into the process environment, replacing the value inherited from the
-shell", <https://code.claude.com/docs/en/env-vars>), so an environment that sets a different endpoint is overridden by this one. It
-carries **no headers**: auth is the network secret. A test
+shell", <https://code.claude.com/docs/en/env-vars>), so an environment that
+sets a different endpoint is overridden by this one. It carries **no
+headers**: auth is the network secret. A test
 (`scripts/test/write-ci-telemetry-settings.test.ts`) pins both.
 
 **Events on, content off.** `OTEL_LOGS_EXPORTER=otlp` is set, because Grafana
