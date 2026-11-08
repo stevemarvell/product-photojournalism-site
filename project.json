@@ -2,7 +2,7 @@
   "$comment": "The one place the AI layer (.claude/, scripts/, .github/) learns about the application. Swap the app by editing apps/ and this file. scripts/project.mjs reads and validates it; its tests pin the shape. Nothing here is deployed by default; `npm run deploy:add` adds an app's `deploy` block.",
   "name": "product-photojournalism-site",
   "engine": {
-    "commit": "f3c27a4c33562d1a61f7677492d94942f6693254"
+    "commit": "f72e5252e7beefae68de20c8a399eb11200da276"
   },
   "apps": {
     "api": {
@@ -24,7 +24,11 @@
         "team": "stevemarvell-team",
         "project": "photojournalism-site-api",
         "url": "https://photojournalism-site-api-stevemarvell-team.vercel.app",
-        "commitEndpoint": "/version"
+        "commitEndpoint": "/version",
+        "templateHashes": {
+          "vercelJson": "6f0d57af0abeb49b31f44a7b0892bfd5efafd02549c51d2a8b917ea35551c4cf",
+          "skill": "1f052c85105adb0a5bb708fb5f1c88a4c43ecda8ddb08c86004d39e73d9e23a7"
+        }
       }
     },
     "web": {
@@ -56,7 +60,10 @@
         "team": "stevemarvell-team",
         "project": "photojournalism-site",
         "url": "https://photojournalism-site-stevemarvell-team.vercel.app",
-        "commitEndpoint": "/version.json"
+        "commitEndpoint": "/version.json",
+        "templateHashes": {
+          "skill": "1f052c85105adb0a5bb708fb5f1c88a4c43ecda8ddb08c86004d39e73d9e23a7"
+        }
       }
     }
   }
