@@ -25,13 +25,15 @@ lot of tokens* from *this took a lot of me*.
 
 [`../.claude/settings.json`](../.claude/settings.json) carries the exporter
 switches (enable flag, `otlp` exporters, intervals, include flags, cumulative
-temporality), so the setting is visible to everyone working here. It
-deliberately carries **no endpoint and no protocol**: a settings file beats the
-process environment ("Claude Code writes each `env` entry into the process
-environment, replacing the value inherited from the shell",
-<https://code.claude.com/docs/en/env-vars>), so a committed
-`OTEL_EXPORTER_OTLP_ENDPOINT` would override the cloud environment's. A test
-(`scripts/test/write-ci-telemetry-settings.test.ts`) pins its absence.
+temporality), so the setting is visible to everyone working here. It also
+carries the **endpoint and protocol**, because cloud sessions do not receive
+the environment's `OTEL_EXPORTER_OTLP_*` variables (observed 2026-11-08). A
+settings file beats the process environment ("Claude Code writes each `env`
+entry into the process environment, replacing the value inherited from the
+shell", <https://code.claude.com/docs/en/env-vars>), so an environment that
+sets a different endpoint is overridden by this one. It carries **no
+headers**: auth is the network secret. A test
+(`scripts/test/write-ci-telemetry-settings.test.ts`) pins both.
 
 **Events on, content off.** `OTEL_LOGS_EXPORTER=otlp` is set, because Grafana
 Cloud's Claude Code integration reads events as well as metrics. Three
@@ -55,24 +57,17 @@ anywhere: the panels read "No data", which looks like a wrong metric name.
 
 ## Cloud sessions
 
-A Claude Code cloud session reports to Grafana Cloud directly. Its environment
-supplies:
+A Claude Code cloud session reports to Grafana Cloud directly:
 
-- `OTEL_EXPORTER_OTLP_ENDPOINT` — the Grafana Cloud OTLP gateway, ending `/otlp`
-- `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`
-- a **network secret** for the gateway host, which the network proxy injects as
-  the `Authorization` header, so no credential sits in the repository, the
-  settings file or the session's environment.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — the Grafana Cloud OTLP gateway, ending
+  `/otlp`, and `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`, both committed in
+  `.claude/settings.json` (see above).
+- a **network secret** on the cloud environment for the gateway host, which the
+  network proxy injects as the `Authorization` header, so no credential sits in
+  the repository, the settings file or the session's environment.
 
-Nothing here sets them; they live in the cloud environment's configuration.
-`CLAUDE_CODE_ENABLE_TELEMETRY=1` is the exception: the cloud environment
-refuses to set it (the variable is reserved), so the repository commits it in
-`.claude/settings.json`. The accepted trade-off: a session with no
-`OTEL_EXPORTER_OTLP_ENDPOINT` in its environment exports to the SDK's
-localhost default, and nothing receives it.
-
-A session with no endpoint in its environment exports nowhere useful, which is
-a missing environment setting, not a fault in this repository.
+A session started above the repository (several repositories attached) loads
+no repository settings and sends nothing.
 
 ## The unattended runs (CI)
 
@@ -113,8 +108,8 @@ Two deliberate choices in the script:
 
 - **Gated on the credential.** `CLAUDE_CODE_ENABLE_TELEMETRY` is `1` only when
   both secrets are set, and the file is written *either way*: the committed
-  settings enable telemetry but name no endpoint, so with no block at all the
-  run would export to its own localhost for the whole job.
+  settings enable telemetry and name the Grafana gateway, so with no block at
+  all the run would send unauthenticated exports there for the whole job.
 - **5s export interval, not 10.** A runner is destroyed the moment the job
   ends, and a flush on exit is not documented.
 

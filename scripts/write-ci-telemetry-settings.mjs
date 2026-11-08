@@ -85,8 +85,8 @@ function assertValidAuthHeader(header) {
 /**
  * Build the `env` block for the session. Without a credential the block exists
  * anyway and switches telemetry off: the committed settings.json enables
- * telemetry but names no endpoint, so leaving the block absent would have the
- * runner exporting to the SDK default, its own localhost, for the whole job.
+ * telemetry and names the Grafana gateway, so leaving the block absent would
+ * have the runner sending unauthenticated exports there for the whole job.
  */
 export function ciTelemetryEnv(env = process.env) {
   const endpoint = env.GRAFANA_CLOUD_OTLP_ENDPOINT ?? '';
