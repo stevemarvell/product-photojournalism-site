@@ -89,6 +89,10 @@ jobs:
           # Add more flags here to customize behavior and configuration; see
           # https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options.
+          # --model sonnet matches claude-code-review.yml (see its MODEL.
+          # header): an unpinned default can drift; the choice
+          # comes from .claude/trials/model-tiering.md.
           claude_args: |
+            --model sonnet
             --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
 
