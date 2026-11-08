@@ -1,22 +1,23 @@
-# The web starter (`node-react`)
+# The web app (`apps/web`)
 
-An Ionic React shell on Vite, calling no API. It also builds the project
-documentation to `/docs/` inside its own bundle (`scripts/` is its
-`prebuild`). `smoke.sh` is its post-deploy checks. Its entry in `project.json`
-is `web`.
+The Ionic React front end on Vite: the public site, sign-in, and the
+owner-only `/editor`. It calls the API at `/api`, which `vercel.json`
+rewrites to the API deployment, so the session cookie is first-party. It also
+builds the project documentation to `/docs/` inside its own bundle
+(`scripts/` is its `prebuild`). `smoke.sh` is its post-deploy checks. Its
+entry in `project.json` is `web`.
 
 The AI layer's rules — the loop, `verify`, pull requests, ceilings, issues —
 are in the root `CLAUDE.md` and hold here too.
 
 ## Rules
 
-- **Not deployed by default.** `npm run verify` is what keeps it green; there
-  is no Vercel project building it until
-  `npm run deploy:add -- vercel --app web ...` adds one. Once it is deployed,
-  merging to `develop` publishes it.
+- **Merging to `develop` publishes it.** The Vercel project builds every
+  push to `develop` to production; the `deployment` skill in
+  `apps/web/.claude/skills/` has the settings.
 
-- **It serves no data.** Read `docs/data-governance.md` and rewrite it before
-  adding anything that serves, stores, or exposes data.
+- **Read `docs/data-governance.md` before changing what is stored, served or
+  exposed,** and update it in the same pull request.
 
 - **The e2e suite runs against the built bundle** via `vite preview`, never
   the dev server: a unit test runs in-process and structurally cannot see a
