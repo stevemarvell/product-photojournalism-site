@@ -17,20 +17,27 @@ import hashlib
 import json
 import logging
 import secrets
-from collections.abc import Mapping, MutableMapping
+import time
+from collections.abc import Callable, Mapping, MutableMapping
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from api.application import SignInRefusedError
-from api.domain import User
+from api.domain import OWNER, User
 
 AUTHORIZE_URL = "https://vercel.com/oauth/authorize"
 TOKEN_URL = "https://api.vercel.com/login/oauth/token"
 USERINFO_URL = "https://api.vercel.com/login/oauth/userinfo"
 # `openid` is required; `profile` yields the name. No `offline_access`: no refresh token is wanted.
 SCOPE = "openid profile"
+
+# How long a sign-in may take between /auth/login and the callback.
+PENDING_TTL_SECONDS = 600
 
 # Session keys. The pending-flow values are single use, popped on the callback.
 _PENDING = "oauth_pending"
@@ -39,9 +46,19 @@ _SUB = "vercel_sub"
 log = logging.getLogger(__name__)
 
 
-def seeded_owner() -> User:
-    """The single user row. In memory: no table exists until persistence arrives."""
-    return User(id="owner", name="Owner", is_owner=True, organisation_id="owner-org")
+def _same(a: object, b: str) -> bool:
+    """Constant-time equality on bytes: compare_digest raises on non-ASCII str."""
+    return isinstance(a, str) and secrets.compare_digest(
+        a.encode("utf-8", "surrogatepass"), b.encode("utf-8", "surrogatepass")
+    )
+
+
+def _fernet(session_secret: str) -> Fernet:
+    """A key derived from SESSION_SECRET (HKDF-SHA256), not the secret itself."""
+    key = HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=None, info=b"vercel-sign-in-pending"
+    ).derive(session_secret.encode())
+    return Fernet(base64.urlsafe_b64encode(key))
 
 
 class VercelIdentityProvider:
@@ -51,13 +68,19 @@ class VercelIdentityProvider:
         client_id: str,
         client_secret: str,
         owner_vercel_id: str,
+        session_secret: str,
         http: httpx.Client | None = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self._client_id = client_id
         self._client_secret = client_secret
         self._owner_vercel_id = owner_vercel_id
         self._http = http or httpx.Client(timeout=10.0)
-        self._owner = seeded_owner()
+        self._owner = OWNER
+        # The pending sign-in (PKCE verifier, nonce, state) rides in the session
+        # cookie, which is signed but readable: so it is encrypted and time-bound.
+        self._fernet = _fernet(session_secret)
+        self._clock = clock
 
     def sign_in_available(self) -> bool:
         return True
@@ -66,7 +89,7 @@ class VercelIdentityProvider:
         # Compared against configuration on every request, so changing
         # OWNER_VERCEL_ID locks out a session signed in as someone else.
         sub = session.get(_SUB)
-        if isinstance(sub, str) and secrets.compare_digest(sub, self._owner_vercel_id):
+        if _same(sub, self._owner_vercel_id):
             return self._owner
         return None
 
@@ -75,8 +98,11 @@ class VercelIdentityProvider:
         nonce = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(48)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
-        session.pop(_SUB, None)
-        session[_PENDING] = {"state": state, "nonce": nonce, "verifier": verifier}
+        # An existing sign-in is left alone: only a successful callback replaces it.
+        pending = json.dumps({"state": state, "nonce": nonce, "verifier": verifier})
+        session[_PENDING] = self._fernet.encrypt_at_time(
+            pending.encode(), int(self._clock())
+        ).decode()
         query = urlencode(
             {
                 "client_id": self._client_id,
@@ -97,14 +123,12 @@ class VercelIdentityProvider:
         redirect_uri: str,
         params: Mapping[str, str],
     ) -> User:
-        pending = session.pop(_PENDING, None)  # single use, whatever happens next
-        session.pop(_SUB, None)
-        if not isinstance(pending, dict):
-            raise SignInRefusedError("no sign-in in progress")
+        sealed = session.pop(_PENDING, None)  # single use, whatever happens next
+        pending = self._open(sealed)
         if "error" in params:
             raise SignInRefusedError(f"Vercel returned {params['error']!r}")
         state, code = params.get("state"), params.get("code")
-        if not state or not secrets.compare_digest(state, str(pending.get("state", ""))):
+        if not state or not _same(state, str(pending.get("state", ""))):
             raise SignInRefusedError("state mismatch")
         if not code:
             raise SignInRefusedError("no authorization code")
@@ -133,7 +157,7 @@ class VercelIdentityProvider:
         except (httpx.HTTPError, ValueError, KeyError, AttributeError) as exc:
             raise SignInRefusedError(f"exchange with Vercel failed: {type(exc).__name__}") from exc
 
-        if not isinstance(sub, str) or not secrets.compare_digest(sub, self._owner_vercel_id):
+        if not _same(sub, self._owner_vercel_id):
             # The sub is an identifier, not a secret; logging it is how the owner
             # finds the value OWNER_VERCEL_ID needs.
             log.warning("sign-in refused for Vercel sub %r: not the configured owner", sub)
@@ -143,6 +167,20 @@ class VercelIdentityProvider:
 
     def sign_out(self, session: MutableMapping[str, Any]) -> None:
         session.clear()
+
+    def _open(self, sealed: object) -> dict[str, Any]:
+        if not isinstance(sealed, str):
+            raise SignInRefusedError("no sign-in in progress")
+        try:
+            raw = self._fernet.decrypt_at_time(
+                sealed.encode(), PENDING_TTL_SECONDS, int(self._clock())
+            )
+            pending = json.loads(raw)
+        except (InvalidToken, ValueError) as exc:
+            raise SignInRefusedError("sign-in expired or unreadable") from exc
+        if not isinstance(pending, dict):
+            raise SignInRefusedError("sign-in unreadable")
+        return pending
 
 
 def _nonce_matches(id_token: object, expected: str) -> bool:
@@ -155,5 +193,4 @@ def _nonce_matches(id_token: object, expected: str) -> bool:
         claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
     except (IndexError, ValueError):
         return False
-    nonce = claims.get("nonce")
-    return isinstance(nonce, str) and secrets.compare_digest(nonce, expected)
+    return _same(claims.get("nonce"), expected)

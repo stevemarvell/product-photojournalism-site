@@ -9,6 +9,8 @@ against what was actually sent, not against the code under test.
 import base64
 import hashlib
 import json
+import time
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Annotated
 from urllib.parse import parse_qs, urlparse
@@ -18,6 +20,7 @@ import pytest
 from fastapi import Depends
 from fastapi.testclient import TestClient
 
+from api.adapters import stub_identity, vercel_identity
 from api.adapters.no_identity import NoIdentityProvider
 from api.adapters.vercel_identity import (
     AUTHORIZE_URL,
@@ -25,8 +28,9 @@ from api.adapters.vercel_identity import (
     USERINFO_URL,
     VercelIdentityProvider,
 )
+from api.application import SignInRefusedError
 from api.composition import build_container
-from api.domain import User
+from api.domain import OWNER, User
 from api.guard import require_owner
 from api.main import create_app
 
@@ -83,14 +87,18 @@ class FakeVercel:
         return {k: v[0] for k, v in parse_qs(req.content.decode()).items()}
 
 
-def make_client(fake: FakeVercel, env: dict[str, str] | None = None) -> TestClient:
+def make_client(
+    fake: FakeVercel, env: dict[str, str] | None = None, clock: Callable[[], float] = time.time
+) -> TestClient:
     container = build_container({**CONFIG, **(env or {})})
     assert isinstance(container.identity, VercelIdentityProvider)
     provider = VercelIdentityProvider(
         client_id=CONFIG["VERCEL_OAUTH_CLIENT_ID"],
         client_secret=CONFIG["VERCEL_OAUTH_CLIENT_SECRET"],
         owner_vercel_id=(env or {}).get("OWNER_VERCEL_ID", OWNER_SUB),
+        session_secret=(env or {}).get("SESSION_SECRET", SECRET),
         http=httpx.Client(transport=httpx.MockTransport(fake)),
+        clock=clock,
     )
     app = create_app(container=replace(container, identity=provider))
 
@@ -317,6 +325,128 @@ def test_deployed_defaults_to_vercel_and_local_defaults_to_none() -> None:
 def test_explicit_none_wins_over_the_deployed_default() -> None:
     c = build_container({**CONFIG, "IDENTITY_PROVIDER": "none"})
     assert isinstance(c.identity, NoIdentityProvider)
+
+
+def test_starting_another_sign_in_does_not_log_the_owner_out() -> None:
+    fake = FakeVercel()
+    client = make_client(fake)
+    complete(client, start_login(client, fake))
+    assert signed_in(client)
+    client.get("/auth/login")  # e.g. a cross-site <img src=/api/auth/login>
+    assert signed_in(client)
+    assert client.get("/probe-owner-only").status_code == 200
+
+
+def test_a_refused_callback_does_not_log_the_owner_out_either() -> None:
+    fake = FakeVercel()
+    client = make_client(fake)
+    complete(client, start_login(client, fake))
+    query = start_login(client, fake)
+    assert complete(client, query, state="wrong").headers["location"] == "/?signin=refused"
+    assert signed_in(client)
+
+
+def test_every_auth_response_is_no_store() -> None:
+    fake = FakeVercel()
+    client = make_client(fake)
+    unconfigured = TestClient(
+        create_app(env={"VERCEL_ENV": "production", "STORY_REPOSITORY": "memory"})
+    )
+    responses = [
+        client.get("/auth/login"),
+        client.get("/auth/callback", params={"code": "x", "state": "y"}),  # refused redirect
+        client.get("/auth/me"),
+        client.post("/auth/logout"),
+        client.get("/auth/nonexistent"),  # a 404 under /auth/
+        unconfigured.get("/auth/login"),  # a 503
+        unconfigured.get("/auth/me"),
+    ]
+    for r in responses:
+        assert r.headers.get("cache-control") == "no-store", (r.request.url, r.status_code)
+    assert client.get("/health").headers.get("cache-control") != "no-store"
+
+
+def test_the_cookie_does_not_expose_the_pkce_verifier_nonce_or_state() -> None:
+    fake = FakeVercel()
+    client = make_client(fake)
+    login = client.get("/auth/login")
+    cookie = login.headers["set-cookie"].split(";")[0].split("=", 1)[1].strip('"')
+    query = {k: v[0] for k, v in parse_qs(urlparse(login.headers["location"]).query).items()}
+    fake.nonce = query["nonce"]
+    complete(client, query)
+    verifier = fake.token_form()["code_verifier"]  # learnt only from the token request
+
+    # The session payload is the cookie's first dot-separated part, base64 JSON.
+    first = cookie.split(".")[0]
+    payload = base64.b64decode(first + "=" * (-len(first) % 4)).decode()
+    assert "oauth_pending" in payload  # it is there, sealed
+    for secret in (verifier, query["nonce"], query["state"]):
+        raw = secret.encode()
+        for form in (
+            secret,
+            base64.b64encode(raw).decode().rstrip("="),
+            base64.urlsafe_b64encode(raw).decode().rstrip("="),
+        ):
+            assert form not in cookie, secret
+            assert form not in payload, secret
+
+
+def test_a_pending_sign_in_older_than_ten_minutes_is_refused() -> None:
+    now = [1_000_000.0]
+    fake = FakeVercel()
+    client = make_client(fake, clock=lambda: now[0])
+    query = start_login(client, fake)
+    now[0] += 601
+    assert complete(client, query).headers["location"] == "/?signin=refused"
+    assert not signed_in(client)
+    assert fake.requests == []
+
+
+def test_a_pending_sign_in_inside_ten_minutes_still_completes() -> None:
+    now = [1_000_000.0]
+    fake = FakeVercel()
+    client = make_client(fake, clock=lambda: now[0])
+    query = start_login(client, fake)
+    now[0] += 590
+    assert complete(client, query).headers["location"] == "/editor"
+
+
+def test_a_pending_entry_sealed_under_another_key_is_refused() -> None:
+    def provider(secret: str) -> VercelIdentityProvider:
+        return VercelIdentityProvider(
+            client_id="c",
+            client_secret="s",
+            owner_vercel_id=OWNER_SUB,
+            session_secret=secret,
+            http=httpx.Client(transport=httpx.MockTransport(FakeVercel())),
+        )
+
+    session: dict[str, object] = {}
+    url = provider("a" * 40).begin_sign_in(session, CALLBACK)
+    state = parse_qs(urlparse(url).query)["state"][0]
+    with pytest.raises(SignInRefusedError):
+        provider("b" * 40).complete_sign_in(session, CALLBACK, {"code": "x", "state": state})
+
+
+def test_a_non_ascii_state_is_a_refusal_not_a_500() -> None:
+    fake = FakeVercel()
+    client = make_client(fake)
+    start_login(client, fake)
+    r = client.get("/auth/callback", params={"code": "x", "state": "é"})
+    assert (r.status_code, r.headers["location"]) == (303, "/?signin=refused")
+    assert not signed_in(client)
+
+
+def test_a_non_ascii_owner_sub_is_a_refusal_not_a_500() -> None:
+    fake = FakeVercel(sub="é-not-the-owner")
+    client = make_client(fake)
+    assert complete(client, start_login(client, fake)).headers["location"] == "/?signin=refused"
+
+
+def test_there_is_one_definition_of_the_owner() -> None:
+    assert stub_identity.OWNER is OWNER
+    assert vercel_identity.OWNER is OWNER
+    assert OWNER.organisation_id == "owner-org"
 
 
 def test_the_oauth_redirect_origin_defaults_to_the_deployed_web_app_and_is_overridable() -> None:

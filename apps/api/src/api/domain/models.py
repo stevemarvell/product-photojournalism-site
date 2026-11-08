@@ -14,6 +14,12 @@ class User:
     organisation_id: str = "default"
 
 
+# The single user row: the owner, in the one organisation there is. Every
+# identity provider that signs the owner in builds from this, so there is one
+# definition of who the owner is and which organisation they belong to.
+OWNER = User(id="owner", name="Owner", is_owner=True, organisation_id="owner-org")
+
+
 @dataclass(frozen=True)
 class Image:
     id: str

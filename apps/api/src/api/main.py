@@ -13,6 +13,7 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from api.auth_routes import NoStoreAuth
 from api.auth_routes import router as auth_router
 from api.composition import Container, build_container
 from api.security_headers import install_security_headers
@@ -27,8 +28,10 @@ DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
 
 
 # How long a sign-in lasts. The session is a signed cookie, so signing out clears
-# the browser's copy; it cannot be revoked server-side before this runs out.
-SESSION_MAX_AGE = 7 * 24 * 60 * 60
+# the browser's copy but cannot revoke a copied one before this runs out; the
+# remedy until #13 adds server-side revocation is rotating SESSION_SECRET
+# (docs/data-governance.md).
+SESSION_MAX_AGE = 12 * 60 * 60
 
 # How long /health reuses a database ping.
 HEALTH_CACHE_TTL = timedelta(seconds=10)
@@ -72,6 +75,8 @@ def create_app(
         same_site="lax",
         https_only=container.public_origin.startswith("https://"),
     )
+
+    app.add_middleware(NoStoreAuth)
 
     # Credentials are not used, so a fixed origin list is safe; never "*" here.
     app.add_middleware(

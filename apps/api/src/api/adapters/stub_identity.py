@@ -7,9 +7,7 @@ VERCEL_ENV is set.
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
-from api.domain import User
-
-OWNER = User(id="owner", name="Owner", is_owner=True)
+from api.domain import OWNER, User
 
 
 class StubIdentityProvider:

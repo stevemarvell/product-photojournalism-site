@@ -21,7 +21,8 @@ PUBLIC_PREFIXES = ("/auth/", "/public/")
 
 
 def is_public_path(path: str) -> bool:
-    return path in PUBLIC_EXACT or path.startswith(PUBLIC_PREFIXES)
+    # A mount's path has no trailing slash ("/public"), so it is compared with one.
+    return path in PUBLIC_EXACT or (path.rstrip("/") + "/").startswith(PUBLIC_PREFIXES)
 
 
 def container_of(request: Request) -> Container:

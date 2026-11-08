@@ -94,6 +94,7 @@ def build_container(env: Mapping[str, str]) -> Container:
                 client_id=env["VERCEL_OAUTH_CLIENT_ID"],
                 client_secret=env["VERCEL_OAUTH_CLIENT_SECRET"],
                 owner_vercel_id=env["OWNER_VERCEL_ID"],
+                session_secret=secret,
             )
     else:
         raise ConfigError(f"unknown IDENTITY_PROVIDER {identity_name!r}")
