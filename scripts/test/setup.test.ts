@@ -430,6 +430,39 @@ describe('runCheck', () => {
     expect(result.lines.some((l) => l.includes(OWNER_ISSUES[0]!.title) && l.startsWith(MARK.fixed))).toBe(true);
   });
 
+  it('every owner issue body is a function returning a non-empty string', () => {
+    for (const issue of OWNER_ISSUES) {
+      expect(typeof issue.body, issue.title).toBe('function');
+      const text = issue.body('o/n');
+      expect(typeof text, issue.title).toBe('string');
+      expect(text.length, issue.title).toBeGreaterThan(0);
+    }
+  });
+
+  it('files every owner issue when all are missing, without throwing, each with a string body', async () => {
+    const calls: string[][] = [];
+    await runCheck({
+      run: async (cmd, args) => {
+        calls.push([cmd, ...args]);
+        if (cmd === 'gh' && args[0] === 'api' && args[1]!.includes('/issues?state=all')) {
+          return { status: 0, stdout: JSON.stringify([]), stderr: '' };
+        }
+        if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
+        return run(baseResponses)(cmd, args);
+      },
+      skipVerify: true,
+      runIdentityTest: identityOk,
+    });
+    for (const issue of OWNER_ISSUES) {
+      const call = calls.find((c) => c.includes('POST') && c.includes(`title=${issue.title}`));
+      expect(call, issue.title).toBeDefined();
+      const body = call!.find((a) => a.startsWith('body='));
+      expect(body, issue.title).toBeDefined();
+      expect(body!.length, issue.title).toBeGreaterThan('body='.length);
+      expect(body).not.toContain('undefined');
+    }
+  });
+
   it('files the template issue from .github/ISSUE_TEMPLATE/story.md, body equal to the file minus its front matter', async () => {
     const calls: string[][] = [];
     await runCheck({
