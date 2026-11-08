@@ -19,7 +19,7 @@ describe('version.json', () => {
       },
     });
     expect(emitted).toHaveLength(1);
-    expect(emitted[0].fileName).toBe('version.json');
-    expect(JSON.parse(emitted[0].source)).toEqual({ commit: 'abc123' });
+    expect(emitted[0]?.fileName).toBe('version.json');
+    expect(JSON.parse(emitted[0]?.source ?? '')).toEqual({ commit: 'abc123' });
   });
 });
