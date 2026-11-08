@@ -70,7 +70,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchSpy);
     render(<App />);
     await vi.runAllTimersAsync();
-    expect(fetchSpy).toHaveBeenCalledWith('http://localhost:8000/health');
+    expect(fetchSpy).toHaveBeenCalledWith('/api/health');
     expect(screen.getByTestId('api-status').textContent).toContain('memory, reachable');
   });
 

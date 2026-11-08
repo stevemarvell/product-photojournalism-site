@@ -40,11 +40,13 @@ npm install && npm run dev      # on http://localhost:5173
 node scripts/verify-apps.mjs web   # typecheck, eslint, vitest, build, e2e
 ```
 
-The home page fetches `/health` from the API at `VITE_API_URL` (build-time;
-`http://localhost:8000` is the default under `npm run dev` only, a production
-build without it shows "API address not configured." and fetches nothing)
+The home page fetches `/health` from the API at `VITE_API_URL` (build-time; the
+deployed value is `/api`, the web origin, which `vercel.json` rewrites to the API
+so the session cookie is first-party; `/api` is also the default under
+`npm run dev`, proxied to `http://localhost:8000` by `vite.config.ts`; a
+production build without it shows "API address not configured." and fetches nothing)
 and shows the database status, or a plain
-error if the API is unreachable. Run the API alongside it for local use; the
+error if the API is unreachable. `/editor` is the owner-only editor: it asks `/api/auth/me` and sends a signed-out visitor to `/api/auth/login`, rendering nothing of the editor meanwhile. Run the API alongside it for local use; the
 e2e suite mocks the API with `page.route`.
 
 Once deployed, read the `deployment` skill under `.claude/skills/` here

@@ -1,4 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "node ../../scripts/deploy/vercel/vercel-ignore.mjs web"
+  "ignoreCommand": "node ../../scripts/deploy/vercel/vercel-ignore.mjs web",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://photojournalism-site-api-stevemarvell-team.vercel.app/:path*"
+    },
+    { "source": "/editor", "destination": "/index.html" }
+  ]
 }

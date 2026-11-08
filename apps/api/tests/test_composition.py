@@ -28,7 +28,7 @@ def test_local_defaults_use_memory_filesystem_and_stub() -> None:
     assert isinstance(c.stories, InMemoryStoryRepository)
     assert isinstance(c.images, FilesystemImageStore)
     assert isinstance(c.identity, NoIdentityProvider)
-    assert c.identity.current_user() is None
+    assert c.identity.current_user({}) is None
     assert isinstance(c.clock, SystemClock)
 
 
@@ -36,7 +36,7 @@ def test_stub_needs_explicit_choice_and_development() -> None:
     dev = {"IDENTITY_PROVIDER": "stub", "API_ENVIRONMENT": "development"}
     c = build_container(dev)
     assert isinstance(c.identity, StubIdentityProvider)
-    assert c.identity.current_user().is_owner
+    assert c.identity.current_user({}).is_owner
     with pytest.raises(ConfigError):
         build_container({"IDENTITY_PROVIDER": "stub"})
     with pytest.raises(ConfigError):
@@ -142,12 +142,16 @@ def test_filesystem_image_store_round_trips_and_refuses_path_traversal(tmp_path)
         store.put("../escape", b"x")
 
 
-def test_the_web_build_points_at_the_api_project_json_deploys() -> None:
-    env_file = Path(__file__).resolve().parents[3] / "apps/web/.env.production"
-    values = dict(
-        line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line
-    )
-    assert values["VITE_API_URL"] == PROJECT["apps"]["api"]["deploy"]["url"]
+def test_the_web_build_calls_the_api_same_origin_and_the_rewrite_targets_the_deployed_api() -> None:
+    # Cookies do not cross *.vercel.app hosts, so the web app calls /api and its
+    # vercel.json rewrites that to the API project.json deploys.
+    web = Path(__file__).resolve().parents[3] / "apps/web"
+    lines = (web / ".env.production").read_text().splitlines()
+    values = dict(line.split("=", 1) for line in lines if "=" in line)
+    assert values["VITE_API_URL"] == "/api"
+    rewrites = json.loads((web / "vercel.json").read_text())["rewrites"]
+    api_url = PROJECT["apps"]["api"]["deploy"]["url"]
+    assert {"source": "/api/:path*", "destination": f"{api_url}/:path*"} in rewrites
 
 
 def test_the_api_commit_endpoint_is_version_not_health() -> None:
