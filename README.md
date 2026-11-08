@@ -1,7 +1,11 @@
 # product-photojournalism-site
 
-Assembled from the starters `python-fastapi`, `node-react`. Rewrite this README around the
-product.
+A photojournalism site: one owner writes and publishes picture stories, and
+the public reads only what is live. FastAPI and Ionic React on Vercel, with
+Postgres (Neon) and Sign in with Vercel.
+
+- Site: https://photojournalism-site-stevemarvell-team.vercel.app
+- API: https://photojournalism-site-api-stevemarvell-team.vercel.app
 
 `npm run bootstrap` installs everything; `npm run verify` is the contract.
 Read `CLAUDE.md` first.

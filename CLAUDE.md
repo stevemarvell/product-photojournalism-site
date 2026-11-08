@@ -1,7 +1,18 @@
 # product-photojournalism-site
 
-product-photojournalism-site is assembled from a shared engine and the starters listed below.
-Replace this paragraph with what the product is for.
+A photojournalism site. One owner writes picture stories (text with Photo
+blocks), keeps a draft separate from what is published, and publishes; the
+public site shows only the published text of live stories. The build spec is
+the *Photojournalism Site MVP: Build Spec v2* doc
+(https://claude.ai/code/artifact/7fbdc774-5dba-4a7a-a785-5f2f597c27fe); its
+build order is the issue chain #11 to #17.
+
+Deployed from `develop` to free Vercel addresses:
+
+- web: https://photojournalism-site-stevemarvell-team.vercel.app (the API is
+  reached through its `/api` rewrite, so the sign-in cookie is first-party)
+- API: https://photojournalism-site-api-stevemarvell-team.vercel.app, with a
+  Neon Postgres database in production; previews use the in-memory store
 
 The AI layer — `.claude/`, `scripts/`, `.github/`, `telemetry/` — is the
 engine: the loop of verify, review, isolate, deploy, smoke and triage.
@@ -13,10 +24,10 @@ there.
 
 | Path | Holds |
 | --- | --- |
-| `apps/api/` | A Python API on FastAPI with security headers and a /health endpoint, tested with pytest and linted with ruff. Its own rules are in `apps/api/CLAUDE.md`. |
-| `apps/web/` | An Ionic React web app on Vite, with a Playwright end-to-end suite and a documentation site built into its bundle at /docs/. Its own rules are in `apps/web/CLAUDE.md`. |
-| `project.json` | The one place the AI layer learns about the apps: paths, toolchains, build inputs. Read through `scripts/project.mjs`. |
-| `docs/` | `sops.md`, how agent work is run; `data-governance.md`, a stub to rewrite before anything real is deployed. |
+| `apps/api/` | The FastAPI back end in hexagonal layers (`domain/`, `application/` ports, `adapters/`), run as Vercel Python functions: `/health`, `/version`, Sign in with Vercel under `/auth/*`, and the owner guard every non-public route uses. Its own rules are in `apps/api/CLAUDE.md`. |
+| `apps/web/` | The Ionic React front end on Vite: the public site, sign-in, and the owner-only `/editor`, with a Playwright end-to-end suite and the documentation site built into its bundle at /docs/. Its own rules are in `apps/web/CLAUDE.md`. |
+| `project.json` | The one place the AI layer learns about the apps: paths, toolchains, build inputs, and each app's Vercel deployment. Read through `scripts/project.mjs`. |
+| `docs/` | `sops.md`, how agent work is run; `data-governance.md`, what the deployment holds and exposes, and the sign-in controls everything else relies on. |
 
 <!-- shared:begin — the AI layer's rules, identical in every repository built
 from boris. Edit them in boris and sync; a local edit here is lost on the next

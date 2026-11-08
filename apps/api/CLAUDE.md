@@ -1,22 +1,25 @@
-# The API starter (`python-fastapi`)
+# The API (`apps/api`)
 
-A FastAPI shell: `/health` (with the deployed commit, once deployed), security
-headers, and Swagger UI, ReDoc and `/openapi.json` in development only. No
-application logic and no data. `smoke.sh` is its post-deploy checks. Its entry
-in `project.json` is `api`.
+The FastAPI back end, in hexagonal layers: `domain/` (no framework imports),
+`application/` (use cases and ports), `adapters/` (in-memory, Postgres,
+filesystem, the identity providers, and the FastAPI routes).
+`composition.py` picks the adapters from environment variables. It serves
+`/health` (with the database's reachability), `/version` (the deployed
+commit, which smoke's freshness gate reads), and Sign in with Vercel under
+`/auth/*`. Swagger UI, ReDoc and `/openapi.json` are development only.
+`smoke.sh` is its post-deploy checks. Its entry in `project.json` is `api`.
 
 The AI layer's rules — the loop, `verify`, pull requests, ceilings, issues —
 are in the root `CLAUDE.md` and hold here too.
 
 ## Rules
 
-- **Not deployed by default.** `npm run verify` is what keeps it green; there
-  is no Vercel project building it until
-  `npm run deploy:add -- vercel --app api ...` adds one. Once it is deployed,
-  merging to `develop` publishes it.
+- **Merging to `develop` publishes it.** The Vercel project builds every
+  push to `develop` to production; the `deployment` skill in
+  `apps/api/.claude/skills/` has the settings.
 
-- **It serves no data.** Read `docs/data-governance.md` and rewrite it before
-  adding anything that serves, stores, or exposes data.
+- **Read `docs/data-governance.md` before changing what is stored, served or
+  exposed,** and update it in the same pull request.
 
 ## Running it
 
