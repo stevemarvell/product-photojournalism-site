@@ -25,6 +25,38 @@ healthy() (
   exit 1
 )
 
+database_reachable() (
+  # The deployed done-when: /health reports Postgres, not memory, and reachable.
+  # The body is parsed as JSON (node is on the smoke runner), not glob-matched,
+  # so key order and spacing do not matter. $verdict says which way it failed.
+  for attempt in $(seq 1 30); do
+    if body=$(curl -fsS --max-time 30 "$API/health" 2>/dev/null); then
+      verdict=$(printf '%s' "$body" | node -e '
+        let s = ""; process.stdin.on("data", (c) => (s += c)).on("end", () => {
+          let h;
+          try { h = JSON.parse(s); } catch { console.log("unparseable"); return; }
+          const d = h && h.database;
+          if (!d || d.adapter !== "postgres") console.log("wrong-adapter:" + (d && d.adapter));
+          else if (d.reachable !== true) console.log("not-reachable");
+          else console.log("ok");
+        });')
+    else
+      body=''
+      verdict=unreachable
+    fi
+    echo "attempt $attempt: $verdict $body"
+    if [ "$verdict" = ok ]; then echo "database reachable"; exit 0; fi
+    sleep 15
+  done
+  case "$verdict" in
+    unreachable) echo "the API never answered /health 2xx (unreachable or reporting the database down)" >&2;;
+    unparseable) echo "the API's /health body was not parseable JSON" >&2;;
+    wrong-adapter:*) echo "the API's /health reports adapter ${verdict#wrong-adapter:}, not postgres" >&2;;
+    *) echo "the API reported its Postgres database not reachable" >&2;;
+  esac
+  exit 1
+)
+
 schema_withheld() (
   # Swagger UI, ReDoc and the OpenAPI document are development-only
   # (api.main); production must answer 404 for all three.
@@ -55,4 +87,5 @@ check() {
 }
 
 check 'the API reports ok' healthy
+check 'the API reports its Postgres database reachable' database_reachable
 check 'the API withholds its OpenAPI schema' schema_withheld

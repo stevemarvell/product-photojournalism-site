@@ -1,5 +1,8 @@
 """CORS: the web app's origin may read /health; others may not; never '*'."""
 
+import json
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,3 +32,13 @@ def test_origins_come_from_the_environment() -> None:
 def test_wildcard_origin_refuses_to_start() -> None:
     with pytest.raises(ConfigError):
         build_container({"CORS_ALLOWED_ORIGINS": "*"})
+
+
+def test_the_deployed_web_origin_is_the_one_project_json_names() -> None:
+    root = Path(__file__).resolve().parents[3]
+    web_url = json.loads((root / "project.json").read_text())["apps"]["web"]["deploy"]["url"]
+    app = create_app(env={"VERCEL_ENV": "production", "STORY_REPOSITORY": "memory"})
+    r = TestClient(app).get("/health", headers={"Origin": web_url})
+    assert r.headers["access-control-allow-origin"] == web_url
+    other = TestClient(app).get("/health", headers={"Origin": ORIGIN})
+    assert "access-control-allow-origin" not in other.headers

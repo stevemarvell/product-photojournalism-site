@@ -18,7 +18,14 @@
       ],
       "ignores": [
         "apps/api/smoke.sh"
-      ]
+      ],
+      "deploy": {
+        "provider": "vercel",
+        "team": "stevemarvell-team",
+        "project": "photojournalism-site-api",
+        "url": "https://photojournalism-site-api-stevemarvell-team.vercel.app",
+        "commitEndpoint": "/version"
+      }
     },
     "web": {
       "path": "apps/web",
@@ -43,7 +50,14 @@
         "apps/web/e2e",
         "**/*.test.ts",
         "**/*.test.tsx"
-      ]
+      ],
+      "deploy": {
+        "provider": "vercel",
+        "team": "stevemarvell-team",
+        "project": "photojournalism-site",
+        "url": "https://photojournalism-site-stevemarvell-team.vercel.app",
+        "commitEndpoint": "/version.json"
+      }
     }
   }
 }

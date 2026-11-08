@@ -83,6 +83,12 @@ def create_app(
             "database": {"adapter": container.story_repository_name, "reachable": reachable},
         }
 
+    @app.get("/version")
+    def version() -> dict[str, str | None]:
+        # The freshness gate's endpoint (project.json commitEndpoint). It never
+        # touches the database, so an outage reads as an outage, not a stale build.
+        return {"commit": DEPLOYED_COMMIT}
+
     install_security_headers(app, is_development=is_development)
     return app
 
