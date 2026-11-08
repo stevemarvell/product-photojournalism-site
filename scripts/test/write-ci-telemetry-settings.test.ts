@@ -118,10 +118,15 @@ describe('committed .claude/settings.json', () => {
   // A settings file beats the process environment, so any endpoint or protocol
   // committed here would override the Claude Code cloud environment's own
   // OTEL_EXPORTER_OTLP_ENDPOINT / _PROTOCOL and send cloud sessions nowhere.
-  it('sets no OTLP endpoint, protocol or headers, so the environment value wins', () => {
+  it('points at the Grafana Cloud gateway, because cloud sessions do not receive the environment value', () => {
+    expect(committed.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(
+      'https://otlp-gateway-prod-gb-south-1.grafana.net/otlp',
+    );
+    expect(committed.env.OTEL_EXPORTER_OTLP_PROTOCOL).toBe('http/protobuf');
+  });
+
+  it('commits no OTLP headers; auth is the network secret', () => {
     for (const key of [
-      'OTEL_EXPORTER_OTLP_ENDPOINT',
-      'OTEL_EXPORTER_OTLP_PROTOCOL',
       'OTEL_EXPORTER_OTLP_HEADERS',
       'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
       'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT',
