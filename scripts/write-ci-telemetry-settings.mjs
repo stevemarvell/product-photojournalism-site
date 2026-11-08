@@ -2,8 +2,7 @@
 // settings file the session loads with `--settings` before it starts.
 //
 // Writing to `.claude/settings.local.json` looks tempting: *project local*
-// outranks the committed `.claude/settings.json` and therefore beats the
-// endpoint it points at a laptop's collector (`http://localhost:4317`). That
+// outranks the committed `.claude/settings.json`. That
 // is correct about Claude Code's own precedence and wrong in practice:
 // `claude-code-action` checks out a pull request's head to review it, and —
 // because that content is attacker-controlled — restores `.claude`,
@@ -13,9 +12,9 @@
 // first, including any untracked file under it. A
 // `.claude/settings.local.json` written by an earlier workflow step exists
 // for a few dozen seconds and is gone before Claude Code ever reads it — CI
-// silently falls back to the committed `localhost:4317` instead, so every
-// CI session would carry `terminal_type=windows-terminal` and no
-// `environment` label at all, indistinguishable from a laptop run.
+// silently runs without the CI endpoint, credential and `environment`
+// label, so its telemetry would be missing or indistinguishable from any
+// other session's.
 //
 // The fix this time works outside the path the restore can reach. Claude
 // Code's settings precedence, highest first, is: managed settings, the
@@ -85,9 +84,9 @@ function assertValidAuthHeader(header) {
 
 /**
  * Build the `env` block for the session. Without a credential the block exists
- * anyway and switches telemetry off: leaving it absent would let the committed
- * settings.json apply, and a runner would spend the job retrying a connection
- * to its own localhost.
+ * anyway and switches telemetry off: the committed settings.json enables
+ * telemetry but names no endpoint, so leaving the block absent would have the
+ * runner exporting to the SDK default, its own localhost, for the whole job.
  */
 export function ciTelemetryEnv(env = process.env) {
   const endpoint = env.GRAFANA_CLOUD_OTLP_ENDPOINT ?? '';
