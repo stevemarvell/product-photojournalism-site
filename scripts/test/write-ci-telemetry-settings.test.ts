@@ -115,9 +115,9 @@ describe('ciTelemetryEnv', () => {
 describe('committed .claude/settings.json', () => {
   const committed = JSON.parse(readFileSync(join(REPO_ROOT, '.claude', 'settings.json'), 'utf8'));
 
-  // A settings file beats the process environment, so any endpoint or protocol
-  // committed here would override the Claude Code cloud environment's own
-  // OTEL_EXPORTER_OTLP_ENDPOINT / _PROTOCOL and send cloud sessions nowhere.
+  // Cloud sessions do not receive the environment's OTEL_EXPORTER_OTLP_*
+  // variables, so the endpoint and protocol are committed here. Auth stays
+  // with the environment's network secret, so no headers are committed.
   it('points at the Grafana Cloud gateway, because cloud sessions do not receive the environment value', () => {
     expect(committed.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(
       'https://otlp-gateway-prod-gb-south-1.grafana.net/otlp',
