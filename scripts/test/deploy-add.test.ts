@@ -40,6 +40,15 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['vercel', '--app', 'api', '--nope', 'x'])).toThrow(/unknown flag/);
   });
 
+  it('accepts --overwrite as a switch with no value, anywhere among the flags', () => {
+    expect(parseArgs(['vercel', '--app', 'api', '--overwrite'])).toEqual({ provider: 'vercel', app: 'api', overwrite: true });
+    expect(parseArgs(['vercel', '--overwrite', '--app', 'api', '--team', 't'])).toEqual({ provider: 'vercel', app: 'api', team: 't', overwrite: true });
+  });
+
+  it('leaves overwrite unset by default', () => {
+    expect(parseArgs(['vercel', '--app', 'api']).overwrite).toBeUndefined();
+  });
+
   it('refuses a flag with no value', () => {
     expect(() => parseArgs(['vercel', '--app'])).toThrow(/needs a value/);
   });
@@ -169,12 +178,67 @@ describe('addDeploy', () => {
     expect(values.url).toBe('https://<project>.vercel.app');
   });
 
-  it('is idempotent: running it again overwrites the block and the files', () => {
+  it('a re-run rewrites the deploy block but keeps an unchanged vercel.json', () => {
     addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'p1', url: 'https://p1.example', commitEndpoint: '/health', root, manifestPath });
-    addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'p2', url: 'https://p2.example', commitEndpoint: '/health', root, manifestPath });
+    const again = addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'p2', url: 'https://p2.example', commitEndpoint: '/health', root, manifestPath });
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(manifest.apps.api.deploy.project).toBe('p2');
-    expect(readFileSync(join(root, 'apps/api/vercel.json'), 'utf8')).not.toContain('p1');
+    expect(again.files).toEqual({ vercelJson: 'kept', skill: 'kept' });
+    expect(again.changed).toEqual({
+      project: { from: 'p1', to: 'p2' },
+      url: { from: 'https://p1.example', to: 'https://p2.example' },
+    });
+  });
+
+  it('an unchanged re-run reports no changed values', () => {
+    const args = { provider: 'vercel', app: 'api', team: 't', project: 'p', url: 'https://p.example', commitEndpoint: '/health', root, manifestPath };
+    expect(addDeploy(args).changed).toEqual({});
+    expect(addDeploy(args).changed).toEqual({});
+    expect(addDeploy({ provider: 'vercel', app: 'api', root, manifestPath }).changed).toEqual({});
+  });
+
+  describe('app files that a product may have customised', () => {
+    const vercelPath = () => join(root, 'apps/api/vercel.json');
+    const skillPath = () => join(root, 'apps/api/.claude/skills/deployment/SKILL.md');
+    const customVercel = '{ "rewrites": [{ "source": "/api/:path*", "destination": "/x" }] }\n';
+    const customSkill = '# my own deployment notes\n';
+    const customise = () => {
+      mkdirSync(dirname(skillPath()), { recursive: true });
+      writeFileSync(vercelPath(), customVercel);
+      writeFileSync(skillPath(), customSkill);
+    };
+
+    it('leaves a customised vercel.json byte for byte on a re-run', () => {
+      customise();
+      const { files } = addDeploy({ provider: 'vercel', app: 'api', project: 'p', root, manifestPath });
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(customVercel);
+      expect(files.vercelJson).toBe('kept');
+    });
+
+    it('leaves an existing deployment skill byte for byte on a re-run', () => {
+      customise();
+      const { files } = addDeploy({ provider: 'vercel', app: 'api', project: 'p', root, manifestPath });
+      expect(readFileSync(skillPath(), 'utf8')).toBe(customSkill);
+      expect(files.skill).toBe('kept');
+    });
+
+    it('still creates a missing file from the template, keeping the other', () => {
+      mkdirSync(dirname(vercelPath()), { recursive: true });
+      writeFileSync(vercelPath(), customVercel);
+      const { files } = addDeploy({ provider: 'vercel', app: 'api', project: 'thing-api', root, manifestPath });
+      expect(files).toEqual({ vercelJson: 'kept', skill: 'written' });
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(customVercel);
+      expect(readFileSync(skillPath(), 'utf8')).toContain('thing-api');
+    });
+
+    it('--overwrite replaces both from the template', () => {
+      customise();
+      const { files } = addDeploy({ provider: 'vercel', app: 'api', project: 'thing-api', overwrite: true, root, manifestPath });
+      expect(files).toEqual({ vercelJson: 'written', skill: 'written' });
+      expect(readFileSync(vercelPath(), 'utf8')).toContain('vercel-ignore.mjs api');
+      expect(readFileSync(vercelPath(), 'utf8')).not.toContain('/api/:path*');
+      expect(readFileSync(skillPath(), 'utf8')).toContain('thing-api');
+    });
   });
 
   it('a partial re-run keeps the real values it was not given, and only updates the flag it was', () => {

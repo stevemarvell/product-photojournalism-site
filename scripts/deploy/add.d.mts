@@ -11,11 +11,12 @@ export interface AddDeployOptions {
   project?: string;
   url?: string;
   commitEndpoint?: string;
+  overwrite?: boolean;
   root?: string;
   manifestPath?: string;
 }
 
-export declare function parseArgs(argv: string[]): { provider: string; app: string } & Partial<DeployValues>;
+export declare function parseArgs(argv: string[]): { provider: string; app: string } & Partial<DeployValues> & { overwrite?: boolean };
 export declare function withPlaceholders(options: Partial<DeployValues> & { existing?: Partial<DeployValues> }): DeployValues;
 export declare function renderTemplate(text: string, values: Record<string, string>): string;
 export declare function ownerSteps(options: { app: string; team: string; project: string }): string[];
@@ -23,4 +24,4 @@ export declare const SMOKE_SCHEDULE: string;
 export declare function hasSmokeSchedule(text: string): boolean;
 export declare function smokeScheduleProblem(project: import('../project.mjs').Project, text: string): string | null;
 export declare function withSmokeSchedule(text: string): string;
-export declare function addDeploy(options: AddDeployOptions): { manifest: unknown; values: DeployValues; smoke: 'scheduled' | 'unchanged' | 'absent' };
+export declare function addDeploy(options: AddDeployOptions): { manifest: unknown; values: DeployValues; smoke: 'scheduled' | 'unchanged' | 'absent'; changed: Partial<Record<keyof DeployValues, { from: string; to: string }>>; files: { vercelJson: 'written' | 'kept'; skill: 'written' | 'kept' } };
