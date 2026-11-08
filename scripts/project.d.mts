@@ -26,6 +26,7 @@ export interface Project {
 export declare const ROOT: string;
 export declare const MANIFEST: string;
 export declare const HARNESS_CODE: string[];
+export declare const TEMPLATE_HASH_KEYS: readonly string[];
 export declare function inside(parent: string, child: unknown): boolean;
 export declare function validate(project: unknown): Project;
 export declare function loadProject(path?: string): Project;

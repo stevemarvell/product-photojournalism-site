@@ -40,7 +40,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MANIFEST, ROOT, hasDeploy, validate } from '../project.mjs';
+import { MANIFEST, ROOT, TEMPLATE_HASH_KEYS, hasDeploy, validate } from '../project.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -161,6 +161,12 @@ export function ownerSteps({ app, team, project }) {
   ];
 }
 
+/** What deploy:add writes per `TEMPLATE_HASH_KEYS` entry: path under the app, template file, and the name it is reported by. */
+const TEMPLATE_FILES = {
+  vercelJson: { path: 'vercel.json', templateFile: 'vercel.template.json', name: 'vercel.json' },
+  skill: { path: '.claude/skills/deployment/SKILL.md', templateFile: 'SKILL.md', name: 'deployment skill' },
+};
+
 /**
  * Write `app`'s deploy block and this provider's template files. Returns the
  * filled-in `values`, the manifest written, `changed` ({key: {from, to}} for
@@ -190,10 +196,9 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, o
     : {};
   const placeholders = { app, ...values };
   const appDir = join(root, target.path);
-  const kinds = {
-    vercelJson: { path: join(appDir, 'vercel.json'), templateFile: 'vercel.template.json' },
-    skill: { path: join(appDir, '.claude/skills/deployment/SKILL.md'), templateFile: 'SKILL.md' },
-  };
+  const kinds = Object.fromEntries(
+    TEMPLATE_HASH_KEYS.map((kind) => [kind, { path: join(appDir, TEMPLATE_FILES[kind].path), templateFile: TEMPLATE_FILES[kind].templateFile }]),
+  );
   // What each file would be now, and a hash of the template text itself (not
   // the render, so a changed team or project value is not mistaken for a
   // template change). The hash recorded in the deploy block is the one from
@@ -255,7 +260,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const opts = parseArgs(process.argv.slice(2));
     const { values, smoke, files, changed, templateDrift } = addDeploy(opts);
     console.log(`Wrote project.json's deploy block for "${opts.app}".`);
-    const names = { vercelJson: 'vercel.json', skill: 'deployment skill' };
+    const names = Object.fromEntries(TEMPLATE_HASH_KEYS.map((kind) => [kind, TEMPLATE_FILES[kind].name]));
     const changes = Object.entries(changed).map(([k, { from, to }]) => `${k}: ${from} -> ${to}`);
     for (const [kind, state] of Object.entries(files)) {
       if (state !== 'kept') {

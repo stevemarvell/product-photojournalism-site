@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SMOKE_SCHEDULE, addDeploy, ownerSteps, parseArgs, renderTemplate, withPlaceholders, withSmokeSchedule, smokeScheduleProblem } from '../deploy/add.mjs';
-import { hasDeploy, loadProject, type Project } from '../project.mjs';
+import { TEMPLATE_HASH_KEYS, hasDeploy, loadProject, type Project } from '../project.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SMOKE = '.github/workflows/smoke.yml';
@@ -124,6 +124,12 @@ describe('addDeploy', () => {
 
   afterEach(() => {
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it('records a template hash for exactly the keys project.mjs allows', () => {
+    addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'thing-api', url: 'https://thing-api.example', commitEndpoint: '/health', root, manifestPath });
+    const hashes = JSON.parse(readFileSync(manifestPath, 'utf8')).apps.api.deploy.templateHashes;
+    expect(Object.keys(hashes).sort()).toEqual([...TEMPLATE_HASH_KEYS].sort());
   });
 
   it('writes the deploy block, vercel.json and the deployment skill, filling in placeholders', () => {
