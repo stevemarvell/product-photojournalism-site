@@ -69,9 +69,8 @@ describe('ciTelemetryEnv', () => {
 
   it('switches telemetry off rather than leaving the committed enable flag to apply', () => {
     // The failure this guards: with no block at all, .claude/settings.json
-    // enables telemetry on the runner with no endpoint, so the session exports
-    // to the SDK default (its own localhost), where nothing listens, for the
-    // life of the job.
+    // enables telemetry on the runner and names the Grafana gateway, so the
+    // session sends unauthenticated exports there for the life of the job.
     expect(ciTelemetryEnv({})).toEqual({ CLAUDE_CODE_ENABLE_TELEMETRY: '0' });
     expect(ciTelemetryEnv({ GRAFANA_CLOUD_OTLP_ENDPOINT: CREDENTIAL.GRAFANA_CLOUD_OTLP_ENDPOINT })).toEqual(
       { CLAUDE_CODE_ENABLE_TELEMETRY: '0' },
