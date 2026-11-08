@@ -1,8 +1,11 @@
 # Data governance
 
-A stub. Nothing here serves, stores or exposes data yet.
+A stub. The API connects to a Postgres database in production but stores no
+stories or images yet; it processes a session cookie (signed, HttpOnly, no
+password) and the owner's Vercel id, used only to sign the owner in. No
+passwords are handled.
 
-The API (`apps/api`) now connects to a Neon Postgres database in production
+The API (`apps/api`) connects to a Neon Postgres database in production
 (`VERCEL_ENV=production`). It stores nothing in it yet. Previews use the
 in-memory adapter by default and reach the database only if `STORY_REPOSITORY`
 is set explicitly. `/health` exposes only the adapter name and whether it is

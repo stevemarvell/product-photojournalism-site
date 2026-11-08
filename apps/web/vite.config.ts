@@ -29,6 +29,16 @@ export default defineConfig({
   define: {
     __APP_NAME__: JSON.stringify(APP_NAME),
   },
+  server: {
+    // `npm run dev` reaches the local API same-origin, as the deployment does
+    // through vercel.json's rewrite, so the session cookie is first-party.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

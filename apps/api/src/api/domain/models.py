@@ -9,6 +9,9 @@ class User:
     id: str
     name: str
     is_owner: bool = False
+    # Every record is organisation-aware from the start (spec section 10); the
+    # one seeded owner belongs to the one organisation there is.
+    organisation_id: str = "default"
 
 
 @dataclass(frozen=True)

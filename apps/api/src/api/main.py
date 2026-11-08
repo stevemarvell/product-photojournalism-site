@@ -5,12 +5,15 @@ application replaces it.
 """
 
 import os
+import secrets
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
+from api.auth_routes import router as auth_router
 from api.composition import Container, build_container
 from api.security_headers import install_security_headers
 
@@ -22,6 +25,10 @@ API_ENVIRONMENT = os.environ.get("API_ENVIRONMENT", "production")
 # Vercel sets it at runtime; it is absent locally, where None is right.
 DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
 
+
+# How long a sign-in lasts. The session is a signed cookie, so signing out clears
+# the browser's copy; it cannot be revoked server-side before this runs out.
+SESSION_MAX_AGE = 7 * 24 * 60 * 60
 
 # How long /health reuses a database ping.
 HEALTH_CACHE_TTL = timedelta(seconds=10)
@@ -48,6 +55,22 @@ def create_app(
         docs_url="/docs" if is_development else None,
         redoc_url="/redoc" if is_development else None,
         openapi_url="/openapi.json" if is_development else None,
+    )
+
+    app.state.container = container
+    app.include_router(auth_router)
+
+    # The session: a signed cookie (itsdangerous via Starlette), always HttpOnly,
+    # SameSite=Lax so the redirect back from Vercel carries it, and Secure
+    # wherever the site is served over https. Without a usable SESSION_SECRET the
+    # provider signs nobody in, so a throwaway key costs nothing.
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=container.session_secret or secrets.token_urlsafe(32),
+        session_cookie="session",
+        max_age=SESSION_MAX_AGE,
+        same_site="lax",
+        https_only=container.public_origin.startswith("https://"),
     )
 
     # Credentials are not used, so a fixed origin list is safe; never "*" here.

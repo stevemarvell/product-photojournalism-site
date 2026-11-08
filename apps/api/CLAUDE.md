@@ -39,8 +39,21 @@ implementations; `composition.py` picks them from environment variables, and
 | --- | --- |
 | `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`, else `POSTGRES_URL`); default is `postgres` when `VERCEL_ENV` is set |
 | `IMAGE_STORE` / `IMAGE_DIR` | `filesystem` / `.data/images` (`/tmp/images` when `VERCEL_ENV` is set) |
-| `IDENTITY_PROVIDER` | `none` (signs nobody in), `stub` (owner; only with `API_ENVIRONMENT=development`, refused when `VERCEL_ENV` is set) |
+| `IDENTITY_PROVIDER` | `none` (signs nobody in), `stub` (owner; only with `API_ENVIRONMENT=development`, refused when `VERCEL_ENV` is set), `vercel` (Sign in with Vercel; the default when `VERCEL_ENV` is set, else `none`) |
+| `VERCEL_OAUTH_CLIENT_ID`, `VERCEL_OAUTH_CLIENT_SECRET`, `OWNER_VERCEL_ID`, `SESSION_SECRET` (32+ chars) | all four needed by `vercel`; with any missing the API still starts, `/auth/*` answers 503 "sign-in not configured" and owner routes 401 |
+| `PUBLIC_WEB_ORIGIN` | the origin visitors use; the OAuth redirect URI is `<it>/api/auth/callback` (default: the deployed web app when `VERCEL_ENV` is set, else `http://localhost:5173`) |
 | `CORS_ALLOWED_ORIGINS` | comma-separated; `http://localhost:5173,http://127.0.0.1:5173`; never `*` |
+
+## Auth
+
+Every route that is not public (`api.guard.PUBLIC_*`: `/health`, `/version`,
+`/auth/*`, `/public/*`) must depend on `api.guard.require_owner`;
+`tests/test_owner_guard.py` enumerates the app's routes and fails on one that
+answers a no-session request with anything but 401. The session is a signed
+cookie (HttpOnly, Secure when served over https, SameSite=Lax). The web app
+reaches the API as `/api/*` on its own origin (rewrite in `apps/web/vercel.json`),
+so the cookie is first-party. Locally, `npm run dev` in `apps/web` proxies `/api`
+to `:8000`; `IDENTITY_PROVIDER=stub` signs in as the owner.
 
 Once deployed, read the `deployment` skill under `apps/api/.claude/skills/`
 (written by `deploy:add`) before changing anything that deploys.

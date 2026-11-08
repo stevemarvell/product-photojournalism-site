@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   IonApp,
+  IonButton,
   IonContent,
   IonHeader,
   IonText,
@@ -9,16 +10,34 @@ import {
   setupIonicReact,
 } from '@ionic/react';
 
-import { ApiNotConfiguredError, fetchHealth } from './api';
+import { ApiNotConfiguredError, fetchHealth, loginUrl } from './api';
+import { Editor } from './Editor';
 
 setupIonicReact();
 
 /**
  * The web app's shell: a placeholder, showing no application, kept live to
  * serve the project's documentation at /docs/ until a real application
- * replaces it.
+ * replaces it. /editor is the owner-only editor (see Editor.tsx).
  */
 export function App() {
+  return (
+    <IonApp>
+      <IonHeader>
+        <IonToolbar>
+          <IonTitle>{__APP_NAME__}</IonTitle>
+        </IonToolbar>
+      </IonHeader>
+      <IonContent>
+        <div className="centred">
+          {window.location.pathname === '/editor' ? <Editor /> : <Home />}
+        </div>
+      </IonContent>
+    </IonApp>
+  );
+}
+
+function Home() {
   const [status, setStatus] = useState<'loading' | 'ok' | 'error' | 'unconfigured'>('loading');
   const [database, setDatabase] = useState('');
 
@@ -39,33 +58,35 @@ export function App() {
     };
   }, []);
 
+  const refused = new URLSearchParams(window.location.search).get('signin') === 'refused';
+
   return (
-    <IonApp>
-      <IonHeader>
-        <IonToolbar>
-          <IonTitle>{__APP_NAME__}</IonTitle>
-        </IonToolbar>
-      </IonHeader>
-      <IonContent>
-        <div className="centred" data-testid="shell">
-          <IonText color="medium">
-            <p>No application here yet.</p>
-          </IonText>
-          {status === 'loading' && <p data-testid="api-status">Contacting the API…</p>}
-          {status === 'ok' && <p data-testid="api-status">API ok. Database: {database}</p>}
-          {status === 'unconfigured' && (
-            <p data-testid="api-error" role="alert">
-              API address not configured.
-            </p>
-          )}
-          {status === 'error' && (
-            <p data-testid="api-error" role="alert">
-              The API could not be reached.
-            </p>
-          )}
-          <a href="/docs/">The project documentation</a>
-        </div>
-      </IonContent>
-    </IonApp>
+    <div data-testid="shell">
+      <IonText color="medium">
+        <p>No application here yet.</p>
+      </IonText>
+      {refused && (
+        <p data-testid="signin-refused" role="alert">
+          Sign-in was refused.
+        </p>
+      )}
+      {status === 'loading' && <p data-testid="api-status">Contacting the API…</p>}
+      {status === 'ok' && <p data-testid="api-status">API ok. Database: {database}</p>}
+      {status === 'unconfigured' && (
+        <p data-testid="api-error" role="alert">
+          API address not configured.
+        </p>
+      )}
+      {status === 'error' && (
+        <p data-testid="api-error" role="alert">
+          The API could not be reached.
+        </p>
+      )}
+      <IonButton data-testid="sign-in" href={loginUrl()}>
+        Sign in with Vercel
+      </IonButton>
+      <br />
+      <a href="/docs/">The project documentation</a>
+    </div>
   );
 }
