@@ -5,11 +5,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SMOKE_SCHEDULE, addDeploy, ownerSteps, parseArgs, renderTemplate, withPlaceholders, withSmokeSchedule, smokeScheduleProblem } from '../deploy/add.mjs';
-import { loadProject, type Project } from '../project.mjs';
+import { hasDeploy, loadProject, type Project } from '../project.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SMOKE = '.github/workflows/smoke.yml';
-const realSmoke = () => readFileSync(join(REPO_ROOT, SMOKE), 'utf8');
+const committedSmoke = () => readFileSync(join(REPO_ROOT, SMOKE), 'utf8');
+/**
+ * The workflow as the engine ships it, whatever state this repository is in:
+ * the committed file with the schedule `deploy:add` inserts taken back out.
+ * A repository built from this one that has run deploy:add commits the
+ * schedule, so tests that need "a workflow with no schedule" as sample input
+ * must not read the committed file as if it were that.
+ */
+const realSmoke = () => committedSmoke().replace(SMOKE_SCHEDULE, '');
 /** Top-level `schedule:` trigger lines: two-space indent, so a comment or a nested key never counts. */
 const scheduleLines = (text: string) => text.split('\n').filter((line) => /^ {2}schedule:/.test(line));
 
@@ -213,13 +221,24 @@ describe('addDeploy', () => {
 });
 
 describe('the scheduled smoke run (#254)', () => {
-  it('is not in the committed smoke.yml: with nothing deployed, a schedule would start a runner for nothing', () => {
+  it('is in the committed smoke.yml exactly when an app deploys: with nothing deployed, a schedule would start a runner for nothing', () => {
+    const text = committedSmoke();
+    const project = loadProject();
+    if (hasDeploy(project)) {
+      expect(scheduleLines(text)).toHaveLength(1);
+    } else {
+      expect(scheduleLines(text)).toEqual([]);
+      expect(text).not.toMatch(/^\s*-?\s*cron:/m);
+    }
+    // The triggers that cost nothing while nothing is deployed stay either way.
+    expect(text).toMatch(/^ {2}push:\n {4}branches: \[develop\]/m);
+    expect(text).toMatch(/^ {2}workflow_dispatch:/m);
+  });
+
+  it('the engine workflow, as the sample input these tests use, has no schedule and no cron', () => {
     const text = realSmoke();
     expect(scheduleLines(text)).toEqual([]);
     expect(text).not.toMatch(/^\s*-?\s*cron:/m);
-    // The triggers that cost nothing while nothing is deployed stay.
-    expect(text).toMatch(/^ {2}push:\n {4}branches: \[develop\]/m);
-    expect(text).toMatch(/^ {2}workflow_dispatch:/m);
   });
 
   it('withSmokeSchedule adds exactly the schedule block, above workflow_dispatch, and nothing else', () => {
@@ -328,8 +347,8 @@ describe('smokeScheduleProblem: a sync must not silently drop the uptime check',
   });
   const undeployedProject = (): Project => ({ name: 'thing', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } });
 
-  it('passes in this repository, where nothing is deployed and smoke.yml has no schedule', () => {
-    expect(smokeScheduleProblem(loadProject(), realSmoke())).toBeNull();
+  it('passes for a project that deploys nothing and the engine workflow, which ships without a schedule', () => {
+    expect(smokeScheduleProblem(undeployedProject(), realSmoke())).toBeNull();
   });
 
   it('flags an app with a deploy block when smoke.yml has no schedule, naming the fix', () => {
@@ -354,6 +373,6 @@ describe('smokeScheduleProblem: a sync must not silently drop the uptime check',
 
   it('is what the committed files satisfy', () => {
     const project = loadProject();
-    expect(smokeScheduleProblem(project, realSmoke()), 'run npm run deploy:add again').toBeNull();
+    expect(smokeScheduleProblem(project, committedSmoke()), 'run npm run deploy:add again').toBeNull();
   });
 });
