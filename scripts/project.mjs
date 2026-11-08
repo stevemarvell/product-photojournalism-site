@@ -113,6 +113,14 @@ export function validate(project) {
       if (typeof deploy.commitEndpoint !== 'string' || !deploy.commitEndpoint.startsWith('/')) {
         fail(`${at}.deploy.commitEndpoint must be a path starting with /`);
       }
+      // Optional: sha256 of the template output deploy:add last wrote, per file.
+      if (deploy.templateHashes !== undefined) {
+        const hashes = deploy.templateHashes;
+        if (!hashes || typeof hashes !== 'object' || Array.isArray(hashes)) fail(`${at}.deploy.templateHashes must be an object`);
+        for (const [kind, hash] of Object.entries(hashes)) {
+          if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash)) fail(`${at}.deploy.templateHashes.${kind} must be a sha256 hex string`);
+        }
+      }
     }
     if (app.smoke !== undefined && !inside(app.path, app.smoke)) {
       fail(`${at}.smoke must be a script inside ${app.path}`);

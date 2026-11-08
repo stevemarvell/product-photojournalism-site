@@ -4,6 +4,7 @@ export interface Deploy {
   project: string;
   url: string;
   commitEndpoint: string;
+  templateHashes?: Record<string, string>;
 }
 export interface App {
   path: string;

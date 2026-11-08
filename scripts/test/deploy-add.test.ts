@@ -146,6 +146,7 @@ describe('addDeploy', () => {
       project: 'thing-api',
       url: 'https://thing-api.example',
       commitEndpoint: '/health',
+      templateHashes: { vercelJson: expect.stringMatching(/^[0-9a-f]{64}$/), skill: expect.stringMatching(/^[0-9a-f]{64}$/) },
     });
 
     const vercelJson = readFileSync(join(root, 'apps/api/vercel.json'), 'utf8');
@@ -180,10 +181,12 @@ describe('addDeploy', () => {
 
   it('a re-run rewrites the deploy block but keeps an unchanged vercel.json', () => {
     addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'p1', url: 'https://p1.example', commitEndpoint: '/health', root, manifestPath });
+    const firstVercelJson = readFileSync(join(root, 'apps/api/vercel.json'), 'utf8');
     const again = addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'p2', url: 'https://p2.example', commitEndpoint: '/health', root, manifestPath });
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(manifest.apps.api.deploy.project).toBe('p2');
     expect(again.files).toEqual({ vercelJson: 'kept', skill: 'kept' });
+    expect(readFileSync(join(root, 'apps/api/vercel.json'), 'utf8')).toBe(firstVercelJson);
     expect(again.changed).toEqual({
       project: { from: 'p1', to: 'p2' },
       url: { from: 'https://p1.example', to: 'https://p2.example' },
@@ -220,6 +223,109 @@ describe('addDeploy', () => {
       const { files } = addDeploy({ provider: 'vercel', app: 'api', project: 'p', root, manifestPath });
       expect(readFileSync(skillPath(), 'utf8')).toBe(customSkill);
       expect(files.skill).toBe('kept');
+    });
+
+    const hashes = () => JSON.parse(readFileSync(manifestPath, 'utf8')).apps.api.deploy.templateHashes;
+    // A getter-style helper: root and manifestPath are assigned in beforeEach, after describe runs.
+    const base = () => ({ provider: 'vercel', app: 'api', project: 'p', root, manifestPath });
+    const dropHashes = () => {
+      const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      delete m.apps.api.deploy.templateHashes;
+      writeFileSync(manifestPath, JSON.stringify(m, null, 2));
+    };
+    /** Make the recorded hash of one file say the template was different when it was written. */
+    const ageRecord = (kind: string) => {
+      const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      m.apps.api.deploy.templateHashes[kind] = 'f'.repeat(64);
+      writeFileSync(manifestPath, JSON.stringify(m, null, 2));
+    };
+
+    it('records a sha256 of each template on the first run', () => {
+      addDeploy(base());
+      expect(hashes().vercelJson).toMatch(/^[0-9a-f]{64}$/);
+      expect(hashes().skill).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('reports no drift for a kept file identical to what the template renders', () => {
+      addDeploy(base());
+      const again = addDeploy(base());
+      expect(again.files).toEqual({ vercelJson: 'kept', skill: 'kept' });
+      expect(again.templateDrift).toEqual({});
+    });
+
+    it('calls a kept file that differs while the template is unchanged "customised", and leaves it byte for byte', () => {
+      addDeploy(base());
+      customise();
+      const { templateDrift } = addDeploy(base());
+      expect(templateDrift).toEqual({ vercelJson: 'customised', skill: 'customised' });
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(customVercel);
+      expect(readFileSync(skillPath(), 'utf8')).toBe(customSkill);
+    });
+
+    it('reports "template-moved" when the template changed since the file was written, hand-edited or not', () => {
+      addDeploy(base());
+      ageRecord('vercelJson');
+      const stale = readFileSync(vercelPath(), 'utf8').replace('vercel-ignore.mjs', 'vercel-ignore-old.mjs');
+      writeFileSync(vercelPath(), stale);
+      expect(addDeploy(base()).templateDrift).toEqual({ vercelJson: 'template-moved' });
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(stale);
+      // A hand-customised file is told the same when the template has moved.
+      writeFileSync(vercelPath(), customVercel);
+      expect(addDeploy(base()).templateDrift).toEqual({ vercelJson: 'template-moved' });
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(customVercel);
+    });
+
+    it('says the drift is "unknown" for a deploy block with no recorded hashes, without failing', () => {
+      customise();
+      const first = addDeploy(base()); // files existed, so nothing was written and nothing recorded
+      expect(first.templateDrift).toEqual({ vercelJson: 'unknown', skill: 'unknown' });
+      expect(hashes()).toBeUndefined();
+      addDeploy({ ...base(), overwrite: true });
+      dropHashes();
+      writeFileSync(vercelPath(), customVercel);
+      expect(addDeploy(base()).templateDrift.vercelJson).toBe('unknown');
+    });
+
+    it('--overwrite replaces the file and updates the recorded hashes', () => {
+      addDeploy(base());
+      ageRecord('vercelJson');
+      ageRecord('skill');
+      writeFileSync(vercelPath(), customVercel);
+      const fixed = addDeploy({ ...base(), overwrite: true });
+      expect(fixed.files).toEqual({ vercelJson: 'written', skill: 'written' });
+      expect(fixed.templateDrift).toEqual({});
+      expect(hashes().vercelJson).not.toBe('f'.repeat(64));
+      expect(hashes().skill).not.toBe('f'.repeat(64));
+      expect(addDeploy(base()).templateDrift).toEqual({});
+    });
+
+    it('refreshes the hash of a kept file that matches the render, so a later edit is "customised"', () => {
+      addDeploy(base());
+      ageRecord('vercelJson'); // the file is in step with the template, but the record says otherwise
+      const synced = readFileSync(vercelPath(), 'utf8');
+      expect(addDeploy(base()).templateDrift).toEqual({});
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(synced);
+      expect(hashes().vercelJson).not.toBe('f'.repeat(64));
+      writeFileSync(vercelPath(), customVercel);
+      expect(addDeploy(base()).templateDrift).toEqual({ vercelJson: 'customised' });
+    });
+
+    it('records a hash for an unknown block whose kept file matches the render', () => {
+      addDeploy(base());
+      dropHashes();
+      expect(addDeploy(base()).templateDrift).toEqual({});
+      expect(hashes().vercelJson).toMatch(/^[0-9a-f]{64}$/);
+      expect(hashes().skill).toMatch(/^[0-9a-f]{64}$/);
+      writeFileSync(vercelPath(), customVercel);
+      expect(addDeploy(base()).templateDrift).toEqual({ vercelJson: 'customised' });
+    });
+
+    it('a kept file that differs from the render does not refresh its recorded hash', () => {
+      addDeploy(base());
+      ageRecord('vercelJson');
+      writeFileSync(vercelPath(), customVercel);
+      addDeploy(base());
+      expect(hashes().vercelJson).toBe('f'.repeat(64));
     });
 
     it('still creates a missing file from the template, keeping the other', () => {
@@ -268,6 +374,7 @@ describe('addDeploy', () => {
       project: 'real-project',
       url: 'https://real-project.example',
       commitEndpoint: '/health',
+      templateHashes: { vercelJson: expect.stringMatching(/^[0-9a-f]{64}$/), skill: expect.stringMatching(/^[0-9a-f]{64}$/) },
     });
   });
 

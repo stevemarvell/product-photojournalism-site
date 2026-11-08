@@ -193,6 +193,14 @@ describe('validate', () => {
     expect(() => validate(relative)).toThrow(/apps\.ui\.deploy\.commitEndpoint/);
   });
 
+  it('accepts sha256 templateHashes on a deploy block and rejects malformed ones', () => {
+    const ok = minimal();
+    ok.apps.ui!.deploy!.templateHashes = { vercelJson: 'a'.repeat(64) };
+    expect(() => validate(ok)).not.toThrow();
+    ok.apps.ui!.deploy!.templateHashes = { vercelJson: 'nope' };
+    expect(() => validate(ok)).toThrow(/templateHashes\.vercelJson/);
+  });
+
   it("keeps an app's smoke script inside that app, however the path is spelled", () => {
     for (const smoke of [
       'scripts/evil.sh',
