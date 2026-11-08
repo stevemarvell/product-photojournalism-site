@@ -3,7 +3,7 @@
 // how a repository built from it opts one app at a time into a provider.
 //
 // Usage:
-//     npm run deploy:add -- vercel --app <app> [--team T --project P --url U --commit-endpoint /x]
+//     npm run deploy:add -- vercel --app <app> [--team T --project P --url U --commit-endpoint /x] [--overwrite]
 //
 // Writes `project.json`'s `apps.<app>.deploy` block, copies that provider's
 // template files into place (apps/<app>/vercel.json, and the `deployment`
@@ -21,9 +21,14 @@
 // a second one, for the same app or another, finds it there and leaves the
 // file alone.
 //
-// Idempotent — running it again overwrites the block and the files — and
-// refuses an app project.json doesn't declare, or a provider nothing here
-// registers, before writing anything.
+// Safe to re-run — the sync-ai-layer skill has every sync do it to restore
+// the schedule. The `deploy` block is rewritten (values not re-typed are kept)
+// and the schedule is only inserted if missing, but apps/<app>/vercel.json and
+// the deployment skill are written only when they don't exist: a product
+// customises them (rewrites, headers), and a re-run must not undo that. A kept
+// file is named in the output. Pass `--overwrite` to replace both from the
+// template anyway. An app project.json doesn't declare, or a provider nothing
+// here registers, is refused before anything is written.
 //
 // `--team`, `--project`, `--url` and `--commit-endpoint` are optional: left
 // out, each becomes an obvious placeholder (`<team>`, `<project>`, …) rather
@@ -96,15 +101,22 @@ export function smokeScheduleProblem(project, text) {
   );
 }
 
+// Flags that take no value.
+const SWITCHES = { '--overwrite': 'overwrite' };
 const FLAGS = { '--app': 'app', '--team': 'team', '--project': 'project', '--url': 'url', '--commit-endpoint': 'commitEndpoint' };
 
-/** Parse `[provider, ...flags]` into `{ provider, app, team?, project?, url?, commitEndpoint? }`. */
+/** Parse `[provider, ...flags]` into `{ provider, app, team?, project?, url?, commitEndpoint?, overwrite? }`. */
 export function parseArgs(argv) {
   const [provider, ...rest] = argv;
-  if (!provider) throw new Error('usage: deploy:add <provider> --app <app> [--team T --project P --url U --commit-endpoint /x]');
+  if (!provider) throw new Error('usage: deploy:add <provider> --app <app> [--team T --project P --url U --commit-endpoint /x] [--overwrite]');
   const opts = { provider };
   for (let i = 0; i < rest.length; i += 2) {
     const flag = rest[i];
+    if (SWITCHES[flag]) {
+      opts[SWITCHES[flag]] = true;
+      i -= 1; // no value to skip
+      continue;
+    }
     const key = FLAGS[flag];
     if (!key) throw new Error(`usage: unknown flag "${flag}"`);
     const value = rest[i + 1];
@@ -150,11 +162,14 @@ export function ownerSteps({ app, team, project }) {
 
 /**
  * Write `app`'s deploy block and this provider's template files. Returns the
- * filled-in `values` and the manifest written. Throws, before writing
+ * filled-in `values`, the manifest written, `changed` ({key: {from, to}} for
+ * deploy values that differ from the previous block) and `files` (vercel.json
+ * and the skill: 'written' or 'kept'; an existing file is kept unless
+ * `overwrite`). Throws, before writing
  * anything, on an app project.json doesn't declare or a provider nothing
  * registers.
  */
-export function addDeploy({ provider, app, team, project, url, commitEndpoint, root = ROOT, manifestPath = MANIFEST }) {
+export function addDeploy({ provider, app, team, project, url, commitEndpoint, overwrite = false, root = ROOT, manifestPath = MANIFEST }) {
   const templateDir = TEMPLATE_DIRS[provider];
   if (!templateDir) throw new Error(`unknown deploy provider "${provider}"`);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -162,6 +177,12 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, r
   if (!target) throw new Error(`no app named "${app}" in project.json`);
 
   const values = withPlaceholders({ team, project, url, commitEndpoint, existing: target.deploy ?? {} });
+  // Values that differ from the app's previous deploy block (none on a first
+  // run): a kept file still holds the old ones.
+  const previous = target.deploy;
+  const changed = previous
+    ? Object.fromEntries(Object.keys(values).filter((k) => previous[k] !== undefined && previous[k] !== values[k]).map((k) => [k, { from: previous[k], to: values[k] }]))
+    : {};
   target.deploy = { provider, ...values };
   validate(manifest); // throws, before anything is written, if the result is malformed
 
@@ -177,14 +198,18 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, r
   const placeholders = { app, ...values };
   const appDir = join(root, target.path);
   mkdirSync(appDir, { recursive: true });
-  writeFileSync(
-    join(appDir, 'vercel.json'),
-    renderTemplate(readFileSync(join(templateDir, 'vercel.template.json'), 'utf8'), placeholders),
-  );
-
-  const skillDir = join(appDir, '.claude/skills/deployment');
-  mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, 'SKILL.md'), renderTemplate(readFileSync(join(templateDir, 'SKILL.md'), 'utf8'), placeholders));
+  const files = {};
+  const put = (kind, path, templateFile) => {
+    if (existsSync(path) && !overwrite) {
+      files[kind] = 'kept';
+      return;
+    }
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, renderTemplate(readFileSync(join(templateDir, templateFile), 'utf8'), placeholders));
+    files[kind] = 'written';
+  };
+  put('vercelJson', join(appDir, 'vercel.json'), 'vercel.template.json');
+  put('skill', join(appDir, '.claude/skills/deployment/SKILL.md'), 'SKILL.md');
 
   let smoke = 'absent';
   if (scheduled !== null) {
@@ -192,14 +217,24 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, r
     if (smoke === 'scheduled') writeFileSync(workflowPath, scheduled);
   }
 
-  return { manifest, values, smoke };
+  return { manifest, values, smoke, files, changed };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const opts = parseArgs(process.argv.slice(2));
-    const { values, smoke } = addDeploy(opts);
-    console.log(`Wrote project.json's deploy block for "${opts.app}", its vercel.json, and the deployment skill.`);
+    const { values, smoke, files, changed } = addDeploy(opts);
+    console.log(`Wrote project.json's deploy block for "${opts.app}".`);
+    const names = { vercelJson: 'vercel.json', skill: 'deployment skill' };
+    const changes = Object.entries(changed).map(([k, { from, to }]) => `${k}: ${from} -> ${to}`);
+    for (const [kind, state] of Object.entries(files)) {
+      if (state !== 'kept') {
+        console.log(`Wrote ${kind === 'skill' ? 'the ' : ''}${names[kind]}.`);
+        continue;
+      }
+      console.log(`Kept the existing ${names[kind]} (pass --overwrite to replace it from the template).`);
+      if (changes.length) console.log(`  It may be stale: ${changes.join('; ')}. Update it by hand, or re-run with --overwrite.`);
+    }
     if (smoke === 'scheduled') console.log(`Added the every-3-hours schedule to ${SMOKE_WORKFLOW}.`);
     if (smoke === 'absent') console.log(`No ${SMOKE_WORKFLOW} here, so no scheduled smoke run was added.`);
     console.log('\nOwner steps:');

@@ -77,7 +77,10 @@ on.
    place makes `check` report drift that is already gone. The copy also drops
    `smoke.yml`'s schedule, which only `deploy:add` writes: a product whose
    `project.json` has a `deploy` block reinstates it (`npm run deploy:add`
-   again; `verify` fails until it does). Open a pull request;
+   again; `verify` fails until it does). Re-running it is safe for the app's
+   own files: it leaves an existing `apps/<app>/vercel.json` and `deployment`
+   skill untouched and names each one it kept (only `--overwrite` replaces
+   them), so a product's customised rewrites survive. Open a pull request;
    its body lists any file that is still intentionally different, and why.
 5. **Check.** After both merge, re-run step 1: only files outside the
    catalogue's engine list may still differ. Then run
