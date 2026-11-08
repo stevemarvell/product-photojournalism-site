@@ -18,8 +18,8 @@ __pycache__/
 test-results/
 playwright-report/
 
-# Local secrets — telemetry/.env holds the Grafana admin password. An app's
-# committed .env.production (a public URL) is deliberately not matched by this.
+# Ignores .env files, which hold local secrets. An app's committed
+# .env.production (a public URL) is deliberately not matched by this.
 # Each app's own build output is ignored by that app's .gitignore (#173).
 .env
 

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vitest/config';
 import { substituteAppName } from './scripts/app-name.mjs';
+import { commitFile } from './scripts/commit-file.mjs';
 
 // apps/web/vite.config.ts -> the repository root, two directories up.
 const REPO_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -24,7 +25,7 @@ function htmlAppName(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), htmlAppName()],
+  plugins: [react(), htmlAppName(), commitFile()],
   define: {
     __APP_NAME__: JSON.stringify(APP_NAME),
   },

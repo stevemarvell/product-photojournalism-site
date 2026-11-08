@@ -10,6 +10,10 @@ class FilesystemImageStore:
     def __init__(self, root: Path) -> None:
         self._root = root
 
+    @property
+    def root(self) -> Path:
+        return self._root
+
     def _path(self, image_id: str) -> Path:
         # Ids become file names, so anything that could climb out of root is refused.
         if not _SAFE_ID.fullmatch(image_id):

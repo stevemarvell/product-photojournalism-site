@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -74,18 +75,48 @@ describe('the committed project.json', () => {
     }
   });
 
-  it('deploys nothing by default: this repository is a neutral base', () => {
-    expect(deployed(loadProject())).toEqual([]);
-    expect(hasDeploy(loadProject())).toBe(false);
+  it('deploys nothing by default: an app with no deploy block is not deployed', () => {
+    const undeployed = { name: 'thing', apps: { svc: minimal().apps.svc! } };
+    expect(deployed(validate(undeployed))).toEqual([]);
+    expect(hasDeploy(validate(undeployed))).toBe(false);
+    expect(hasDeploy(minimal())).toBe(true);
   });
 });
 
 describe('the --has-deploy CLI', () => {
+  // Each case runs a copy of project.mjs beside a project.json written for it, so the
+  // answer does not depend on whether the repository running the tests deploys anything.
+  const runIn = (manifest: object) => {
+    const dir = mkdtempSync(join(tmpdir(), 'has-deploy-'));
+    try {
+      mkdirSync(join(dir, 'scripts'));
+      copyFileSync(join(REPO_ROOT, 'scripts/project.mjs'), join(dir, 'scripts/project.mjs'));
+      writeFileSync(join(dir, 'project.json'), JSON.stringify(manifest));
+      return spawnSync('node', ['scripts/project.mjs', '--has-deploy'], { cwd: dir, encoding: 'utf8' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const app = { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] };
+
   // Timeout: spawns node scripts/project.mjs (35 ms quiet); 15 s.
-  it('prints false and exits non-zero against the committed project.json, which deploys nothing', { timeout: 15_000 }, () => {
-    const result = spawnSync('node', ['scripts/project.mjs', '--has-deploy'], { cwd: REPO_ROOT, encoding: 'utf8' });
+  it('prints false and exits non-zero against a project.json that deploys nothing', { timeout: 15_000 }, () => {
+    const result = runIn({ name: 'thing', apps: { svc: app } });
     expect(result.stdout.trim()).toBe('false');
     expect(result.status).toBe(1);
+  });
+
+  it('prints true and exits zero once an app has a deploy block', { timeout: 15_000 }, () => {
+    const deploy = { provider: 'vercel', team: 't', project: 'p', url: 'https://p.example', commitEndpoint: '/health' };
+    const result = runIn({ name: 'thing', apps: { svc: { ...app, deploy } } });
+    expect(result.stdout.trim()).toBe('true');
+    expect(result.status).toBe(0);
+  });
+
+  it('agrees with the committed project.json, whichever state it is in', { timeout: 15_000 }, () => {
+    const result = spawnSync('node', ['scripts/project.mjs', '--has-deploy'], { cwd: REPO_ROOT, encoding: 'utf8' });
+    expect(result.stdout.trim()).toBe(String(hasDeploy(loadProject())));
+    expect(result.status).toBe(hasDeploy(loadProject()) ? 0 : 1);
   });
 });
 

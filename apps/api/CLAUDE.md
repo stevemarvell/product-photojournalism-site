@@ -37,8 +37,8 @@ implementations; `composition.py` picks them from environment variables, and
 
 | Variable | Values (default first) |
 | --- | --- |
-| `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`) |
-| `IMAGE_STORE` / `IMAGE_DIR` | `filesystem` / `.data/images` |
+| `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`, else `POSTGRES_URL`); default is `postgres` when `VERCEL_ENV` is set |
+| `IMAGE_STORE` / `IMAGE_DIR` | `filesystem` / `.data/images` (`/tmp/images` when `VERCEL_ENV` is set) |
 | `IDENTITY_PROVIDER` | `none` (signs nobody in), `stub` (owner; only with `API_ENVIRONMENT=development`, refused when `VERCEL_ENV` is set) |
 | `CORS_ALLOWED_ORIGINS` | comma-separated; `http://localhost:5173,http://127.0.0.1:5173`; never `*` |
 
