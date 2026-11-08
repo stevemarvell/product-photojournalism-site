@@ -14,7 +14,7 @@ name: Claude Code Review
 # can pass a change that omits a load-bearing flag from its own verify
 # script and say nothing — the "present but inert" class this repository
 # watches for. A reviewer given .claude/agents/code-checker.md catches that;
-# .claude/trials/model-tiering.md has the comparison this repository ran.
+# the base repository records the comparison it ran.
 #
 # MODEL. `--model sonnet`, from that trial rather than from taste. The same
 # pull request reviewed by Sonnet and by Haiku: Sonnet found real findings

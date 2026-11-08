@@ -171,7 +171,7 @@ no model.
 
 **Spawn fewer agents.** Each one carries its own context window, loads
 `CLAUDE.md`, and costs 57k–144k tokens on the evidence in
-`.claude/trials/model-tiering.md`. Parallel agents multiply that directly; the
+the model-tiering trial recorded in the base repository. Parallel agents multiply that directly; the
 documentation puts agent teams at roughly seven times a standard session. Three
 well-scoped agents beat seven overlapping ones, and cost less than half.
 Fewer is not none: code still goes to an `implementer`. A Sonnet agent with a
@@ -179,11 +179,11 @@ focused brief writes code more cheaply than the coordinator does in its own,
 larger context — the `delegate` skill.
 
 **Model choice is the smallest of these.** Measured, it moved about 5%. It is
-worth getting right — see `.claude/trials/model-tiering.md` for where a cheaper
+worth getting right — the model-tiering trial recorded in the base repository shows where a cheaper
 model is safe and where it silently is not — but it is the last lever to reach
 for, not the first.
 
-### The other two levers `docs/adoption.md` names
+### The other two levers the adoption document names
 
 Step 3's row also names advisors and LSPs alongside model selection and
 `CLAUDE.md` → Skills. Each of the four is either in use or recorded here as
@@ -532,7 +532,7 @@ case than two sharing a file, and only CI catches it.
 
 ## SOP 9: A web-facing change is driven, not only tested
 
-`docs/adoption.md` lists, among step 2's guardrails, Claude-powered
+The adoption document the base repository holds lists, among step 2's guardrails, Claude-powered
 end-to-end verification — looking at the rendered app, not only asserting
 against it. The Playwright specs against the built bundle (`vite preview`
 plus a real `uvicorn`, never a mock) are the right foundation and

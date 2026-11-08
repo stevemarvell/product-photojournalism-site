@@ -16,6 +16,8 @@ const actionSteps = (text: string) =>
     .split(/\n\s+- (?=\w+:)/)
     .filter((s) => /uses:\s*anthropics\/claude-code-action@/.test(s));
 
+const EXPECTED_STEPS = 3;
+
 const workflows = readdirSync(DIR).filter((f) => /\.ya?ml$/.test(f));
 
 describe("every claude-code-action step pins its model", () => {
@@ -34,10 +36,16 @@ describe("every claude-code-action step pins its model", () => {
   }
 
   it("finds the steps it is meant to check", () => {
-    // 2 in claude-code-review.yml + 1 in claude.yml.
-    const all = workflows.flatMap((f) =>
-      actionSteps(readFileSync(join(DIR, f), "utf8")),
-    );
-    expect(all.length).toBeGreaterThanOrEqual(3);
+    // Counted with a plain regex, not the splitter under test, so a step
+    // actionSteps fails to split out is noticed. 2 in claude-code-review.yml
+    // + 1 in claude.yml: adding a step means updating EXPECTED_STEPS on purpose.
+    let total = 0;
+    for (const f of workflows) {
+      const text = readFileSync(join(DIR, f), "utf8");
+      const uses = text.match(/uses:\s*anthropics\/claude-code-action@/g) ?? [];
+      expect(actionSteps(text).length, f).toBe(uses.length);
+      total += uses.length;
+    }
+    expect(total).toBe(EXPECTED_STEPS);
   });
 });

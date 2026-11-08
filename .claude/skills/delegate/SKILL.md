@@ -18,8 +18,8 @@ a coordinator that wrote the code is no longer checking it.
 `.claude/agents/` holds three roles. Each file is the agent's *standing*
 instructions; it knows nothing about the task until the brief says so. The
 role file carries the rules, the brief carries the task, the spawn carries the
-model (each is pinned to Sonnet; pass `model` only for a deliberate trial —
-`.claude/trials/model-tiering.md`).
+model (each is pinned to Sonnet; pass `model` only for a deliberate trial;
+the comparison behind that choice is recorded in the base repository).
 
 | Agent | Does | Writes |
 | --- | --- | --- |
