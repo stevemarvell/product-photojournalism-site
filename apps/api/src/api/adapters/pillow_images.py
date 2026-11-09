@@ -9,9 +9,12 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from api.application import RenderedImage
 from api.domain import WEB_WIDTHS, ImageProcessingError
 
-# Refuse a decompression bomb outright: a small file can declare billions of pixels.
-MAX_PIXELS = 100_000_000
-Image.MAX_IMAGE_PIXELS = MAX_PIXELS
+# A small file can declare billions of pixels (a decompression bomb). Pillow itself only
+# warns between its MAX_IMAGE_PIXELS and twice that, so the renderer checks the declared
+# size against its own limit before decoding anything, and fails the image. 64 million
+# pixels covers the largest common camera sensors (61 MP) and keeps decoding within a
+# few hundred MB. Configurable as IMAGE_MAX_PIXELS.
+DEFAULT_MAX_PIXELS = 64_000_000
 JPEG_QUALITY = 82
 
 
@@ -23,12 +26,17 @@ class PillowImageRenderer:
     tag is applied to the pixels first so the picture still stands the right way up.
     """
 
-    def __init__(self, widths: tuple[int, ...] = WEB_WIDTHS) -> None:
+    def __init__(
+        self, widths: tuple[int, ...] = WEB_WIDTHS, max_pixels: int = DEFAULT_MAX_PIXELS
+    ) -> None:
         self._widths = widths
+        self._max_pixels = max_pixels
 
     def render(self, data: bytes) -> RenderedImage:
         try:
             with Image.open(io.BytesIO(data)) as opened:
+                if opened.width * opened.height > self._max_pixels:
+                    raise ImageProcessingError("image has too many pixels")
                 opened.load()
                 upright = ImageOps.exif_transpose(opened) or opened
                 rgb = _flatten(upright)

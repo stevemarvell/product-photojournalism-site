@@ -360,8 +360,11 @@ def test_register_checks_the_stored_size_not_the_browsers_word(tmp_path: Path) -
         def issue(self, organisation_id: str):  # noqa: ANN201
             raise AssertionError
 
-        def size(self, original_url: str) -> int | None:
+        def size(self, organisation_id: str, original_url: str) -> int | None:
             return 5000
+
+        def claim(self, organisation_id: str, original_url: str) -> bool:
+            return True
 
         def read(self, original_url: str) -> bytes | None:
             return None
@@ -378,6 +381,36 @@ def test_register_checks_the_stored_size_not_the_browsers_word(tmp_path: Path) -
     r = client.post("/images", json={"original_url": "https://blob.test/x"})
     assert r.status_code == 413
     assert r.json()["detail"]["limit"] == 1000
+
+
+# --- Registration is bound to the issuing organisation and single-use ---------------------------
+
+
+def test_a_second_registration_of_the_same_upload_is_a_409_and_makes_no_second_row(
+    tmp_path: Path,
+) -> None:
+    container, _ = wired(tmp_path, processor="never")
+    client = signed_in(container)
+    sent = upload(client, jpeg(600, 400))
+    again = client.post("/images", json={"original_url": sent["original_url"]})
+    assert again.status_code == 409
+    assert "id" not in again.json()
+
+
+def test_an_upload_issued_to_one_organisation_cannot_be_registered_by_another(
+    tmp_path: Path,
+) -> None:
+    container, service = wired(tmp_path)
+    uploads = container.local_uploads
+    assert uploads is not None
+    target = uploads.issue("org-a")
+    assert uploads.accept(target.upload_url.rsplit("/", 1)[1], jpeg(600, 400))
+    from api.domain import ImageRefusedError
+
+    with pytest.raises(ImageRefusedError):
+        service.register("org-b", target.original_url)
+    # Refusing org-b did not use the upload up: its own organisation still can.
+    assert service.register("org-a", target.original_url).organisation_id == "org-a"
 
 
 # --- Scenario: processing times out ---------------------------------------------------------
@@ -501,3 +534,36 @@ def test_the_container_wires_the_real_lookup_not_the_stub(tmp_path: Path) -> Non
     assert container.image_status is container.image_service
     assert container.image_service.status("owner-org", "anything") is None
     assert ImageStatus.READY.value == "ready"
+
+
+# --- A small file declaring far too many pixels fails, rather than being decoded --------------
+
+
+def test_an_image_declaring_more_pixels_than_the_limit_fails_without_being_decoded() -> None:
+    from api.application import RenderedImage  # noqa: F401
+    from api.domain import ImageProcessingError
+
+    bomb = io.BytesIO()
+    # 9000 x 9000 = 81 million pixels of one colour: a few KB as a PNG.
+    Image.new("L", (9000, 9000)).save(bomb, "PNG", optimize=True)
+    assert len(bomb.getvalue()) < 1_000_000
+    with pytest.raises(ImageProcessingError, match="too many pixels"):
+        PillowImageRenderer().render(bomb.getvalue())  # default limit 64 million
+    # Under the limit the same kind of file is fine, so the check is the limit and not the format.
+    small = io.BytesIO()
+    Image.new("L", (3000, 3000)).save(small, "PNG")
+    assert PillowImageRenderer().render(small.getvalue()).width == 3000
+
+
+def test_the_pixel_limit_is_a_config_value_and_a_bomb_ends_as_failed(tmp_path: Path) -> None:
+    container = build_container(env(tmp_path, IMAGE_MAX_PIXELS="1000000"))
+    client = signed_in(container)
+    png = io.BytesIO()
+    Image.new("L", (1500, 1500)).save(png, "PNG")  # 2.25 MP, over the 1 MP limit
+    sent = upload(client, png.getvalue())
+    deadline = time.time() + 20
+    body = client.get(f"/images/{sent['id']}").json()
+    while body["status"] == "processing" and time.time() < deadline:
+        time.sleep(0.05)
+        body = client.get(f"/images/{sent['id']}").json()
+    assert body["status"] == "failed"

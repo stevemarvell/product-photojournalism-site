@@ -51,3 +51,7 @@ class ImageProcessingError(Exception):
 
 class ImageUploadsUnavailableError(Exception):
     """No place to upload originals is configured (Vercel Blob is not set up yet)."""
+
+
+class ImageAlreadyRegisteredError(Exception):
+    """That upload has already been registered; an upload backs one image row only."""

@@ -13,6 +13,7 @@ from api.application.ports import (
     UploadTarget,
 )
 from api.domain import (
+    ImageAlreadyRegisteredError,
     ImageNotFoundError,
     ImageProcessingError,
     ImageRecord,
@@ -94,15 +95,18 @@ class ImageService:
     def register(self, organisation_id: str, original_url: str) -> ImageRecord:
         """Create the row (status processing) for an uploaded original and start processing.
 
-        Raises ImageRefusedError for a URL that is not an upload, and ImageTooLargeError
+        Raises ImageRefusedError for a URL that is not an upload issued to this organisation,
+        ImageAlreadyRegisteredError for one already registered, and ImageTooLargeError
         when the stored file is over the limit: the size is read from storage, not trusted
         from the browser.
         """
-        size = self._uploads.size(original_url)
+        size = self._uploads.size(organisation_id, original_url)
         if size is None:
             raise ImageRefusedError("no such upload")
         if size > self._max_bytes:
             raise ImageTooLargeError(self._max_bytes)
+        if not self._uploads.claim(organisation_id, original_url):
+            raise ImageAlreadyRegisteredError(original_url)
         image = new_image(str(uuid.uuid4()), organisation_id, original_url, size, self._clock.now())
         self._images.create(image)
         self._processor.enqueue(organisation_id, image.id)

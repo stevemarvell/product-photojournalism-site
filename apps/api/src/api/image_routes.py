@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from api.application import ImageService
 from api.domain import (
+    ImageAlreadyRegisteredError,
     ImageNotFoundError,
     ImageRecord,
     ImageRefusedError,
@@ -91,6 +92,8 @@ def register_image(body: RegisterBody, user: Owner, service: Service) -> dict[st
         raise _too_large(e.limit) from None
     except ImageRefusedError:
         raise HTTPException(status_code=422, detail="that is not an uploaded original") from None
+    except ImageAlreadyRegisteredError:
+        raise HTTPException(status_code=409, detail="that upload is already registered") from None
 
 
 @router.get("/{image_id}")

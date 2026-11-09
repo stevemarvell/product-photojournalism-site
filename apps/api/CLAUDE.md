@@ -43,7 +43,7 @@ implementations; `composition.py` picks them from environment variables, and
 | `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`, else `POSTGRES_URL`); default is `postgres` when `VERCEL_ENV` is set |
 | `IMAGE_STORE` / `IMAGE_DIR` | `filesystem` / `.data/images` (`/tmp/images` when `VERCEL_ENV` is set) |
 | `IMAGE_UPLOADS` | `local` (originals PUT to this API's owner-only `/images/uploads/{token}`) or `off`; default `local` only with `API_ENVIRONMENT=development` and no `VERCEL_ENV`, else `off` (uploads answer 503); `local` with `VERCEL_ENV` set refuses to start |
-| `IMAGE_MAX_BYTES`, `IMAGE_PROCESSING_TIMEOUT_SECONDS` | `26214400` (25 MB), `120` |
+| `IMAGE_MAX_BYTES`, `IMAGE_PROCESSING_TIMEOUT_SECONDS`, `IMAGE_MAX_PIXELS` | `26214400` (25 MB), `120`, `64000000` (an original declaring more pixels fails before it is decoded) |
 | `IDENTITY_PROVIDER` | `none` (signs nobody in), `stub` (owner; only with `API_ENVIRONMENT=development`, refused when `VERCEL_ENV` is set), `vercel` (Sign in with Vercel; the default when `VERCEL_ENV` is set, else `none`) |
 | `VERCEL_OAUTH_CLIENT_ID`, `VERCEL_OAUTH_CLIENT_SECRET`, `OWNER_VERCEL_ID`, `SESSION_SECRET` (32+ chars) | all four needed by `vercel`; with any missing the API still starts, `/auth/*` answers 503 "sign-in not configured" and owner routes 401 |
 | `PUBLIC_WEB_ORIGIN` | the origin visitors use; the OAuth redirect URI is `<it>/api/auth/callback` (default: the deployed web app when `VERCEL_ENV` is set, else `http://localhost:5173`) |

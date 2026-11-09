@@ -116,8 +116,14 @@ class OriginalUploads(Protocol):
 
     def issue(self, organisation_id: str) -> UploadTarget: ...
 
-    def size(self, original_url: str) -> int | None:
-        """Bytes stored at a URL this adapter issued; None for anything else."""
+    def size(self, organisation_id: str, original_url: str) -> int | None:
+        """Bytes stored at a URL this adapter issued **to this organisation**; None for
+        anything else (not issued, issued to another organisation, or not uploaded yet)."""
+        ...
+
+    def claim(self, organisation_id: str, original_url: str) -> bool:
+        """Mark the upload as registered, atomically. False when it already was: an upload
+        backs exactly one image row."""
         ...
 
     def read(self, original_url: str) -> bytes | None:

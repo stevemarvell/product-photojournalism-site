@@ -2,6 +2,7 @@
 
 from api.domain.content import content_problems
 from api.domain.errors import (
+    ImageAlreadyRegisteredError,
     ImageNotFoundError,
     ImageProcessingError,
     ImageRefusedError,
@@ -37,6 +38,7 @@ from api.domain.story import (
 
 __all__ = [
     "WEB_WIDTHS",
+    "ImageAlreadyRegisteredError",
     "ImageNotFoundError",
     "ImageProcessingError",
     "ImageRecord",

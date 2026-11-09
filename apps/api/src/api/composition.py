@@ -14,6 +14,7 @@ IMAGE_UPLOADS      local | off. local: originals are uploaded to this API's owne
                    (no upload target: uploads answer 503 until Vercel Blob is provisioned).
                    local with VERCEL_ENV set is refused at startup.
 IMAGE_MAX_BYTES    largest original accepted (default 26214400, 25 MB)
+IMAGE_MAX_PIXELS   most pixels an original may declare (default 64000000); more fails it
 IMAGE_PROCESSING_TIMEOUT_SECONDS  an image still processing after this is failed when next
                    read (default 120)
 IDENTITY_PROVIDER  none | stub (only with API_ENVIRONMENT=development; refused when
@@ -46,7 +47,11 @@ from api.adapters.memory import (
     InMemoryStoryRepository,
 )
 from api.adapters.no_identity import NoIdentityProvider
-from api.adapters.pillow_images import InProcessImageProcessor, PillowImageRenderer
+from api.adapters.pillow_images import (
+    DEFAULT_MAX_PIXELS,
+    InProcessImageProcessor,
+    PillowImageRenderer,
+)
 from api.adapters.postgres import PostgresStoryRepository
 from api.adapters.stub_identity import StubIdentityProvider
 from api.adapters.vercel_identity import VercelIdentityProvider
@@ -178,7 +183,9 @@ def build_container(env: Mapping[str, str]) -> Container:
         raise ConfigError(f"unknown IMAGE_UPLOADS {uploads_name!r}")
     image_repository = InMemoryImageRepository()
     clock = SystemClock()
-    renderer = PillowImageRenderer()
+    renderer = PillowImageRenderer(
+        max_pixels=_positive_int(env, "IMAGE_MAX_PIXELS", DEFAULT_MAX_PIXELS)
+    )
     processor = InProcessImageProcessor(
         lambda org, image_id: process_image(
             org, image_id, images=image_repository, uploads=uploads, store=images, renderer=renderer
