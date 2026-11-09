@@ -47,8 +47,20 @@ so the session cookie is first-party; `/api` is also the default under
 `npm run dev`, proxied to `http://localhost:8000` by `vite.config.ts`; a
 production build without it shows "API address not configured." and fetches nothing)
 and shows the database status, or a plain
-error if the API is unreachable. `/editor` is the owner-only editor: it asks `/api/auth/me` and sends a signed-out visitor to `/api/auth/login`, rendering nothing of the editor meanwhile. Run the API alongside it for local use; the
+error if the API is unreachable. `/editor` is the owner-only editor: it asks `/api/auth/me` and sends a signed-out visitor to `/api/auth/login`, rendering nothing of the editor meanwhile. Run the API alongside it for local use (`IDENTITY_PROVIDER=stub`); the
 e2e suite mocks the API with `page.route`.
+
+`/editor` is the owner's story list and `/editor/:id` the drafting screen
+(`StoryEditor.tsx`): title, description, date and location fields plus
+`BodyEditor.tsx`, MDXEditor (pinned exact, lazy-loaded) with only bold, italic,
+a Photo button and a source toggle. The heading, list, quote and link plugins
+are deliberately not loaded, and `content.ts` `flattenMarkdown` strips their
+markdown from source view and from every save. Photo blocks (`PhotoBlock.tsx`)
+are edited in place; moves swap the tags in the markdown (`movePhoto`).
+`useAutosave.ts` is the debounced save (409 stops it). Publish is disabled
+client-side for what the browser can know (`publishBlockers`) and shows the
+API's 422 reasons for the rest (image readiness). `vercel.json` must keep
+`/editor/:path*` serving `index.html`, beside the `/api` rewrite.
 
 Once deployed, read the `deployment` skill under `.claude/skills/` here
 (written by `deploy:add`) before changing anything that deploys.

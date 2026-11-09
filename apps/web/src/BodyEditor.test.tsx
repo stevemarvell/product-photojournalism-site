@@ -1,0 +1,61 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BodyEditor } from './BodyEditor';
+
+afterEach(() => cleanup());
+
+const PHOTO = '<Photo image="img-1" alt="A harbour" caption="Dawn" credit="S. Marvell" />';
+const BODY = `First **bold** and *italic*.\n\n${PHOTO}\n\nLast.`;
+
+describe('the body editor toolbar', () => {
+  it('offers bold, italic, a photo button and the source toggle, and nothing else', async () => {
+    render(<BodyEditor initial="" onChange={() => {}} />);
+    await screen.findByTestId('source-toggle');
+    const labels = [...document.querySelectorAll('[role="toolbar"] button, [role="toolbar"] [role="button"]')].map(
+      (b) => (b.getAttribute('title') ?? b.getAttribute('aria-label') ?? b.textContent ?? '').toLowerCase(),
+    );
+    expect(labels.some((l) => l.includes('bold'))).toBe(true);
+    expect(labels.some((l) => l.includes('italic'))).toBe(true);
+    expect(labels.some((l) => l.includes('photo'))).toBe(true);
+    for (const banned of ['underline', 'link', 'heading', 'list', 'quote', 'block type', 'table', 'code', 'image']) {
+      expect(labels.filter((l) => l.includes(banned)), banned).toEqual([]);
+    }
+  });
+});
+
+describe('visual and source views', () => {
+  it('shows the Photo block in the visual view with its fields', async () => {
+    render(<BodyEditor initial={BODY} onChange={() => {}} />);
+    expect((await screen.findByTestId('photo-alt') as HTMLInputElement).value).toBe('A harbour');
+    expect((screen.getByTestId('photo-caption') as HTMLInputElement).value).toBe('Dawn');
+    expect((screen.getByTestId('photo-credit') as HTMLInputElement).value).toBe('S. Marvell');
+  });
+
+  it('round-trips text and the Photo tag unchanged through source view and back', async () => {
+    const onChange = vi.fn();
+    render(<BodyEditor initial={BODY} onChange={onChange} />);
+    await screen.findByTestId('photo-alt');
+    fireEvent.click(screen.getByTestId('source-toggle'));
+    await waitFor(() => expect(document.querySelector('.cm-content')).not.toBeNull());
+    const source = document.querySelector('.cm-content')?.textContent ?? '';
+    expect(source).toContain(PHOTO);
+    expect(source).toContain('First **bold** and *italic*.');
+    fireEvent.click(screen.getByTestId('source-toggle'));
+    expect((await screen.findByTestId('photo-alt') as HTMLInputElement).value).toBe('A harbour');
+    // Editing a field writes the same tag back, attributes in spec order.
+    fireEvent.change(screen.getByTestId('photo-caption'), { target: { value: 'Dusk' } });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const last = onChange.mock.calls.at(-1)?.[0] as string;
+    expect(last).toContain('<Photo image="img-1" alt="A harbour" caption="Dusk" credit="S. Marvell" />');
+    expect(last).toContain('First **bold** and *italic*.');
+  });
+
+  it('flattens markup the editor does not offer when it is loaded', async () => {
+    render(<BodyEditor initial={'# Big\n\n- one\n\n> quote\n\n[x](http://e.test)'} onChange={() => {}} />);
+    await screen.findByTestId('source-toggle');
+    const content = document.querySelector('.body-editor-content');
+    expect(content?.querySelector('h1,h2,ul,ol,blockquote,a')).toBeNull();
+    expect(content?.textContent).toContain('Big');
+    expect(content?.textContent).toContain('x');
+  });
+});

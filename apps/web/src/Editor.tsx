@@ -2,14 +2,19 @@ import { useEffect, useState } from 'react';
 import { IonButton, IonText } from '@ionic/react';
 
 import { fetchSession, loginUrl, signOut, type Session } from './api';
+import { StoryEditor } from './StoryEditor';
+import { StoryList } from './StoryList';
 
 /**
- * The editor route (/editor). A placeholder for the real editor: what matters
- * here is the guard. Until /auth/me has said "signed in" it renders nothing of
+ * The editor routes: /editor (the story list) and /editor/:id (the drafting
+ * screen). First, the guard. Until /auth/me has said "signed in" it renders nothing of
  * the editor, and when it says signed out it sends the visitor to sign in.
  * (The API refuses every write on its own; this only keeps the page honest.)
  */
-export function Editor({ navigate = (url: string) => window.location.assign(url) }) {
+export function Editor({
+  navigate = (url: string) => window.location.assign(url),
+  path = window.location.pathname,
+}) {
   const [session, setSession] = useState<Session | 'loading'>('loading');
 
   useEffect(() => {
@@ -25,6 +30,8 @@ export function Editor({ navigate = (url: string) => window.location.assign(url)
     // navigate is stable for the page's life.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const storyId = /^\/editor\/([^/]+)\/?$/.exec(path)?.[1];
 
   if (session === 'loading' || session.state === 'signed-out') {
     return (
@@ -43,8 +50,9 @@ export function Editor({ navigate = (url: string) => window.location.assign(url)
   return (
     <div data-testid="editor-content">
       <IonText>
-        <p>Signed in as {session.name}. The editor will be here.</p>
+        <p>Signed in as {session.name}.</p>
       </IonText>
+      {storyId ? <StoryEditor id={storyId} /> : <StoryList navigate={navigate} />}
       <IonButton
         data-testid="sign-out"
         onClick={() => {

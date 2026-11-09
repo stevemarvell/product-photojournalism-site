@@ -25,7 +25,8 @@ export class ApiNotConfiguredError extends Error {
   }
 }
 
-function base(): string {
+/** The API base, or throws ApiNotConfiguredError. */
+export function base(): string {
   const url = apiUrl();
   if (!url) throw new ApiNotConfiguredError();
   return url;

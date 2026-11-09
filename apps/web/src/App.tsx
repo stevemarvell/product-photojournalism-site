@@ -30,7 +30,7 @@ export function App() {
       </IonHeader>
       <IonContent>
         <div className="centred">
-          {window.location.pathname === '/editor' ? <Editor /> : <Home />}
+          {/^\/editor(\/|$)/.test(window.location.pathname) ? <Editor /> : <Home />}
         </div>
       </IonContent>
     </IonApp>
