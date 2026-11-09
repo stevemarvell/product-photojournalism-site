@@ -77,7 +77,11 @@ class PublicSite:
             photos={p.image_id: p for p in photos},
         )
 
-    def _photos(self, organisation_id: str, story: Story) -> list[PublicPhoto]:
+    def _photos(
+        self, organisation_id: str, story: Story, *, first_only: bool = False
+    ) -> list[PublicPhoto]:
+        """The story's Photo blocks that resolve, in order. With `first_only` it stops at the
+        first one that does: the home list needs only the hero."""
         blocks, _ = parse_photo_blocks(story.published_content)
         found: list[PublicPhoto] = []
         for block in blocks:
@@ -98,13 +102,15 @@ class PublicSite:
                     versions=image.web_versions,
                 )
             )
+            if first_only:
+                break
         return found
 
     def _summary(
         self, organisation_id: str, story: Story, photos: list[PublicPhoto] | None = None
     ) -> PublicSummary:
         if photos is None:
-            photos = self._photos(organisation_id, story)
+            photos = self._photos(organisation_id, story, first_only=True)
         assert story.first_published_at is not None
         return PublicSummary(
             id=story.id,

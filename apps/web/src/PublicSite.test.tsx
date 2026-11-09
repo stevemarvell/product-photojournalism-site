@@ -195,6 +195,14 @@ describe('a piece page', () => {
   it('shows a plain error where the API cannot answer, and not a not-found page', async () => {
     vi.stubGlobal('fetch', answer(503, {}));
     render(<PublicSite path={`/${ID}`} />);
-    expect((await screen.findByTestId('load-error')).textContent).toBe('This page could not be loaded.');
+    expect((await screen.findByTestId('load-error')).textContent).toBe('This page can\u2019t be shown right now.');
+  });
+
+  it('on a 501 shows the plain error, not the home page\'s "No application here yet."', async () => {
+    vi.stubGlobal('fetch', answer(501, { detail: 'x' }));
+    render(<PublicSite path={`/${ID}`} />);
+    expect((await screen.findByTestId('load-error')).textContent).toBe('This page can\u2019t be shown right now.');
+    expect(screen.queryByText('No application here yet.')).toBeNull();
+    expect(screen.queryByTestId('not-found')).toBeNull();
   });
 });

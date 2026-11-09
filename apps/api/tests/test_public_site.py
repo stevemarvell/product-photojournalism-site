@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from api.adapters.filesystem import UnconfiguredOriginalUploads
 from api.adapters.memory import InMemoryImageRepository
-from api.application import ImageService
+from api.application import ImageService, PublicSite
 from api.composition import Container, build_container
 from api.domain import (
     MVP_ORGANISATION_ID,
@@ -444,3 +444,67 @@ def test_the_public_reads_answer_501_where_storage_is_not_built() -> None:
         r = client.get(path)
         assert r.status_code == 501, path
         assert r.headers["cache-control"] == "no-store"
+
+
+# --- The list resolves only the hero; a 500 is also no-store ----------------------------------
+
+
+class CountingImages:
+    """Wraps the real ImageService and counts `get` calls."""
+
+    def __init__(self, inner: ImageService) -> None:
+        self.inner = inner
+        self.calls = 0
+
+    def get(self, organisation_id: str, image_id: str) -> ImageRecord:
+        self.calls += 1
+        return self.inner.get(organisation_id, image_id)
+
+
+def test_the_list_does_one_image_lookup_per_piece_but_a_page_resolves_every_photo(world) -> None:  # noqa: ANN001
+    container, _, owner, _ = world
+    three = f"{photo('img-1')}\n\n{photo('img-2')}\n\n{photo('img-3')}\n"
+    make_piece(owner, content=three)
+    make_piece(owner, content=three)
+    counting = CountingImages(container.image_service)
+    site = PublicSite(container.stories, counting)  # type: ignore[arg-type]
+    listed = site.list_live(MVP_ORGANISATION_ID)
+    assert len(listed) == 2
+    assert all(s.hero is not None for s in listed)
+    assert counting.calls == 2
+    counting.calls = 0
+    site.get_live(MVP_ORGANISATION_ID, listed[0].id)
+    assert counting.calls == 3
+
+
+def test_the_list_skips_an_unresolvable_first_photo_for_the_next(world) -> None:  # noqa: ANN001
+    container, images, owner, anon = world
+    pid = make_piece(owner, content=photo("img-1"))
+    story = container.stories.get(MVP_ORGANISATION_ID, pid)
+    assert story is not None
+    container.stories.replace(
+        MVP_ORGANISATION_ID,
+        replace(
+            story,
+            published_content=photo("nope") + photo("img-2"),
+            updated_at=story.updated_at + timedelta(seconds=1),
+        ),
+        expected_updated_at=story.updated_at,
+    )
+    assert anon.get("/public/pieces").json()[0]["hero"]["image_id"] == "img-2"
+
+
+def test_an_unhandled_error_under_public_pieces_is_a_500_with_no_store(world) -> None:  # noqa: ANN001
+    container, _, _, _ = world
+
+    class Exploding:
+        def __getattr__(self, name: str):  # noqa: ANN204
+            raise RuntimeError("boom")
+
+    app = create_app(container=replace(container, stories=Exploding()))  # type: ignore[arg-type]
+    client = TestClient(app, raise_server_exceptions=False)
+    for path in ("/public/pieces", "/public/pieces/x"):
+        r = client.get(path)
+        assert r.status_code == 500, path
+        assert r.headers["cache-control"] == "no-store", path
+        assert "boom" not in r.text

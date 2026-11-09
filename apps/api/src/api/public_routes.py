@@ -9,15 +9,19 @@ Every answer is `Cache-Control: no-store` (`NoStorePublic`): the pages are rende
 browser from a fresh fetch, so Publish, Unpublish and Republish show on the next load.
 """
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from api.application import PublicPhoto, PublicSite, PublicSummary
 from api.domain import MVP_ORGANISATION_ID, StoryNotFoundError
 from api.guard import container_of
+
+log = logging.getLogger(__name__)
 
 PREFIX = "/public/pieces"
 
@@ -26,7 +30,8 @@ router = APIRouter(prefix=PREFIX)
 
 class NoStorePublic:
     """`Cache-Control: no-store` on every /public/pieces response, whatever produced it
-    (a page, a 404, the 501 of storage that is not built yet)."""
+    (a page, a 404, the 501 of storage that is not built yet, and an unhandled error: the
+    500 is made here, inside the outer error handler, so that it carries the header too)."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -42,7 +47,21 @@ class NoStorePublic:
                 MutableHeaders(scope=message)["cache-control"] = "no-store"
             await send(message)
 
-        await self.app(scope, receive, send_no_store)
+        started = False
+
+        async def tracked(message: Message) -> None:
+            nonlocal started
+            started = started or message["type"] == "http.response.start"
+            await send_no_store(message)
+
+        try:
+            await self.app(scope, receive, tracked)
+        except Exception:
+            log.exception("unhandled error under %s", PREFIX)
+            if started:
+                raise
+            response = JSONResponse({"detail": "internal error"}, status_code=500)
+            await response(scope, receive, send_no_store)
 
 
 def site_of(request: Request) -> PublicSite:

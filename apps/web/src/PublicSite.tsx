@@ -139,7 +139,8 @@ export function Home() {
         </p>
       )}
       {pieces.state === 'loading' && <p data-testid="loading">Loading…</p>}
-      {pieces.state === 'error' && <ErrorNote status={pieces.status} what="The pieces" />}
+      {pieces.state === 'error' && pieces.status === 501 && <p data-testid="empty">No application here yet.</p>}
+      {pieces.state === 'error' && pieces.status !== 501 && <ErrorNote what="The pieces" />}
       {pieces.state === 'ready' && pieces.value.length === 0 && <p data-testid="empty">Nothing has been published yet.</p>}
       {pieces.state === 'ready' && pieces.value.length > 0 && (
         <ul className="public-list" data-testid="piece-list">
@@ -165,9 +166,8 @@ function HeroImage({ hero }: { hero: NonNullable<PieceSummary['hero']> }) {
   return <img {...sources} sizes="(min-width: 40rem) 40rem, 100vw" alt={hero.alt} width={hero.width || undefined} height={hero.height || undefined} />;
 }
 
-/** 501 is the API saying its storage is not built yet; anything else is a failure to load. */
-function ErrorNote({ status, what }: { status: number | null; what: string }) {
-  if (status === 501) return <p data-testid="empty">No application here yet.</p>;
+/** A plain failure to load. Only the home page treats 501 (storage not built yet) specially. */
+function ErrorNote({ what }: { what: string }) {
   return (
     <p data-testid="load-error" role="alert">
       {what} could not be loaded.
@@ -209,7 +209,11 @@ export function PiecePage({ id }: { id: string }) {
     return (
       <Page>
         {piece.state === 'loading' && <p data-testid="loading">Loading…</p>}
-        {piece.state === 'error' && <ErrorNote status={piece.status} what="This page" />}
+        {piece.state === 'error' && (
+          <p data-testid="load-error" role="alert">
+            This page can&rsquo;t be shown right now.
+          </p>
+        )}
       </Page>
     );
   }
