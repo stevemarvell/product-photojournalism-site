@@ -111,3 +111,27 @@ export async function publishStory(id: string): Promise<PublishResult> {
     return { kind: 'error' };
   }
 }
+
+export type LifecycleAction = 'unpublish' | 'republish' | 'revert';
+
+export type LifecycleResult =
+  | { kind: 'done'; story: StoryDetail }
+  | { kind: 'refused'; reasons: string[] }
+  | { kind: 'conflict' }
+  | { kind: 'error' };
+
+/**
+ * Unpublish, republish or revert (spec section 11). A 422 means the story's state does not
+ * allow it (the API changed nothing); a 409 means a save landed in between.
+ */
+export async function lifecycle(id: string, action: LifecycleAction): Promise<LifecycleResult> {
+  try {
+    const response = await fetch(`${base()}/stories/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+    if (response.status === 409) return { kind: 'conflict' };
+    if (response.status === 422) return { kind: 'refused', reasons: await reasonsOf(response) };
+    if (!response.ok) return { kind: 'error' };
+    return { kind: 'done', story: (await response.json()) as StoryDetail };
+  } catch {
+    return { kind: 'error' };
+  }
+}

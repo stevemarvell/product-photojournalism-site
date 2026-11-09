@@ -21,6 +21,15 @@ class PublishRefusedError(Exception):
         self.reasons = reasons
 
 
+class TransitionRefusedError(Exception):
+    """The story is not in a state that allows this lifecycle action (spec section 5);
+    `reasons` says why. Nothing was changed."""
+
+    def __init__(self, reasons: list[str]) -> None:
+        super().__init__("; ".join(reasons))
+        self.reasons = reasons
+
+
 class InvalidContentError(Exception):
     """The draft body uses markup a story may not contain; `reasons` says what."""
 

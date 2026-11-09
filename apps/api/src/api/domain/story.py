@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
+from api.domain.errors import TransitionRefusedError
 from api.domain.models import ImageStatus
 
 
@@ -136,6 +137,58 @@ def published(story: Story, now: datetime) -> Story:
         last_saved_by=None,
         previous_updated_at=None,
         last_saved_seq=None,
+    )
+
+
+def unpublished(story: Story) -> Story:
+    """Take a live story down (spec section 5): `live` false, both texts kept. Refused
+    unless it is live. `updated_at` is left alone: the draft did not change, so another
+    open tab's autosave is not made stale by it."""
+    if not story.live:
+        raise TransitionRefusedError(["the story is not live"])
+    return replace(story, live=False)
+
+
+def republished(story: Story) -> Story:
+    """Put a story that was published before back up with its current published text; the
+    draft is not copied and `first_published_at` is unchanged. Refused unless it was
+    published before and is not live."""
+    if not story.has_been_published:
+        raise TransitionRefusedError(["the story has never been published"])
+    if story.live:
+        raise TransitionRefusedError(["the story is already live"])
+    return replace(story, live=True)
+
+
+def reverted(story: Story, now: datetime) -> Story:
+    """Copy the published text over the draft, discarding draft changes. Refused unless it
+    was published before and the draft differs. `updated_at` moves forward, so a tab still
+    holding the old draft has its next autosave refused as a conflict, not applied over this."""
+    if not story.has_been_published:
+        raise TransitionRefusedError(["the story has never been published"])
+    if story.draft == _published_text(story):
+        raise TransitionRefusedError(["the draft already matches the published text"])
+    return replace(
+        story,
+        draft_title=story.published_title,
+        draft_description=story.published_description,
+        draft_location=story.published_location,
+        draft_date=story.published_date,
+        draft_content=story.published_content,
+        updated_at=_touched(story, now),
+        last_saved_by=None,
+        previous_updated_at=None,
+        last_saved_seq=None,
+    )
+
+
+def _published_text(story: Story) -> DraftFields:
+    return DraftFields(
+        story.published_title,
+        story.published_description,
+        story.published_location,
+        story.published_date,
+        story.published_content,
     )
 
 

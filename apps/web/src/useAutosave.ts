@@ -142,10 +142,36 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
     return failure.current;
   }, [run]);
 
+  /**
+   * Drops any change still inside the pause and waits for a save already in flight to finish
+   * (Revert, spec section 5). Resolves false when that save hit a conflict, so the caller
+   * must not go on to overwrite the draft.
+   */
+  const cancel = useCallback(async (): Promise<boolean> => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    pending.current = null;
+    await inFlight.current;
+    pending.current = null; // a save that failed puts its text back to retry; not wanted now
+    return !stopped.current;
+  }, []);
+
+  /** After Revert: the draft is the server's again, so there is nothing unsaved and the next save uses `next`. */
+  const reset = useCallback((next: string) => {
+    updatedAt.current = next;
+    pending.current = null;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    failure.current = 'error';
+    set('idle');
+  }, []);
+
   /** The server's newer `updated_at` after Publish, so the next autosave is not a false conflict. */
   const adopt = useCallback((next: string) => {
     updatedAt.current = next;
   }, []);
 
-  return { status, reasons, change, flush, adopt, allowLeave };
+  return { status, reasons, change, flush, adopt, cancel, reset, allowLeave };
 }

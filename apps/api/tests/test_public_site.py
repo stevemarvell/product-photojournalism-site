@@ -140,15 +140,10 @@ def edit_draft(owner: TestClient, story_id: str, **fields: object) -> None:
     assert r.status_code == 200, r.text
 
 
-def set_live(container: Container, story_id: str, live: bool) -> None:
-    """Unpublish / republish: no endpoint yet, so the row is changed as those would."""
-    story = container.stories.get(MVP_ORGANISATION_ID, story_id)
-    assert story is not None
-    container.stories.replace(
-        MVP_ORGANISATION_ID,
-        replace(story, live=live, updated_at=story.updated_at + timedelta(seconds=1)),
-        expected_updated_at=story.updated_at,
-    )
+def set_live(owner: TestClient, story_id: str, live: bool) -> None:
+    """Unpublish or republish through the owner's endpoints (#17)."""
+    r = owner.post(f"/stories/{story_id}/{'republish' if live else 'unpublish'}")
+    assert r.status_code == 200, r.text
 
 
 # --- Scenario: home page ---------------------------------------------------------------
@@ -160,7 +155,7 @@ def test_the_home_list_has_only_live_pieces_newest_first_each_with_its_hero(worl
     second = make_piece(owner, title="Second", description="Two", content=photo("img-2", "Two alt"))
     make_piece(owner, publish=False, title="Never published")
     hidden = make_piece(owner, title="Unpublished")
-    set_live(container, hidden, False)
+    set_live(owner, hidden, False)
 
     r = anon.get("/public/pieces")
     assert r.status_code == 200
@@ -198,9 +193,9 @@ def test_unpublish_and_republish_keep_the_place_by_first_published_date(world) -
     container, _, owner, anon = world
     older = make_piece(owner, title="Older")
     newer = make_piece(owner, title="Newer")
-    set_live(container, older, False)
+    set_live(owner, older, False)
     assert [r["id"] for r in anon.get("/public/pieces").json()] == [newer]
-    set_live(container, older, True)
+    set_live(owner, older, True)
     assert [r["id"] for r in anon.get("/public/pieces").json()] == [newer, older]
     # A second Publish moves last_published_at, not first_published_at.
     assert owner.post(f"/stories/{older}/publish").status_code == 200
@@ -292,7 +287,7 @@ def test_unknown_unpublished_and_never_published_ids_are_404(world) -> None:  # 
     container, _, owner, anon = world
     live = make_piece(owner)
     unpublished = make_piece(owner)
-    set_live(container, unpublished, False)
+    set_live(owner, unpublished, False)
     never = make_piece(owner, publish=False)
     assert anon.get(f"/public/pieces/{live}").status_code == 200
     for pid in (unpublished, never, "no-such-id", "00000000-0000-0000-0000-000000000000"):
@@ -349,7 +344,7 @@ def test_no_public_response_holds_draft_text_or_an_original_url(world) -> None: 
         edit_draft(owner, pid, title=DRAFT_MARKER, description=DRAFT_MARKER, location=DRAFT_MARKER,
                    content=f"{DRAFT_MARKER}\n\n{photo('img-3', DRAFT_MARKER)}\n")  # fmt: skip
     hidden = make_piece(owner, title="Hidden")
-    set_live(container, hidden, False)
+    set_live(owner, hidden, False)
 
     paths = ["/public/pieces", *(f"/public/pieces/{p}" for p in (a, b, hidden, "nope"))]
     # Everything the API serves publicly: the pieces, and each web version listed in them.
@@ -412,10 +407,10 @@ def test_publish_unpublish_and_republish_show_on_the_next_read(world) -> None:  
     assert anon.get(f"/public/pieces/{pid}").json()["title"] == "Changed"
     assert anon.get("/public/pieces").json()[0]["title"] == "Changed"
 
-    set_live(container, pid, False)
+    set_live(owner, pid, False)
     assert anon.get(f"/public/pieces/{pid}").status_code == 404
     assert anon.get("/public/pieces").json() == []
-    set_live(container, pid, True)
+    set_live(owner, pid, True)
     assert anon.get(f"/public/pieces/{pid}").json()["title"] == "Changed"
 
 
@@ -508,3 +503,29 @@ def test_an_unhandled_error_under_public_pieces_is_a_500_with_no_store(world) ->
         assert r.status_code == 500, path
         assert r.headers["cache-control"] == "no-store", path
         assert "boom" not in r.text
+
+
+# --- Lifecycle actions show on the very next public read (#17) -----------------------------
+# Public answers are `no-store` (tests above), so there is no cached copy to invalidate: each
+# action is visible on the next read.
+
+
+def test_each_lifecycle_action_shows_on_the_next_public_read(world) -> None:  # noqa: ANN001
+    _, _, owner, anon = world
+    pid = make_piece(owner, title="Dusk")
+    assert [r["id"] for r in anon.get("/public/pieces").json()] == [pid]
+
+    assert owner.post(f"/stories/{pid}/unpublish").status_code == 200
+    assert anon.get("/public/pieces").json() == []
+    assert anon.get(f"/public/pieces/{pid}").status_code == 404
+
+    assert owner.post(f"/stories/{pid}/republish").status_code == 200
+    assert [r["id"] for r in anon.get("/public/pieces").json()] == [pid]
+    assert anon.get(f"/public/pieces/{pid}").json()["title"] == "Dusk"
+
+    # Revert changes the draft only: the public text is what it was.
+    edit_draft(owner, pid, title="Draft only")
+    assert owner.post(f"/stories/{pid}/revert").status_code == 200
+    r = anon.get(f"/public/pieces/{pid}")
+    assert r.json()["title"] == "Dusk"
+    assert r.headers["cache-control"] == "no-store"

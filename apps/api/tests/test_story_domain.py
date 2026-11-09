@@ -7,11 +7,15 @@ import pytest
 from api.domain import (
     DraftFields,
     ImageStatus,
+    TransitionRefusedError,
     new_story,
     owner_order,
     parse_photo_blocks,
     publish_problems,
     published,
+    republished,
+    reverted,
+    unpublished,
     with_draft,
 )
 
@@ -152,3 +156,63 @@ def test_owner_order_puts_never_published_first_then_by_first_published_newest_f
         story("draft-new", 9, None),
     ]
     assert [s.id for s in owner_order(stories)] == ["draft-new", "draft-old", "new-pub", "old-pub"]
+
+
+# --- Lifecycle actions (issue #17, spec section 5) ------------------------------------------
+
+
+def live_story():
+    return published(with_draft(new_story("s1", "org", T0), good_draft(), T0), T0)
+
+
+def test_unpublish_when_live_clears_live_and_keeps_both_texts() -> None:
+    live = with_draft(live_story(), good_draft(title="Newer draft"), T0 + timedelta(hours=1))
+    out = unpublished(live)
+    assert out.live is False
+    assert out.published_title == "Title" and out.draft_title == "Newer draft"
+    assert out.first_published_at == live.first_published_at
+
+
+@pytest.mark.parametrize("never_live", [False, True])
+def test_unpublish_is_refused_unless_live(never_live: bool) -> None:
+    story = new_story("s1", "org", T0) if never_live else unpublished(live_story())
+    with pytest.raises(TransitionRefusedError):
+        unpublished(story)
+
+
+def test_republish_puts_the_published_text_back_without_copying_the_draft() -> None:
+    down = unpublished(with_draft(live_story(), good_draft(title="Newer draft"), T0))
+    out = republished(down)
+    assert out.live is True
+    assert out.published_title == "Title"  # not "Newer draft"
+    assert out.draft_title == "Newer draft"
+    assert out.first_published_at == down.first_published_at
+    assert out.last_published_at == down.last_published_at
+
+
+def test_republish_is_refused_when_already_live_or_never_published() -> None:
+    for story in (live_story(), new_story("s1", "org", T0)):
+        with pytest.raises(TransitionRefusedError):
+            republished(story)
+
+
+def test_revert_copies_every_published_field_over_the_draft_and_moves_updated_at() -> None:
+    paris = good_draft(location="Paris", date=date(2026, 1, 2))
+    first = published(with_draft(new_story("s1", "org", T0), paris, T0), T0)
+    edited = with_draft(first, good_draft(title="X", location="Rome", date=None, content="x"), T0)
+    out = reverted(edited, T0)  # same clock tick as the edit
+    assert out.draft == first.draft == paris
+    assert out.updated_at > edited.updated_at
+    assert out.live is True and out.published_title == "Title"
+
+
+def test_revert_is_refused_when_never_published_or_the_draft_matches() -> None:
+    with pytest.raises(TransitionRefusedError):
+        reverted(with_draft(new_story("s1", "org", T0), good_draft(), T0), T0)
+    with pytest.raises(TransitionRefusedError):
+        reverted(live_story(), T0)
+
+
+def test_revert_works_while_not_live() -> None:
+    down = unpublished(with_draft(live_story(), good_draft(title="Edited"), T0))
+    assert reverted(down, T0).draft_title == "Title"
