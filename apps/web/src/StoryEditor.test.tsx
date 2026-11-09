@@ -54,6 +54,8 @@ describe('story fields and autosave', () => {
       location: 'Falmouth',
       content: PHOTO,
       updated_at: '2026-11-09T10:00:00Z',
+      client_id: expect.any(String),
+      seq: expect.any(Number),
     });
   });
 
@@ -106,6 +108,50 @@ describe('leaving with an edit still inside the pause', () => {
     const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
     expect(init.keepalive).toBe(true);
     expect(JSON.parse(init.body as string).title).toBe('Closing now');
+  });
+
+  it('stores newer text sent on pagehide while the first save is in flight, against the API rules', async () => {
+    // A server that applies the API's rule: accept the stored updated_at, or the base of
+    // this same client's last save. Save A is applied at once but its response never arrives.
+    const server = { updatedAt: '2026-11-09T10:00:00Z', by: '', prev: '', title: '', n: 0, seq: 0 };
+    const fetchSpy = stubFetch((_url, init) => {
+      const body = JSON.parse(init?.body as string);
+      const own =
+        body.client_id === server.by && body.updated_at === server.prev && body.seq > server.seq;
+      if (body.updated_at !== server.updatedAt && !own) return json({ detail: 'changed' }, 409);
+      server.n += 1;
+      Object.assign(server, { prev: body.updated_at, by: body.client_id, title: body.title, seq: body.seq });
+      server.updatedAt = `2026-11-09T10:00:0${server.n}Z`;
+      return json({ ...story(), updated_at: server.updatedAt });
+    });
+    fetchSpy.mockImplementationOnce((_url, init) => {
+      const body = JSON.parse(init?.body as string);
+      Object.assign(server, {
+        n: 1,
+        prev: body.updated_at,
+        by: body.client_id,
+        title: body.title,
+        seq: body.seq,
+      });
+      server.updatedAt = '2026-11-09T10:00:01Z';
+      return new Promise<Response>(() => {}); // lands on the server; the response never comes
+    });
+    render(<Drafting story={story()} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'First' } });
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Newer' } });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const first = JSON.parse((fetchSpy.mock.calls[0]?.[1] as RequestInit).body as string);
+    const init = fetchSpy.mock.calls[1]?.[1] as RequestInit;
+    const second = JSON.parse(init.body as string);
+    expect(init.keepalive).toBe(true);
+    expect(second.title).toBe('Newer');
+    expect(second.client_id).toEqual(expect.any(String));
+    expect(second.client_id).toBe(first.client_id);
+    expect(second.seq).toBeGreaterThan(first.seq); // a later save of this tab
+    expect(second.updated_at).toBe(first.updated_at); // the same base: only the client id lets it in
+    await waitFor(() => expect(server.title).toBe('Newer'));
   });
 
   it('All stories saves the pending edit before it navigates', async () => {
