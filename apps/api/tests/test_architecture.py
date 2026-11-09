@@ -50,6 +50,10 @@ def test_the_ports_are_declared() -> None:
         "IdentityProvider",
         "Clock",
         "ImageStatusLookup",
+        "ImageRepository",
+        "ImageProcessor",
+        "ImageRenderer",
+        "OriginalUploads",
         "SessionStore",
     ):
         assert getattr(api.application.ports, name) is getattr(api.application, name)

@@ -4,10 +4,19 @@ STORY_REPOSITORY   memory | postgres (needs DATABASE_URL, or POSTGRES_URL, which
                    Vercel/Neon integration injects). The default is postgres only where
                    VERCEL_ENV=production, so a deployment never silently runs on memory
                    and a preview never gets the database unless it is asked for.
-SESSIONS / image status: in-memory for now (a persistent session store and the real
-                   image-status lookup are follow-ups); not configurable.
+SESSIONS / image rows: in-memory for now (a persistent session store and a Postgres
+                   image repository are follow-ups); not configurable.
 IMAGE_STORE        filesystem (default); IMAGE_DIR sets where (default .data/images,
                    /tmp/images where VERCEL_ENV is set: the bundle is read-only there)
+IMAGE_UPLOADS      local | off. local: originals are uploaded to this API's owner-only
+                   PUT /images/uploads/{token} and kept in the image store. The default is
+                   local only with API_ENVIRONMENT=development and no VERCEL_ENV, else off
+                   (no upload target: uploads answer 503 until Vercel Blob is provisioned).
+                   local with VERCEL_ENV set is refused at startup.
+IMAGE_MAX_BYTES    largest original accepted (default 26214400, 25 MB)
+IMAGE_MAX_PIXELS   most pixels an original may declare (default 64000000); more fails it
+IMAGE_PROCESSING_TIMEOUT_SECONDS  an image still processing after this is failed when next
+                   read (default 120)
 IDENTITY_PROVIDER  none | stub (only with API_ENVIRONMENT=development; refused when
                    VERCEL_ENV is set) | vercel (Sign in with Vercel; needs
                    VERCEL_OAUTH_CLIENT_ID, VERCEL_OAUTH_CLIENT_SECRET, OWNER_VERCEL_ID,
@@ -23,31 +32,46 @@ CORS_ALLOWED_ORIGINS  comma-separated origins (default: the local Vite dev serve
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 from api.adapters.clock import SystemClock
-from api.adapters.filesystem import FilesystemImageStore
+from api.adapters.filesystem import (
+    FilesystemImageStore,
+    LocalOriginalUploads,
+    UnconfiguredOriginalUploads,
+)
 from api.adapters.memory import (
-    InMemoryImageStatusLookup,
+    InMemoryImageRepository,
     InMemorySessionStore,
     InMemoryStoryRepository,
 )
 from api.adapters.no_identity import NoIdentityProvider
+from api.adapters.pillow_images import (
+    DEFAULT_MAX_PIXELS,
+    InProcessImageProcessor,
+    PillowImageRenderer,
+)
 from api.adapters.postgres import PostgresStoryRepository
 from api.adapters.stub_identity import StubIdentityProvider
 from api.adapters.vercel_identity import VercelIdentityProvider
 from api.application import (
     Clock,
     IdentityProvider,
+    ImageService,
     ImageStatusLookup,
     ImageStore,
+    OriginalUploads,
     SessionStore,
     StoryRepository,
+    process_image,
 )
 
 log = logging.getLogger(__name__)
 
 MIN_SESSION_SECRET_LENGTH = 32
+DEFAULT_IMAGE_MAX_BYTES = 25 * 1024 * 1024
+DEFAULT_IMAGE_TIMEOUT_SECONDS = 120
 VERCEL_SETTINGS = ("VERCEL_OAUTH_CLIENT_ID", "VERCEL_OAUTH_CLIENT_SECRET", "OWNER_VERCEL_ID")
 DEFAULT_WEB_ORIGIN = "http://localhost:5173"
 DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
@@ -65,7 +89,11 @@ class Container:
     stories: StoryRepository
     story_repository_name: str
     images: ImageStore
+    image_service: ImageService
+    # The publish rule's lookup: the image service itself, unless a test swaps it.
     image_status: ImageStatusLookup
+    # Set only when the local upload endpoint is enabled (never where VERCEL_ENV is set).
+    local_uploads: LocalOriginalUploads | None
     sessions: SessionStore
     identity: IdentityProvider
     identity_name: str
@@ -137,6 +165,45 @@ def build_container(env: Mapping[str, str]) -> Container:
         Path(env.get("IMAGE_DIR", "/tmp/images" if deployed else ".data/images"))
     )
 
+    uploads_name = env.get("IMAGE_UPLOADS") or (
+        "local" if env.get("API_ENVIRONMENT") == "development" and not deployed else "off"
+    )
+    local_uploads: LocalOriginalUploads | None = None
+    uploads: OriginalUploads
+    if uploads_name == "local":
+        # The endpoint writes whatever the owner sends to disk of the host; on Vercel the
+        # real target is Blob, so it is refused rather than quietly mounted.
+        if deployed:
+            raise ConfigError("IMAGE_UPLOADS=local is not allowed when VERCEL_ENV is set")
+        local_uploads = LocalOriginalUploads(images)
+        uploads = local_uploads
+    elif uploads_name == "off":
+        uploads = UnconfiguredOriginalUploads()
+    else:
+        raise ConfigError(f"unknown IMAGE_UPLOADS {uploads_name!r}")
+    image_repository = InMemoryImageRepository()
+    clock = SystemClock()
+    renderer = PillowImageRenderer(
+        max_pixels=_positive_int(env, "IMAGE_MAX_PIXELS", DEFAULT_MAX_PIXELS)
+    )
+    processor = InProcessImageProcessor(
+        lambda org, image_id: process_image(
+            org, image_id, images=image_repository, uploads=uploads, store=images, renderer=renderer
+        )
+    )
+    image_service = ImageService(
+        image_repository,
+        uploads,
+        processor,
+        clock,
+        max_bytes=_positive_int(env, "IMAGE_MAX_BYTES", DEFAULT_IMAGE_MAX_BYTES),
+        timeout=timedelta(
+            seconds=_positive_int(
+                env, "IMAGE_PROCESSING_TIMEOUT_SECONDS", DEFAULT_IMAGE_TIMEOUT_SECONDS
+            )
+        ),
+    )
+
     raw = env.get("CORS_ALLOWED_ORIGINS")
     origins = (
         tuple(o.strip() for o in raw.split(",") if o.strip())
@@ -151,12 +218,27 @@ def build_container(env: Mapping[str, str]) -> Container:
         stories=stories,
         story_repository_name=repo_name,
         images=images,
-        image_status=InMemoryImageStatusLookup(),
+        image_service=image_service,
+        image_status=image_service,
+        local_uploads=local_uploads,
         sessions=InMemorySessionStore(),
         identity=identity,
         identity_name=identity_name,
-        clock=SystemClock(),
+        clock=clock,
         cors_origins=origins,
         public_origin=(env.get("PUBLIC_WEB_ORIGIN") or default_origin).rstrip("/"),
         session_secret=session_secret,
     )
+
+
+def _positive_int(env: Mapping[str, str], name: str, default: int) -> int:
+    raw = env.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be a whole number, not {raw!r}") from None
+    if value <= 0:
+        raise ConfigError(f"{name} must be greater than zero")
+    return value

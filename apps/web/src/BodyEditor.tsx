@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BoldItalicUnderlineToggles,
   Button,
-  DialogButton,
   MDXEditor,
   diffSourcePlugin,
   insertJsx$,
@@ -16,36 +15,61 @@ import {
 import '@mdxeditor/editor/style.css';
 
 import { canonicalPhotos, entitiseProse, escapeAttr, flattenMarkdown, movePhoto, toEditorMarkdown } from './content';
+import { uploadImage, UploadRefusedError } from './images-api';
 import { PHOTO_DESCRIPTOR, PhotoContext, createPhotoStore } from './PhotoBlock';
 
-function PhotoButton() {
+/** One file the owner picked, as the upload list shows it. */
+export interface UploadRow {
+  key: number;
+  name: string;
+  state: 'uploading' | 'done' | 'refused';
+  percent: number;
+  message: string;
+}
+
+type PickPhotos = (files: File[], insert: (imageId: string) => void) => void;
+
+/** The photo button: a multi-file picker. Each chosen file is uploaded; see `useUploads`. */
+function PhotoButton({ onPick }: { onPick: PickPhotos }) {
   const insert = usePublisher(insertJsx$);
+  const input = useRef<HTMLInputElement>(null);
   return (
-    <DialogButton
-      tooltipTitle="Insert photo"
-      buttonContent={<span data-testid="photo-button">Photo</span>}
-      dialogInputPlaceholder="Image id"
-      submitButtonTitle="Insert photo"
-      onSubmit={(id) => {
-        if (!id.trim()) return;
-        insert({
-          name: 'Photo',
-          kind: 'flow',
-          props: { image: escapeAttr(id.trim()), alt: '', caption: '', credit: '' },
-        });
-      }}
-    />
+    <>
+      <Button data-testid="photo-button" title="Insert photos" onClick={() => input.current?.click()}>
+        Photo
+      </Button>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        accept="image/*"
+        hidden
+        data-testid="photo-input"
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = ''; // so choosing the same files again still fires
+          if (files.length === 0) return;
+          onPick(files, (imageId) =>
+            insert({
+              name: 'Photo',
+              kind: 'flow',
+              props: { image: escapeAttr(imageId), alt: '', caption: '', credit: '' },
+            }),
+          );
+        }}
+      />
+    </>
   );
 }
 
-function Toolbar({ onLeaveSource }: { onLeaveSource: () => void }) {
+function Toolbar({ onLeaveSource, onPick }: { onLeaveSource: () => void; onPick: PickPhotos }) {
   const mode = useCellValue(viewMode$);
   const setMode = usePublisher(viewMode$);
   const source = mode === 'source';
   return (
     <>
       {!source && <BoldItalicUnderlineToggles options={['Bold', 'Italic']} />}
-      {!source && <PhotoButton />}
+      {!source && <PhotoButton onPick={onPick} />}
       <Button
         data-testid="source-toggle"
         aria-pressed={source}
@@ -70,6 +94,50 @@ function Toolbar({ onLeaveSource }: { onLeaveSource: () => void }) {
 export function BodyEditor({ initial, onChange }: { initial: string; onChange: (markdown: string) => void }) {
   const editor = useRef<MDXEditorMethods>(null);
   const container = useRef<HTMLDivElement>(null);
+  const [uploads, setUploads] = useState<UploadRow[]>([]);
+  const nextKey = useRef(0);
+
+  const patch = useCallback((key: number, change: Partial<UploadRow>) => {
+    setUploads((rows) => rows.map((r) => (r.key === key ? { ...r, ...change } : r)));
+  }, []);
+
+  /**
+   * Uploads run side by side, but the blocks go in strictly in the order the files were
+   * chosen: each file's block is inserted only once every earlier file has been inserted
+   * or has failed, however the uploads finish. A refused file gets a message and no block.
+   */
+  const pick = useCallback<PickPhotos>((files, insert) => {
+    const rows = files.map((f): UploadRow => ({
+      key: nextKey.current++,
+      name: f.name,
+      state: 'uploading',
+      percent: 0,
+      message: '',
+    }));
+    setUploads((current) => [...current, ...rows]);
+    const results = files.map((file, i) =>
+      uploadImage(file, (percent) => patch(rows[i]!.key, { percent })).then(
+        (info) => info,
+        (error: unknown) => {
+          const message = error instanceof UploadRefusedError ? error.message : `${file.name}: the upload failed.`;
+          patch(rows[i]!.key, { state: 'refused', message });
+          return null;
+        },
+      ),
+    );
+    void (async () => {
+      for (const [i, result] of results.entries()) {
+        const info = await result;
+        if (!info) continue;
+        insert(info.id);
+        patch(rows[i]!.key, { state: 'done', percent: 100 });
+      }
+    })();
+  }, [patch]);
+  const pickPhotos = useRef<PickPhotos>(pick);
+  useEffect(() => {
+    pickPhotos.current = pick;
+  }, [pick]);
 
   const handleChange = useCallback(
     (markdown: string) => {
@@ -100,6 +168,7 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
       toolbarPlugin({
         toolbarContents: () => (
           <Toolbar
+            onPick={(files, insert) => pickPhotos.current(files, insert)}
             onLeaveSource={() => {
               // Source view may hold markup the visual editor has no node for.
               const current = editor.current?.getMarkdown() ?? '';
@@ -126,6 +195,21 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
           plugins={plugins}
           contentEditableClassName="body-editor-content"
         />
+        {uploads.length > 0 && (
+          <ul data-testid="uploads" className="uploads" aria-live="polite">
+            {uploads.map((u) => (
+              <li key={u.key} data-testid="upload-row" data-state={u.state}>
+                {u.state === 'uploading' && (
+                  <>
+                    {u.name}: uploading {u.percent}% <progress max={100} value={u.percent} />
+                  </>
+                )}
+                {u.state === 'done' && <>{u.name}: uploaded</>}
+                {u.state === 'refused' && <span role="alert">{u.message}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </PhotoContext.Provider>
   );

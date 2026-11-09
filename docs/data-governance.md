@@ -9,11 +9,32 @@ same pull request.
 | Data | Holds | Who can read it |
 | --- | --- | --- |
 | **Stories** | Per story, a **draft** (title, description, location, date, markdown content) and **published** text (the same fields, copied from the draft at publish), plus whether it is live and its publish and edit times. The content can name images by id (`<Photo image="…" alt="…" />`) but holds no image data. | **Drafts: the owner only**, through the owner endpoints. **Published text: public by design**, once the public site exists (#16 and later) and only while the story is live. |
+| **Images** | Per image: an id, its status (processing, ready or failed), the **original** (the file as the owner uploaded it, still carrying its GPS and other EXIF), the **web versions** (JPEGs at 480, 960, 1600 and 2400 px wide where the original is at least that wide, never enlarged), and the width, height and byte size. | **Web versions: public by design**, served by key at `/public/images/<image id>-<width>.jpg`, with **all EXIF, GPS, ICC and comment data removed** (they are re-encoded from the decoded pixels). **Originals: nobody but the API's own processing code.** No response of any endpoint, owner or public, contains an original's URL; the owner's `GET /images/{id}` returns the status and web versions only. |
 | **Sessions** | A server-side record per sign-in: a random session id, the owner's user id and the session epoch. No secret, no password, no personal data beyond the id. | Nobody; it is only checked, never served. |
 | **The session cookie** | The signed cookie carries the session id, its epoch and the owner's Vercel id (to compare with `OWNER_VERCEL_ID`), or, mid-sign-in, an encrypted single-use PKCE record. | The visitor's own browser. |
 
 Nothing else about visitors is stored. No passwords are handled; the owner signs in
-with Vercel. Images are not stored yet (#15).
+with Vercel.
+
+**Images are stored locally for now.** Originals and web versions sit on the API
+host's disk (`IMAGE_DIR`, `.data/images` by default, `/tmp/images` where `VERCEL_ENV` is
+set) and the image rows in memory, both lost with the host. Vercel Blob is not provisioned
+(it needs the owner's approval), so **on a deployment there is no upload target: asking for
+one answers 503 and nothing can be registered.** The browser's flow is already the Blob
+client-upload shape (ask for an upload target, send the file there, register its URL), so
+Blob replaces the local adapter without changing it; that is a follow-up. Locally the
+file goes to the owner-only `PUT /images/uploads/{token}`, which exists **only** when
+`API_ENVIRONMENT=development` (or `IMAGE_UPLOADS=local`) and **never** where `VERCEL_ENV` is
+set: asking for it there stops the app starting. Until Blob, "originals stay private" is
+true because an original's key (`orig-<random token>`) is not a name the public image route
+accepts (it serves only `<uuid>-<width>.jpg`) and no API response repeats it. Once Blob holds
+originals, MVP originals sit at unguessable URLs (owner answer, 2026-11-08), so **the
+original URL itself is the only protection, and must stay out of every response.**
+
+The largest accepted file (`IMAGE_MAX_BYTES`, 25 MB) is checked when the target is asked
+for, again as the bytes arrive, and again at registration from the stored size. An image
+still processing after `IMAGE_PROCESSING_TIMEOUT_SECONDS` (120) is marked failed when next
+read.
 
 Writing a story as a draft does not publish it: the public sees only what the owner
 chose to publish, and editing a live story changes the draft only until Publish.
@@ -87,12 +108,18 @@ load-bearing controls, and the verdict below holds only while all of them do:
   Rotating `SESSION_SECRET` still invalidates everything, and is the remedy if the
   secret itself leaks.
 
+- **The image rules**: the local upload endpoint is mounted only in development and never
+  with `VERCEL_ENV` set (`apps/api/tests/test_local_uploads.py`); it and every other owner
+  image route are probed by the owner-guard audit; the public image route serves only
+  web-version keys (`apps/api/tests/test_images.py`); web versions are rebuilt from pixels
+  with no metadata (the same file, with a GPS-bearing fixture).
+
 **What voids this verdict:** the session store being absent or bypassed (a route that
 reads the cookie without `current_user`), a public route that returns draft text, a
 second person given owner access, or the public renderer (issue 16) doing anything but
 parsing only the subset `content_problems` allows: it must never evaluate MDX, and
 `content_problems` must keep running on save and on publish. Before the Postgres story adapter ships, revisit
-this page; before images are stored, add them here.
+this page; images are now covered above; before Blob or the Postgres image adapter ships, revisit this page.
 
 ## What CI holds, and what voids that
 

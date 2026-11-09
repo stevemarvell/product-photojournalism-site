@@ -1,7 +1,8 @@
 """Scenarios of issue #13 through the HTTP API, on the in-memory adapters and stub sign-in.
 
-The images are faked by an InMemoryImageStatusLookup that marks chosen ids ready (the real
-lookup arrives with the image pipeline, #15).
+The images are faked by an InMemoryImageStatusLookup that marks chosen ids ready; the real
+lookup (ImageService) meets the same contract, tests/test_image_status_lookup_contract.py,
+and the publish rule over it is exercised in tests/test_images.py.
 """
 
 from dataclasses import replace
@@ -207,7 +208,7 @@ def test_a_draft_that_fails_the_rule_is_422_with_the_reason_and_nothing_changes(
 
 
 def test_an_image_the_lookup_does_not_know_fails_the_rule() -> None:
-    # The default lookup (no pipeline yet) knows no image: nothing can be published.
+    # A lookup that knows no image: nothing can be published.
     client = signed_in_client(replace(make_container(), image_status=InMemoryImageStatusLookup()))
     story = create(client)
     save(client, story)

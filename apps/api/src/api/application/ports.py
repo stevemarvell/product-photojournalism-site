@@ -5,10 +5,11 @@ slices that use them.
 """
 
 from collections.abc import Mapping, MutableMapping
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
-from api.domain import ImageStatus, SessionRecord, Story, User
+from api.domain import ImageRecord, ImageStatus, SessionRecord, Story, User
 
 
 class StoryRepository(Protocol):
@@ -75,10 +76,94 @@ class SessionStore(Protocol):
         ...
 
 
-class ImageStore(Protocol):
-    def put(self, image_id: str, data: bytes) -> None: ...
+class ImageRepository(Protocol):
+    """Image rows (spec section 4), always scoped to an organisation: every method takes
+    `organisation_id` and never returns or touches another organisation's image."""
 
-    def get(self, image_id: str) -> bytes | None: ...
+    def create(self, image: ImageRecord) -> None:
+        """Store a new image (under `image.organisation_id`)."""
+        ...
+
+    def get(self, organisation_id: str, image_id: str) -> ImageRecord | None: ...
+
+    def replace_if_status(
+        self, organisation_id: str, image: ImageRecord, expected: ImageStatus
+    ) -> bool:
+        """Store `image` in place of the stored row, atomically, but only if the stored status
+        is still `expected`. False when it is not (or there is no such image): the row is
+        left alone. This is what stops a late worker un-failing a timed-out image."""
+        ...
+
+
+class ImageStore(Protocol):
+    """Bytes by key. Used for the web versions (public) and, locally, the originals."""
+
+    def put(self, key: str, data: bytes) -> str:
+        """Store `data` and return the URL it is reachable at."""
+        ...
+
+    def get(self, key: str) -> bytes | None: ...
+
+
+@dataclass(frozen=True)
+class UploadTarget:
+    """Where the browser puts one original, and the URL it then registers (the Vercel Blob
+    client-upload shape: ask for a target, PUT the file there, register the URL)."""
+
+    upload_url: str
+    original_url: str
+    method: str = "PUT"
+
+
+class OriginalUploads(Protocol):
+    """Where originals are uploaded to and read back from. Never public.
+
+    Locally the filesystem; in production Vercel Blob (a follow-up): `issue` becomes a
+    client-upload token, `size` a HEAD request and `read` a download, without the
+    browser's flow changing.
+    """
+
+    def issue(self, organisation_id: str) -> UploadTarget: ...
+
+    def size(self, organisation_id: str, original_url: str) -> int | None:
+        """Bytes stored at a URL this adapter issued **to this organisation**; None for
+        anything else (not issued, issued to another organisation, or not uploaded yet)."""
+        ...
+
+    def claim(self, organisation_id: str, original_url: str) -> bool:
+        """Mark the upload as registered, atomically. False when it already was: an upload
+        backs exactly one image row."""
+        ...
+
+    def read(self, original_url: str) -> bytes | None:
+        """The original's bytes; None when it is not one this adapter issued."""
+        ...
+
+
+@dataclass(frozen=True)
+class RenderedImage:
+    width: int
+    height: int
+    # (width, JPEG bytes) for each web version, smallest first.
+    versions: tuple[tuple[int, bytes], ...]
+
+
+class ImageRenderer(Protocol):
+    def render(self, data: bytes) -> RenderedImage:
+        """Web versions of an original, with all metadata dropped.
+
+        Raises ImageProcessingError for bytes that are not a usable image.
+        """
+        ...
+
+
+class ImageProcessor(Protocol):
+    """Where processing runs (spec section 13 leaves that open): locally a thread in this
+    process; in production a queue or a function, behind this same port."""
+
+    def enqueue(self, organisation_id: str, image_id: str) -> None:
+        """Start processing the image; the row's status carries the outcome."""
+        ...
 
 
 class SignInNotConfiguredError(Exception):

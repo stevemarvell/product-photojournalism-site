@@ -234,3 +234,19 @@ def test_the_owner_passes_the_guard() -> None:
     client = guarded_app(User(id="owner", name="Owner", is_owner=True))
     r = client.post("/notes")
     assert (r.status_code, r.json()) == (200, {"writes": 1})
+
+
+def test_the_image_endpoints_and_the_local_upload_endpoint_are_probed_and_guarded() -> None:
+    # The local upload endpoint exists only when development enables it, so the audit has to
+    # be pointed at that configuration or it would never see the route.
+    env = {"API_ENVIRONMENT": "development", "STORY_REPOSITORY": "memory"}
+    result = audit(create_app(env=env))
+    assert result.problems == []
+    assert {
+        "POST /images/upload-target",
+        "POST /images",
+        "GET /images/{image_id}",
+        "PUT /images/uploads/{token}",
+    } <= set(result.guarded)
+    # The only image route that is public serves web versions, by key.
+    assert "/public/images/{key}" in result.public

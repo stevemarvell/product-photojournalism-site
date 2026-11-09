@@ -27,7 +27,13 @@ function story(over: Partial<StoryDetail['draft']> = {}): StoryDetail {
 type Handler = (url: string, init?: RequestInit) => Response | Promise<Response>;
 function stubFetch(handler: Handler) {
   const spy = vi.fn((url: string, init?: RequestInit) => Promise.resolve(handler(url, init)));
-  vi.stubGlobal('fetch', spy);
+  // The screen also follows the images its draft names (GET /images/:id); these tests are
+  // about stories, so those reads are answered "ready" and are not counted in the spy.
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
+    /\/images\/[^/]+$/.test(url) && !init?.method
+      ? Promise.resolve(json({ id: 'x', status: 'ready', web_versions: [], width: 1, height: 1, byte_size: 1 }))
+      : spy(url, init),
+  );
   return spy;
 }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });

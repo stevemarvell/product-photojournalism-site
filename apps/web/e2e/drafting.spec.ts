@@ -188,12 +188,11 @@ test.describe('the drafting screen', () => {
     expect(saved).toContain('Intro');
   });
 
-  test('the photo button inserts a block; alt, caption and credit are edited in place', async ({ page }) => {
-    const mock = await mockApi(page);
+  test('photo blocks are edited in place: alt, caption and credit are saved', async ({ page }) => {
+    const mock = await mockApi(page, {
+      content: '<Photo image="img-42" alt="" caption="" credit="" />',
+    });
     await page.goto('/editor/s1');
-    await page.getByTestId('photo-button').click();
-    await page.getByPlaceholder('Image id').fill('img-42');
-    await page.getByRole('button', { name: 'Insert photo' }).last().click();
     await expect(page.getByTestId('photo-block')).toHaveCount(1);
     await page.getByTestId('photo-alt').fill('A "boat" & more');
     await page.getByTestId('photo-caption').fill('Moored');

@@ -19,6 +19,9 @@ from api.auth_routes import owner_router as auth_owner_router
 from api.auth_routes import router as auth_router
 from api.composition import Container, build_container
 from api.domain import StorageUnavailableError
+from api.image_routes import local_upload_router
+from api.image_routes import public_router as public_image_router
+from api.image_routes import router as image_router
 from api.security_headers import install_security_headers
 from api.story_routes import router as story_router
 from api.story_routes import storage_unavailable_handler
@@ -67,6 +70,10 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(auth_owner_router)
     app.include_router(story_router)
+    app.include_router(image_router)
+    app.include_router(public_image_router)
+    if container.local_uploads is not None:
+        app.include_router(local_upload_router)
     app.add_exception_handler(StorageUnavailableError, storage_unavailable_handler)
 
     # The session: a signed cookie (itsdangerous via Starlette), always HttpOnly,

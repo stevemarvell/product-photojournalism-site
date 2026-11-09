@@ -2,6 +2,8 @@ import { createContext, useContext, useRef, useState, useSyncExternalStore } fro
 import { useMdastNodeUpdater, type JsxComponentDescriptor, type JsxEditorProps, type MdastJsx } from '@mdxeditor/editor';
 
 import { escapeAttr, unescapeAttr, type PhotoAttrs } from './content';
+import { resolveUrl, type ImageState } from './images-api';
+import { ImageStatusContext } from './useImageStatuses';
 
 /**
  * Where the Photo blocks sit relative to each other. A block asks for its own
@@ -68,6 +70,7 @@ function PhotoBlockEditor({ mdastNode }: JsxEditorProps) {
   const update = useMdastNodeUpdater<MdastJsx>();
   const store = useContext(PhotoContext);
   const ref = useRef<HTMLDivElement>(null);
+  const states = useContext(ImageStatusContext);
   const [attrs, setAttrs] = useState<PhotoAttrs>(() => attrsOf(mdastNode));
 
   const where = useSyncExternalStore(
@@ -107,6 +110,7 @@ function PhotoBlockEditor({ mdastNode }: JsxEditorProps) {
           </button>
         )}
       </div>
+      <ImageNotice state={states.get(attrs.image)} />
       <label>
         Alt text (required to publish)
         <input data-testid="photo-alt" value={attrs.alt} onChange={(e) => set('alt', e.target.value)} />
@@ -121,6 +125,36 @@ function PhotoBlockEditor({ mdastNode }: JsxEditorProps) {
       </label>
     </div>
   );
+}
+
+/** What the block says about its image: still processing, failed, or a thumbnail once ready. */
+function ImageNotice({ state }: { state: ImageState | undefined }) {
+  if (!state || state.status === 'loading') return null;
+  if (state.status === 'processing') {
+    return (
+      <p data-testid="photo-status" className="photo-status">
+        Processing…
+      </p>
+    );
+  }
+  if (state.status === 'failed') {
+    return (
+      <p data-testid="photo-error" role="alert" className="photo-error">
+        This photo could not be processed. Remove this block and upload the photo again.
+      </p>
+    );
+  }
+  if (state.status === 'missing') {
+    return (
+      <p data-testid="photo-error" role="alert" className="photo-error">
+        No photo with this id exists. Remove this block and upload the photo again.
+      </p>
+    );
+  }
+  const small = state.web_versions[0];
+  return small ? (
+    <img data-testid="photo-thumb" className="photo-thumb" src={resolveUrl(small.url)} alt="" width={160} />
+  ) : null;
 }
 
 export const PHOTO_DESCRIPTOR: JsxComponentDescriptor = {

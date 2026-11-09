@@ -9,7 +9,14 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 
 from api.application.sessions import SESSION_MAX_AGE
-from api.domain import ImageStatus, SessionRecord, Story, StoryConflictError, StoryNotFoundError
+from api.domain import (
+    ImageRecord,
+    ImageStatus,
+    SessionRecord,
+    Story,
+    StoryConflictError,
+    StoryNotFoundError,
+)
 
 
 class InMemoryStoryRepository:
@@ -64,9 +71,41 @@ class InMemoryStoryRepository:
             return story
 
 
+class InMemoryImageRepository:
+    def __init__(self) -> None:
+        # Keyed by (organisation_id, image id): a lookup cannot cross organisations.
+        self._images: dict[tuple[str, str], ImageRecord] = {}
+        self._lock = threading.Lock()
+
+    def create(self, image: ImageRecord) -> None:
+        with self._lock:
+            key = (image.organisation_id, image.id)
+            if key in self._images:
+                raise ValueError(f"image {image.id} already exists")
+            self._images[key] = image
+
+    def get(self, organisation_id: str, image_id: str) -> ImageRecord | None:
+        with self._lock:
+            return self._images.get((organisation_id, image_id))
+
+    def replace_if_status(
+        self, organisation_id: str, image: ImageRecord, expected: ImageStatus
+    ) -> bool:
+        with self._lock:  # the compare and the write are one step
+            key = (organisation_id, image.id)
+            stored = self._images.get(key)
+            if stored is None or image.organisation_id != organisation_id:
+                return False
+            if stored.status is not expected:
+                return False
+            self._images[key] = image
+            return True
+
+
 class InMemoryImageStatusLookup:
-    """Image statuses a test or a local run states up front. Any other id is unknown (None),
-    which fails the publish rule; the real lookup arrives with the image pipeline (#15)."""
+    """A fake ImageStatusLookup: statuses a test states up front. Any other id is unknown
+    (None), which fails the publish rule. The real one is `ImageService.status`; both meet
+    tests/test_image_status_lookup_contract.py."""
 
     def __init__(self, statuses: Mapping[str, ImageStatus] | None = None) -> None:
         self._statuses = dict(statuses or {})
