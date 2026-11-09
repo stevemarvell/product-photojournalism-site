@@ -279,6 +279,28 @@ def test_signing_out_ends_the_session_and_the_editor_is_unreachable_again() -> N
     assert client.get("/probe-owner-only").status_code == 401
 
 
+def test_a_copied_vercel_session_cookie_is_dead_once_the_owner_signs_out() -> None:
+    fake = FakeVercel()
+    client = make_client(fake)
+    complete(client, start_login(client, fake))
+    copy = TestClient(client.app, base_url="https://testserver")
+    copy.cookies.set("session", client.cookies["session"])
+    assert copy.get("/probe-owner-only").status_code == 200
+
+    client.post("/auth/logout")
+
+    assert copy.get("/probe-owner-only").status_code == 401
+    assert not signed_in(copy)
+
+
+def test_the_vercel_cookie_alone_is_not_a_session_without_the_stored_record() -> None:
+    fake = FakeVercel()
+    client = make_client(fake)
+    complete(client, start_login(client, fake))
+    client.app.state.container.sessions.revoke_all("owner")
+    assert client.get("/probe-owner-only").status_code == 401
+
+
 # --- Sign-in not configured: the site stays up --------------------------------
 
 

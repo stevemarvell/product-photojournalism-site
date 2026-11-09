@@ -1,15 +1,46 @@
 # Data governance
 
-A stub. The API connects to a Postgres database in production but stores no
-stories or images yet; it processes a session cookie (signed, HttpOnly, no
-password) and the owner's Vercel id, used only to sign the owner in. No
-passwords are handled.
+What this product stores, where, who can read it, and what would change that.
+Read it before changing what is stored, served or exposed, and update it in the
+same pull request.
 
-The API (`apps/api`) connects to a Neon Postgres database in production
-(`VERCEL_ENV=production`). It stores nothing in it yet. Previews use the
-in-memory adapter by default and reach the database only if `STORY_REPOSITORY`
-is set explicitly. `/health` exposes only the adapter name and whether it is
-reachable, never the connection string.
+## What is stored
+
+| Data | Holds | Who can read it |
+| --- | --- | --- |
+| **Stories** | Per story, a **draft** (title, description, location, date, markdown content) and **published** text (the same fields, copied from the draft at publish), plus whether it is live and its publish and edit times. The content can name images by id (`<Photo image="…" alt="…" />`) but holds no image data. | **Drafts: the owner only**, through the owner endpoints. **Published text: public by design**, once the public site exists (#16 and later) and only while the story is live. |
+| **Sessions** | A server-side record per sign-in: a random session id, the owner's user id and the session epoch. No secret, no password, no personal data beyond the id. | Nobody; it is only checked, never served. |
+| **The session cookie** | The signed cookie carries the session id, its epoch and the owner's Vercel id (to compare with `OWNER_VERCEL_ID`), or, mid-sign-in, an encrypted single-use PKCE record. | The visitor's own browser. |
+
+Nothing else about visitors is stored. No passwords are handled; the owner signs in
+with Vercel. Images are not stored yet (#15).
+
+Writing a story as a draft does not publish it: the public sees only what the owner
+chose to publish, and editing a live story changes the draft only until Publish.
+Every query is scoped to an organisation id, taken from the signed-in user, so one
+organisation's code path cannot read another's stories (today there is one
+organisation, the owner's).
+
+## Where it is stored
+
+- **Today: in memory only.** Stories and sessions live in the API process's memory
+  (`InMemoryStoryRepository`, `InMemorySessionStore`) and are lost when it restarts.
+  This is the adapter local runs and previews use.
+- **Production: Postgres, once the follow-up lands.** Production selects the Postgres
+  adapter by default (`STORY_REPOSITORY`), but its story methods are not built: they
+  raise `NotImplementedError`, and the API answers the owner story endpoints with
+  501. That is deliberate and safe for now: **nobody can sign in on production yet**
+  (sign-in is not configured there), so no story exists to lose or to leak. It must be
+  built before the owner is given access. The follow-up needs the stories table and
+  migrations, a persistent session store, and the shared repository contract suite
+  un-skipped for Postgres.
+- **Sessions on a serverless host** held in memory are per instance: a session may be
+  refused after a restart or when another instance answers, and the owner signs in
+  again. That fails closed (a lost record refuses access, never grants it); a
+  persistent session store removes the nuisance.
+
+`/health` exposes only the adapter name and whether it is reachable, never the
+connection string.
 
 ## Sign-in: the controls everything else leans on
 
@@ -22,24 +53,26 @@ load-bearing controls, and the verdict below holds only while all of them do:
   neither public nor answering 401 without a session.
 - **`/auth/*` and `/public/*` are public prefixes** (`api.guard.PUBLIC_PREFIXES`):
   anything added under them skips the guard. Nothing that writes or reads
-  owner-only data may go there.
+  owner-only data may go there. The one owner route under `/auth/`,
+  `POST /auth/revoke-all`, is listed in `api.guard.OWNER_ONLY_UNDER_PUBLIC`: it names
+  `require_owner` itself and the audit probes it like any other owner route.
 - **`OWNER_VERCEL_ID`** (the Vercel `sub` allowed in) and **`SESSION_SECRET`**
   (signs the session cookie; derives the key that seals the pending sign-in).
   With either missing, sign-in is off and owner routes answer 401.
 - **The session cookie**: signed, HttpOnly, SameSite=Lax, Secure over https,
   12 hours. Every `/auth/*` response is `Cache-Control: no-store`.
+- **Server-side sessions.** Every sign-in creates a record in the `SessionStore`, and
+  every owner request must present a cookie whose session id is in the store at the
+  stored epoch (`api.guard.current_user`). **Signing out deletes the record**, so a
+  copy of the cookie stops working at once. **`POST /auth/revoke-all`** bumps the
+  epoch: every session, the caller's included, is refused on its next request.
+  Rotating `SESSION_SECRET` still invalidates everything, and is the remedy if the
+  secret itself leaks.
 
-Signing out clears the browser's cookie but cannot revoke a copy of it, because
-the session is stateless. **Incident response until server-side revocation
-exists: rotate `SESSION_SECRET`**, which invalidates every session at once.
-
-**What voids this verdict: the first stored data or write endpoint (#13).**
-Until then there is nothing behind the guard to lose, so a stolen session
-reaches no data; once stories or images are stored, revisit the session
-lifetime, revocation and this list.
-
-Rewrite this page before anything that serves, stores or exposes data ships:
-what is exposed, to whom, why that is deliberate, and what would change it.
+**What voids this verdict:** the session store being absent or bypassed (a route that
+reads the cookie without `current_user`), a public route that returns draft text, or a
+second person given owner access. Before the Postgres story adapter ships, revisit
+this page; before images are stored, add them here.
 
 ## What CI holds, and what voids that
 

@@ -14,9 +14,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.auth_routes import NoStoreAuth
+from api.auth_routes import owner_router as auth_owner_router
 from api.auth_routes import router as auth_router
 from api.composition import Container, build_container
 from api.security_headers import install_security_headers
+from api.story_routes import not_implemented_handler
+from api.story_routes import router as story_router
 
 # Defaults to "production", the safe setting, so a forgotten variable fails
 # closed. API_ENVIRONMENT=development turns on the OpenAPI surface below.
@@ -27,10 +30,9 @@ API_ENVIRONMENT = os.environ.get("API_ENVIRONMENT", "production")
 DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
 
 
-# How long a sign-in lasts. The session is a signed cookie, so signing out clears
-# the browser's copy but cannot revoke a copied one before this runs out; the
-# remedy until #13 adds server-side revocation is rotating SESSION_SECRET
-# (docs/data-governance.md).
+# How long a sign-in lasts. The cookie is signed and also names a server-side
+# session record (api.guard.current_user), so signing out or revoking all
+# sessions refuses a copied cookie at once, before this runs out.
 SESSION_MAX_AGE = 12 * 60 * 60
 
 # How long /health reuses a database ping.
@@ -62,6 +64,9 @@ def create_app(
 
     app.state.container = container
     app.include_router(auth_router)
+    app.include_router(auth_owner_router)
+    app.include_router(story_router)
+    app.add_exception_handler(NotImplementedError, not_implemented_handler)
 
     # The session: a signed cookie (itsdangerous via Starlette), always HttpOnly,
     # SameSite=Lax so the redirect back from Vercel carries it, and Secure
