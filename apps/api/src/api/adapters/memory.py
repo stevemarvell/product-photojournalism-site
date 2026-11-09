@@ -35,13 +35,26 @@ class InMemoryStoryRepository:
         with self._lock:
             return [s for (org, _), s in self._stories.items() if org == organisation_id]
 
-    def replace(self, organisation_id: str, story: Story, expected_updated_at: datetime) -> Story:
+    def replace(
+        self,
+        organisation_id: str,
+        story: Story,
+        expected_updated_at: datetime,
+        client_id: str | None = None,
+    ) -> Story:
         with self._lock:  # the compare and the write are one step
             key = (organisation_id, story.id)
             stored = self._stories.get(key)
             if stored is None or story.organisation_id != organisation_id:
                 raise StoryNotFoundError(story.id)
-            if stored.updated_at != expected_updated_at:
+            current = stored.updated_at == expected_updated_at
+            # The same tab superseding its own last save, made from this same base.
+            own = (
+                client_id is not None
+                and stored.last_saved_by == client_id
+                and stored.previous_updated_at == expected_updated_at
+            )
+            if not (current or own):
                 raise StoryConflictError(story.id)
             self._stories[key] = story
             return story

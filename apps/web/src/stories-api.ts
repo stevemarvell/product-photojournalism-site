@@ -60,6 +60,14 @@ async function reasonsOf(response: Response): Promise<string[]> {
   }
 }
 
+/**
+ * Names this editor tab to the API. Every autosave carries it, so the API can tell a tab
+ * overwriting its own last save (same base, e.g. a pagehide save sent while the previous
+ * one was in flight) from another tab holding a stale copy, which still gets a 409.
+ */
+const CLIENT_ID =
+  globalThis.crypto?.randomUUID?.() ?? `tab-${Math.random().toString(36).slice(2)}${Date.now()}`;
+
 /** Autosave: sends the `updated_at` last seen; a 409 means the draft changed elsewhere. */
 export async function saveDraft(
   id: string,
@@ -71,7 +79,7 @@ export async function saveDraft(
     const response = await fetch(`${base()}/stories/${encodeURIComponent(id)}/draft`, {
       method: 'PUT',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ ...draft, updated_at: updatedAt }),
+      body: JSON.stringify({ ...draft, updated_at: updatedAt, client_id: CLIENT_ID }),
       ...(keepalive ? { keepalive: true } : {}),
     });
     if (response.status === 409) return { kind: 'conflict' };

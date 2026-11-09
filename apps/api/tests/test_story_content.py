@@ -22,6 +22,7 @@ PHOTO = '<Photo image="img-1" alt="A harbour" caption="" credit="" />'
         "importantly, exports rose",
         "import duties rose sharply last year.",
         "Export of goods fell.\nimport from the east grew.",
+        "import duties rose sharply last year.\n\nThey fell later.",
     ],
 )
 def test_allowed_bodies(content: str) -> None:
@@ -53,6 +54,9 @@ def test_allowed_bodies(content: str) -> None:
         "export { a }",
         'export*from"x"',
         'a\rimport a from "b"',
+        'import a,\n* as b from "x"',
+        'text\n\nimport\n  a\n  from "x"',
+        'import {\n  a,\n  b\n}\nfrom "x"',
         "\\<script>alert(1)</script>",
         "\\\\<script>alert(1)</script>",
         "\\\\\\<script>",

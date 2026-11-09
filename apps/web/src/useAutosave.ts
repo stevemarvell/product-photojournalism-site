@@ -75,8 +75,10 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
     // browser finishes the request after the page is gone. A keepalive request
     // body is limited to 64 KB, so a longer draft may not get through; the
     // beforeunload prompt below is what covers that case. A save already in flight
-    // does not hold this back: newer text is sent with the last known updated_at,
-    // and if the in-flight save lands first this one is a harmless 409.
+    // does not hold this back: newer text is sent with the last known updated_at and this
+    // tab's client_id, which the API accepts as the same tab superseding its own save even if
+    // that save lands first. If another tab saved in between it is a 409 and the text is not
+    // stored; the beforeunload prompt is what covers that.
     const onPageHide = () => {
       const draft = pending.current;
       if (!draft || stopped.current) return;

@@ -26,6 +26,27 @@ _ESM_LINE = re.compile(
     r"""(?:^|[\r\n])[ \t]*(?:import\s*(?:[\w$*{][^\n]*?\s+from\s*)?['"]"""
     r"""|export\s*[*{]|export\s+(?:const|let|var|function|class|async|default))""",
 )
+# The same syntax spread over several lines. A block is the lines up to a blank line; one that
+# opens with an import or export and holds `from "..."` (or opens with `import "..."`) is ESM,
+# however its lines are broken. Prose that merely starts with "import" has no quoted module.
+_BLOCK_SPLIT = re.compile(r"(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)")
+_ESM_BLOCK_START = re.compile(
+    r"""[ \t]*(?:import(?:\s|['"])|export\s*[*{]"""
+    r"|export\s+(?:const|let|var|function|class|async|default)\b)"
+)
+_FROM_MODULE = re.compile(r"""from\s*['"]""")
+_BARE_IMPORT = re.compile(r"""[ \t]*import\s*['"]""")
+
+
+def _esm_block(text: str) -> bool:
+    for block in _BLOCK_SPLIT.split(text):
+        if _ESM_BLOCK_START.match(block) and (
+            _FROM_MODULE.search(block) or _BARE_IMPORT.match(block)
+        ):
+            return True
+    return False
+
+
 # A `<` or `{` is refused wherever it appears, even as `\<` or `\{`: a backslash
 # can itself be escaped (`\\<` is a literal backslash and a live `<`), so the
 # parser's rule is not reimplemented here. The editor's own output never needs
@@ -53,7 +74,7 @@ def content_problems(content: str) -> list[str]:
         return "\n"
 
     rest = _TAG.sub(keep_valid, content)
-    if _ESM_LINE.search(rest):
+    if _ESM_LINE.search(rest) or _esm_block(rest):
         problems.append("import and export lines are not allowed")
     if _RAW_LT.search(rest):
         problems.append("only Photo tags are allowed; other tags and raw HTML are not")

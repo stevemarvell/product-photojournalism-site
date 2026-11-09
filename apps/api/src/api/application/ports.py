@@ -29,9 +29,16 @@ class StoryRepository(Protocol):
         """Every story of the organisation, in no particular order."""
         ...
 
-    def replace(self, organisation_id: str, story: Story, expected_updated_at: datetime) -> Story:
+    def replace(
+        self,
+        organisation_id: str,
+        story: Story,
+        expected_updated_at: datetime,
+        client_id: str | None = None,
+    ) -> Story:
         """Store `story` in place of the stored one, atomically (one transaction), but only if
-        the stored `updated_at` is still `expected_updated_at`.
+        the stored `updated_at` is still `expected_updated_at`, or the stored version was saved by
+        the same `client_id` from that same base (a tab superseding its own last save).
 
         Raises StoryNotFoundError, or StoryConflictError when it has changed since.
         """

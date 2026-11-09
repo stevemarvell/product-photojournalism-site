@@ -121,3 +121,31 @@ def test_the_postgres_adapter_does_not_pretend_to_store_stories_yet() -> None:
         postgres.create(new_story("s1", "org-a", T0))
     with pytest.raises(StorageUnavailableError):
         postgres.replace("org-a", new_story("s1", "org-a", T0), expected_updated_at=T0)
+
+
+def test_the_same_client_may_supersede_its_own_last_save_from_the_same_base(
+    repo: StoryRepository,
+) -> None:
+    story = new_story("s1", "org-a", T0)
+    repo.create(story)
+    base = story.updated_at
+    a = with_draft(story, DraftFields(title="A"), T0 + timedelta(minutes=1), "tab-1", base)
+    repo.replace("org-a", a, expected_updated_at=base, client_id="tab-1")
+    b = with_draft(a, DraftFields(title="B"), T0 + timedelta(minutes=2), "tab-1", base)
+    assert repo.replace("org-a", b, expected_updated_at=base, client_id="tab-1") == b
+    assert repo.get("org-a", "s1") == b
+    assert b.last_saved_by == "tab-1" and b.previous_updated_at == base
+
+
+def test_another_client_with_the_old_base_still_conflicts(repo: StoryRepository) -> None:
+    story = new_story("s1", "org-a", T0)
+    repo.create(story)
+    base = story.updated_at
+    a = with_draft(story, DraftFields(title="A"), T0 + timedelta(minutes=1), "tab-1", base)
+    repo.replace("org-a", a, expected_updated_at=base, client_id="tab-1")
+    b = with_draft(a, DraftFields(title="B"), T0 + timedelta(minutes=2), "tab-2", base)
+    with pytest.raises(StoryConflictError):
+        repo.replace("org-a", b, expected_updated_at=base, client_id="tab-2")
+    with pytest.raises(StoryConflictError):
+        repo.replace("org-a", b, expected_updated_at=base)
+    assert repo.get("org-a", "s1") == a
