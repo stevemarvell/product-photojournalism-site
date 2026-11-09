@@ -15,7 +15,7 @@ import {
 } from '@mdxeditor/editor';
 import '@mdxeditor/editor/style.css';
 
-import { canonicalPhotos, escapeAttr, flattenMarkdown, movePhoto, toEditorMarkdown } from './content';
+import { canonicalPhotos, entitiseProse, escapeAttr, flattenMarkdown, movePhoto, toEditorMarkdown } from './content';
 import { PHOTO_DESCRIPTOR, PhotoContext, createPhotoStore } from './PhotoBlock';
 
 function PhotoButton() {
@@ -73,7 +73,7 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
 
   const handleChange = useCallback(
     (markdown: string) => {
-      onChange(canonicalPhotos(flattenMarkdown(markdown)));
+      onChange(entitiseProse(canonicalPhotos(flattenMarkdown(markdown))));
     },
     [onChange],
   );

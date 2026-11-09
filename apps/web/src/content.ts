@@ -60,6 +60,29 @@ export function canonicalPhotos(content: string): string {
 }
 
 /**
+ * Writes a `<` or `{` in prose as an entity (`&lt;`, `&#123;`), whether the editor
+ * printed it escaped (`\\<`) or bare. The server refuses both raw forms, because
+ * a backslash can itself be escaped and MDX would then see a live tag or expression.
+ * Photo tags are left as they are.
+ */
+export function entitiseProse(content: string): string {
+  const photo = new RegExp(PHOTO_SOURCE, 'g');
+  let out = '';
+  let at = 0;
+  const prose = (text: string) =>
+    text.replace(/(\\*)([<{])/g, (_m, slashes: string, ch: string) => {
+      // An odd run: the last backslash was the escape, and goes. An even run stays.
+      const kept = slashes.length % 2 === 1 ? slashes.slice(1) : slashes;
+      return kept + (ch === '<' ? '&lt;' : '&#123;');
+    });
+  for (const m of content.matchAll(photo)) {
+    out += prose(content.slice(at, m.index)) + m[0];
+    at = m.index + m[0].length;
+  }
+  return out + prose(content.slice(at));
+}
+
+/**
  * The text handed to MDXEditor. It decodes attribute entities once on import and
  * prints attribute values back as they are, so the canonical entities are
  * protected by encoding `&` a second time: the editor then holds the escaped

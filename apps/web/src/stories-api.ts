@@ -47,7 +47,18 @@ export async function getStory(id: string): Promise<StoryDetail> {
 export type SaveResult =
   | { kind: 'saved'; story: StoryDetail }
   | { kind: 'conflict' }
+  | { kind: 'invalid'; reasons: string[] }
   | { kind: 'error' };
+
+/** The `reasons` of a 422 answer, or none when the body is not in that shape. */
+async function reasonsOf(response: Response): Promise<string[]> {
+  try {
+    const body = (await response.json()) as { detail?: { reasons?: unknown } };
+    return Array.isArray(body.detail?.reasons) ? body.detail.reasons.map(String) : [];
+  } catch {
+    return [];
+  }
+}
 
 /** Autosave: sends the `updated_at` last seen; a 409 means the draft changed elsewhere. */
 export async function saveDraft(
@@ -64,6 +75,7 @@ export async function saveDraft(
       ...(keepalive ? { keepalive: true } : {}),
     });
     if (response.status === 409) return { kind: 'conflict' };
+    if (response.status === 422) return { kind: 'invalid', reasons: await reasonsOf(response) };
     if (!response.ok) return { kind: 'error' };
     return { kind: 'saved', story: (await response.json()) as StoryDetail };
   } catch {
@@ -82,11 +94,7 @@ export async function publishStory(id: string): Promise<PublishResult> {
   try {
     const response = await fetch(`${base()}/stories/${encodeURIComponent(id)}/publish`, { method: 'POST' });
     if (response.status === 409) return { kind: 'conflict' };
-    if (response.status === 422) {
-      const body = (await response.json()) as { detail?: { reasons?: unknown } };
-      const reasons = Array.isArray(body.detail?.reasons) ? body.detail.reasons.map(String) : [];
-      return { kind: 'refused', reasons };
-    }
+    if (response.status === 422) return { kind: 'refused', reasons: await reasonsOf(response) };
     if (!response.ok) return { kind: 'error' };
     return { kind: 'published', story: (await response.json()) as StoryDetail };
   } catch {

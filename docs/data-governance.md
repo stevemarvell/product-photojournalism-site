@@ -64,6 +64,13 @@ load-bearing controls, and the verdict below holds only while all of them do:
   owner-only data may go there. The one owner route under `/auth/`,
   `POST /auth/revoke-all`, is listed in `api.guard.OWNER_ONLY_UNDER_PUBLIC`: it names
   `require_owner` itself and the audit probes it like any other owner route.
+- **`content_problems`** (`apps/api/src/api/domain/content.py`) is the only thing that
+  restricts what a story body may contain: prose, bold, italic and well-formed
+  `<Photo>` tags, with no other tag, raw HTML, `{expression}` or `import`/`export`
+  line. The editor's own limits are a convenience and are not a control. It is checked
+  on every draft save (`PUT /stories/{id}/draft`) and again on publish, so the text
+  that becomes public never rests on the save path alone; `apps/api/tests/test_story_content.py`
+  covers both.
 - **`OWNER_VERCEL_ID`** (the Vercel `sub` allowed in) and **`SESSION_SECRET`**
   (signs the session cookie; derives the key that seals the pending sign-in).
   With either missing, sign-in is off and owner routes answer 401.
@@ -79,8 +86,10 @@ load-bearing controls, and the verdict below holds only while all of them do:
   secret itself leaks.
 
 **What voids this verdict:** the session store being absent or bypassed (a route that
-reads the cookie without `current_user`), a public route that returns draft text, or a
-second person given owner access. Before the Postgres story adapter ships, revisit
+reads the cookie without `current_user`), a public route that returns draft text, a
+second person given owner access, or the public renderer (issue 16) doing anything but
+parsing only the subset `content_problems` allows: it must never evaluate MDX, and
+`content_problems` must keep running on save and on publish. Before the Postgres story adapter ships, revisit
 this page; before images are stored, add them here.
 
 ## What CI holds, and what voids that

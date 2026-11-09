@@ -11,6 +11,7 @@ const STATUS_TEXT: Record<SaveStatus, string> = {
   saving: 'Saving…',
   saved: 'Saved',
   conflict: 'Changed elsewhere, reload',
+  invalid: 'Not saved',
   error: 'Could not save, will retry on the next change',
 };
 
@@ -60,6 +61,7 @@ export function Drafting({
   const [live, setLive] = useState(story.live);
   const [message, setMessage] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [leaveBlocked, setLeaveBlocked] = useState(false);
   const autosave = useAutosave(story.id, story.updated_at);
   const { change } = autosave;
   const latest = useRef(draft);
@@ -115,8 +117,10 @@ export function Drafting({
             // Save any edit still inside the pause before leaving the page.
             e.preventDefault();
             void autosave.flush().then((result) => {
-              // On a failed save stay, so the edit is not lost; a conflict has nothing to save.
-              if (result !== 'error') navigate('/editor');
+              // On a failed save stay, so the edit is not lost, and let the owner choose;
+              // a conflict has nothing left to save.
+              if (result === 'error' || result === 'invalid') setLeaveBlocked(true);
+              else navigate('/editor');
             });
           }}
         >
@@ -157,6 +161,31 @@ export function Drafting({
       <p data-testid="save-indicator" role="status" aria-live="polite">
         {STATUS_TEXT[autosave.status]}
       </p>
+      {autosave.status === 'invalid' && (
+        <div data-testid="save-refused" role="alert">
+          <p>The server refused this text:</p>
+          <ul>
+            {autosave.reasons.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {leaveBlocked && (
+        <p data-testid="leave-blocked" role="alert">
+          The latest changes are not saved.{' '}
+          <button
+            type="button"
+            data-testid="leave-anyway"
+            onClick={() => {
+              autosave.allowLeave();
+              navigate('/editor');
+            }}
+          >
+            Leave anyway (unsaved changes will be lost)
+          </button>
+        </p>
+      )}
       {conflict && (
         <p data-testid="conflict" role="alert">
           Changed elsewhere, reload

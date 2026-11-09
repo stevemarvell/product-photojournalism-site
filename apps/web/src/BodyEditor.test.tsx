@@ -72,4 +72,14 @@ describe('visual and source views', () => {
       '<Photo image="img-1" alt="He said &quot;go&quot; &amp;amp; left" caption="a &lt;b&gt;" credit="R &amp; &quot;D&quot;" />',
     );
   });
+
+  it('saves a < or { typed in prose as an entity, never as a backslash escape', async () => {
+    const onChange = vi.fn();
+    render(<BodyEditor initial={`5 &lt; 6 and &#123;x}\n\n${PHOTO}`} onChange={onChange} />);
+    fireEvent.change(await screen.findByTestId('photo-credit'), { target: { value: 'z' } });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const saved = onChange.mock.calls.at(-1)?.[0] as string;
+    expect(saved).toContain('5 &lt; 6 and &#123;x}');
+    expect(saved).not.toMatch(/\\[<{]/);
+  });
 });

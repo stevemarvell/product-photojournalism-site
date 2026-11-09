@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { saveDraft, type DraftText } from './stories-api';
 
-export type SaveStatus = 'idle' | 'saving' | 'saved' | 'conflict' | 'error';
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'conflict' | 'invalid' | 'error';
 
 export const AUTOSAVE_DELAY_MS = 800;
 
@@ -15,6 +15,9 @@ export const AUTOSAVE_DELAY_MS = 800;
  */
 export function useAutosave(storyId: string, initialUpdatedAt: string, delay = AUTOSAVE_DELAY_MS) {
   const [status, setStatus] = useState<SaveStatus>('idle');
+  const [reasons, setReasons] = useState<string[]>([]);
+  const leaving = useRef(false);
+  const failure = useRef<'invalid' | 'error'>('error');
   const updatedAt = useRef(initialUpdatedAt);
   const pending = useRef<DraftText | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -33,10 +36,19 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
         const draft = pending.current;
         pending.current = null;
         set('saving');
+        if (mounted.current) setReasons([]);
         const result = await saveDraft(storyId, draft, updatedAt.current);
         if (result.kind === 'saved') {
           updatedAt.current = result.story.updated_at;
           if (!pending.current) set('saved');
+        } else if (result.kind === 'invalid') {
+          // The server refused this body (markup a story may not hold): say why, keep the
+          // text, and try again on the next change.
+          pending.current ??= draft;
+          if (mounted.current) setReasons(result.reasons);
+          failure.current = 'invalid';
+          set('invalid');
+          return;
         } else if (result.kind === 'conflict') {
           stopped.current = true;
           pending.current = null;
@@ -44,6 +56,7 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
         } else {
           // Keep the newest text to retry on the next change or flush.
           pending.current ??= draft;
+          failure.current = 'error';
           set('error');
           return;
         }
@@ -59,7 +72,10 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
     mounted.current = true;
     // Leaving the page (close, reload, a full navigation) cannot wait for the
     // pause or for a response: send what is pending now, with keepalive so the
-    // browser finishes the request after the page is gone.
+    // browser finishes the request after the page is gone. A keepalive request
+    // body is limited to 64 KB, so a longer draft may not get through, and a save
+    // already in flight is not repeated; the beforeunload prompt below is what
+    // covers those cases.
     const onPageHide = () => {
       const draft = pending.current;
       if (!draft || stopped.current || inFlight.current) return;
@@ -80,6 +96,24 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
   }, [storyId, run]);
 
 
+  // Text that is not saved yet (inside the pause, in flight, or refused) is lost if the
+  // page closes: ask first. `allowLeave` is for a deliberate "leave anyway".
+  const unsaved = status === 'saving' || status === 'error' || status === 'invalid';
+  useEffect(() => {
+    if (!unsaved) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (leaving.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [unsaved]);
+
+  const allowLeave = useCallback(() => {
+    leaving.current = true;
+  }, []);
+
   const change = useCallback(
     (draft: DraftText) => {
       if (stopped.current) return;
@@ -94,14 +128,15 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
     [run, delay],
   );
 
-  const flush = useCallback(async (): Promise<'saved' | 'conflict' | 'error'> => {
+  const flush = useCallback(async (): Promise<'saved' | 'conflict' | 'invalid' | 'error'> => {
     if (timer.current) {
       clearTimeout(timer.current);
       timer.current = null;
     }
     await run();
     if (stopped.current) return 'conflict';
-    return pending.current === null ? 'saved' : 'error';
+    if (pending.current === null) return 'saved';
+    return failure.current;
   }, [run]);
 
   /** The server's newer `updated_at` after Publish, so the next autosave is not a false conflict. */
@@ -109,5 +144,5 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
     updatedAt.current = next;
   }, []);
 
-  return { status, change, flush, adopt };
+  return { status, reasons, change, flush, adopt, allowLeave };
 }

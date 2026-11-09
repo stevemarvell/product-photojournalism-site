@@ -61,7 +61,9 @@ class StoryService:
         autosave landing in between is a conflict rather than an unchecked publish.
         """
         current = self.get(organisation_id, story_id)
-        problems = publish_problems(
+        # The body is checked again here: publish copies it to the text the public
+        # site serves, so it does not rest on save_draft having been the only way in.
+        problems = content_problems(current.draft.content) + publish_problems(
             current.draft, lambda image_id: self._images.status(organisation_id, image_id)
         )
         if problems:

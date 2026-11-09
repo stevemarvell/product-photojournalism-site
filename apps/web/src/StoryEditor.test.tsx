@@ -133,6 +133,53 @@ describe('leaving with an edit still inside the pause', () => {
   });
 });
 
+describe('a refused save and the unsaved-changes prompt', () => {
+  const refused = () =>
+    json({ detail: { message: 'content not allowed', reasons: ['only Photo tags are allowed'] } }, 422);
+
+  it('shows the server reasons next to the indicator when the save is refused', async () => {
+    stubFetch(refused);
+    render(<Drafting story={story()} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'x' } });
+    await waitFor(() => expect(screen.getByTestId('save-refused').textContent).toContain('only Photo tags are allowed'), {
+      timeout: 4000,
+    });
+    expect(screen.getByTestId('save-indicator').textContent).toBe('Not saved');
+  });
+
+  it('All stories does not trap the owner: it shows the reasons and offers to leave anyway', async () => {
+    stubFetch(refused);
+    const navigate = vi.fn();
+    render(<Drafting story={story()} navigate={navigate} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'x' } });
+    fireEvent.click(screen.getByTestId('all-stories'));
+    await waitFor(() => expect(screen.getByTestId('leave-blocked')).toBeTruthy());
+    expect(screen.getByTestId('save-refused').textContent).toContain('only Photo tags are allowed');
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('leave-anyway'));
+    expect(navigate).toHaveBeenCalledWith('/editor');
+    // A deliberate leave is not asked about a second time.
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('registers a beforeunload prompt while changes are unsaved and clears it once saved', async () => {
+    stubFetch(() => json({ ...story(), updated_at: '2026-11-09T10:00:01Z' }));
+    render(<Drafting story={story()} />);
+    const prompts = () => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(prompts()).toBe(false); // nothing typed yet
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'x' } });
+    await waitFor(() => expect(prompts()).toBe(true)); // inside the pause, and in flight
+    await waitFor(() => expect(screen.getByTestId('save-indicator').textContent).toBe('Saved'), { timeout: 4000 });
+    await waitFor(() => expect(prompts()).toBe(false));
+  });
+});
+
 describe('publish', () => {
   it('is disabled with a short reason when the draft fails the rule', () => {
     stubFetch(() => json({}));

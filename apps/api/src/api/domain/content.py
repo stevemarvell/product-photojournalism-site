@@ -21,10 +21,18 @@ _VALUE = r'(?:[^"<>&]|&(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#[xX][0-9A-Fa-f]+);)*'
 _ATTR = rf'[A-Za-z_][\w-]*="{_VALUE}"'
 _TAG = re.compile(rf"<Photo((?:[ \t]+{_ATTR})*)[ \t]*/>")
 _ATTR_NAME = re.compile(r'([A-Za-z_][\w-]*)="')
-_ESM_LINE = re.compile(r"^[ \t]*(?:import|export)\b", re.MULTILINE)
-# An opening `<` or `{` that is not backslash-escaped.
-_RAW_LT = re.compile(r"(?<!\\)<")
-_RAW_BRACE = re.compile(r"(?<!\\)\{")
+# Real ESM syntax at the start of a line, not prose that begins with "import".
+_ESM_LINE = re.compile(
+    r"""^[ \t]*(?:import\s*(?:[\w$*{][^\n]*?\s+from\s*)?['"]"""
+    r"""|export\s+(?:const|let|var|function|class|async|default|\{|\*))""",
+    re.MULTILINE,
+)
+# A `<` or `{` is refused wherever it appears, even as `\<` or `\{`: a backslash
+# can itself be escaped (`\\<` is a literal backslash and a live `<`), so the
+# parser's rule is not reimplemented here. The editor's own output never needs
+# them: it writes `<` and `{` as entities or drops them.
+_RAW_LT = re.compile(r"<")
+_RAW_BRACE = re.compile(r"\{")
 
 
 def content_problems(content: str) -> list[str]:

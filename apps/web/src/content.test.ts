@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalPhotos, escapeAttr, flattenMarkdown, toEditorMarkdown, unescapeAttr, movePhoto, parsePhoto, photoTag, photoTags, publishBlockers } from './content';
+import { canonicalPhotos, entitiseProse, escapeAttr, flattenMarkdown, toEditorMarkdown, unescapeAttr, movePhoto, parsePhoto, photoTag, photoTags, publishBlockers } from './content';
 
 const A = '<Photo image="a" alt="A" caption="" credit="" />';
 const B = '<Photo image="b" alt="B" caption="cap" credit="me" />';
@@ -106,5 +106,16 @@ describe('publishBlockers', () => {
   });
   it('is empty for a passing draft', () => {
     expect(publishBlockers({ title: 't', description: 'd', content: A })).toEqual([]);
+  });
+});
+
+describe('entitiseProse', () => {
+  it('writes < and { as entities, escaped or bare, and drops only a real escape', () => {
+    expect(entitiseProse('a \\< b, c < d, \\{x}')).toBe('a &lt; b, c &lt; d, &#123;x}');
+    expect(entitiseProse('\\\\< two slashes then a live <')).toBe('\\\\&lt; two slashes then a live &lt;');
+  });
+  it('leaves Photo tags untouched', () => {
+    const tag = photoTag({ image: 'i', alt: 'a &lt; b', caption: '', credit: '' });
+    expect(entitiseProse(`x < y\n\n${tag}`)).toBe(`x &lt; y\n\n${tag}`);
   });
 });
