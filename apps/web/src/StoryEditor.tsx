@@ -191,9 +191,16 @@ export function Drafting({
         ? await confirmRevert(detailNow())
         : await ask('Revert will replace this draft with the published text. Draft changes are lost. Continue?', 'Revert');
       if (!go) return;
-      // Drop what is still inside the pause and let a save in flight finish, so it cannot land after the copy.
-      if (!(await autosave.cancel())) {
+      // Send what is still inside the pause and wait for it (and any save in flight), so the
+      // server sees what the owner saw, nothing lands after the copy, and a refused revert
+      // has lost no typing.
+      const saved = await autosave.flush();
+      if (saved === 'conflict') {
         setMessage(['Changed elsewhere, reload']);
+        return;
+      }
+      if (saved !== 'saved') {
+        setMessage(['The draft could not be saved first.']);
         return;
       }
       const result = await lifecycle(story.id, 'revert');

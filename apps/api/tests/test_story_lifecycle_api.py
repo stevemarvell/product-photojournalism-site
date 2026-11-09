@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from api.adapters.memory import InMemoryImageStatusLookup
 from api.composition import Container, build_container
-from api.domain import ImageStatus
+from api.domain import ImageStatus, StoryConflictError
 from api.main import create_app
 
 ENV = {"IDENTITY_PROVIDER": "stub", "API_ENVIRONMENT": "development", "STORY_REPOSITORY": "memory"}
@@ -166,3 +166,45 @@ def test_revert_is_refused_when_never_published_or_the_draft_matches(owner: Test
 def test_an_unknown_story_is_404_for_each_action(owner: TestClient) -> None:
     for action in ("unpublish", "republish", "revert"):
         assert owner.post(f"/stories/nope/{action}").status_code == 404
+
+
+# --- A save landing in between: the compare-and-set refuses -------------------------------
+
+
+class _ConflictOnReplace:
+    """The real repository, except that every `replace` loses the race."""
+
+    def __init__(self, inner: object) -> None:
+        self._inner = inner
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
+
+    def replace(self, *args: object, **kwargs: object) -> object:
+        raise StoryConflictError("lost the race")
+
+
+@pytest.mark.parametrize("action", ["unpublish", "republish", "revert"])
+def test_a_save_landing_in_between_is_409_and_changes_nothing(action: str) -> None:
+    base = build_container(ENV)
+    container = replace(
+        base,
+        clock=TickingClock(),
+        image_status=InMemoryImageStatusLookup({"img-1": ImageStatus.READY}),
+    )
+    client = TestClient(create_app(container=container))
+    assert client.get("/auth/callback", follow_redirects=False).status_code == 303
+    live = published_story(client)
+    story = save(client, live, title="Edited")  # draft differs, so revert would be allowed
+    if action == "republish":
+        story = act(client, story, "unpublish").json()
+    before = snapshot(client, story)
+
+    racing = TestClient(
+        create_app(container=replace(container, stories=_ConflictOnReplace(container.stories)))
+    )  # type: ignore[arg-type]
+    assert racing.get("/auth/callback", follow_redirects=False).status_code == 303
+    # The racing app has its own session store; the story lives in the shared repository.
+    r = act(racing, story, action)
+    assert r.status_code == 409
+    assert snapshot(client, story) == before

@@ -406,34 +406,50 @@ describe('lifecycle actions (issue #17)', () => {
     expect(JSON.parse((spy.mock.calls[1]?.[1] as RequestInit).body as string).updated_at).toBe('2026-11-09T10:05:00Z');
   });
 
-  it('Revert cancels a pending autosave and waits for one in flight before it copies', async () => {
-    let finishSave: (r: Response) => void = () => {};
+  it('Revert sends a pending autosave and waits for the one in flight, then reverts, in that order', async () => {
+    const finish: ((r: Response) => void)[] = [];
     const order: string[] = [];
     const spy = stubFetch((url, init) => {
       order.push(`${init?.method} ${url}`);
       if (init?.method === 'PUT') {
-        return new Promise<Response>((resolve) => {
-          finishSave = (r) => resolve(r);
-        }) as unknown as Response; // never resolves until the test says so
+        return new Promise<Response>((resolve) => finish.push(resolve)) as unknown as Response;
       }
       return json({ ...publishedStory(), updated_at: '2026-11-09T10:09:00Z' });
     });
     render(<Drafting story={publishedStory()} />);
     fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'One' } });
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1), { timeout: 4000 }); // the save is in flight
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1), { timeout: 4000 }); // in flight
     fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Two' } }); // pending behind it
 
     fireEvent.click(screen.getByTestId('revert'));
     fireEvent.click(await screen.findByTestId('confirm-ok'));
-    await new Promise((r) => setTimeout(r, 1200)); // longer than the pause: the pending one would have fired
-    expect(order).toEqual(['PUT /api/stories/s1/draft']); // revert has not been sent, nor the pending save
+    await new Promise((r) => setTimeout(r, 300));
+    expect(order).toEqual(['PUT /api/stories/s1/draft']); // revert waits for the save in flight
 
-    finishSave(json({ ...publishedStory(), updated_at: '2026-11-09T10:08:00Z' }));
-    await waitFor(() => expect(order).toHaveLength(2));
-    expect(order).toEqual(['PUT /api/stories/s1/draft', 'POST /api/stories/s1/revert']);
+    finish[0]?.(json({ ...publishedStory(), updated_at: '2026-11-09T10:07:00Z' }));
+    await waitFor(() => expect(finish).toHaveLength(2)); // the pending edit is sent, not dropped
+    expect(JSON.parse((spy.mock.calls[1]?.[1] as RequestInit).body as string).title).toBe('Two');
+    expect(order).toHaveLength(2); // and revert still waits for it
+    finish[1]?.(json({ ...publishedStory(), updated_at: '2026-11-09T10:08:00Z' }));
+    await waitFor(() => expect(order).toHaveLength(3));
+    expect(order[2]).toBe('POST /api/stories/s1/revert');
     await waitFor(() => expect((screen.getByTestId('field-title') as HTMLInputElement).value).toBe('Live title'));
-    await new Promise((r) => setTimeout(r, 1200));
-    expect(order).toHaveLength(2); // the cancelled save never went out
+  });
+
+  it('a refused Revert has already saved the typing made inside the pause, and shows the reasons', async () => {
+    const spy = stubFetch((_url, init) =>
+      init?.method === 'PUT'
+        ? json({ ...publishedStory({ draft: { title: 'Typed' } }), updated_at: '2026-11-09T10:01:00Z' })
+        : json({ detail: { message: 'action not allowed', reasons: ['the draft already matches the published text'] } }, 422),
+    );
+    const confirmRevert = vi.fn().mockResolvedValue(true);
+    render(<Drafting story={publishedStory({ draft: { title: 'Older' } })} confirmRevert={confirmRevert} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Typed' } });
+    fireEvent.click(screen.getByTestId('revert')); // confirmed at once, inside the 800 ms pause
+    await waitFor(() => expect(screen.getByTestId('publish-message').textContent).toContain('already matches'));
+    expect(action(spy)).toEqual(['PUT /api/stories/s1/draft', 'POST /api/stories/s1/revert']);
+    expect(JSON.parse((spy.mock.calls[0]?.[1] as RequestInit).body as string).title).toBe('Typed');
+    expect((screen.getByTestId('field-title') as HTMLInputElement).value).toBe('Typed');
   });
 
   it('Revert does not copy when the in-flight save hits a conflict', async () => {

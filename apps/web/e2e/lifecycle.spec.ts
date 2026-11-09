@@ -127,7 +127,7 @@ test.describe('lifecycle actions', () => {
     expect(mock.calls).toEqual(['POST revert', 'PUT draft']);
   });
 
-  test('Revert with an autosave pending waits for the one in flight and cancels the rest', async ({ page }) => {
+  test('Revert with an autosave pending waits for the one in flight, sends the pending edit, then reverts', async ({ page }) => {
     const mock = await mockApi(page, { live: true, draftTitle: 'Published title', holdSaves: true });
     await page.goto('/editor/s1');
     await page.getByTestId('field-title').fill('First edit');
@@ -136,13 +136,11 @@ test.describe('lifecycle actions', () => {
 
     await page.getByTestId('revert').click();
     await page.getByTestId('confirm-ok').click();
-    await page.waitForTimeout(1500); // past the autosave pause
-    expect(mock.calls).toEqual(['PUT draft']); // no revert yet, and the pending save was dropped
+    await page.waitForTimeout(500);
+    expect(mock.calls).toEqual(['PUT draft']); // no revert while a save is in flight
 
     mock.releaseSave();
     await expect(page.getByTestId('field-title')).toHaveValue('Published title');
-    expect(mock.calls).toEqual(['PUT draft', 'POST revert']);
-    await page.waitForTimeout(1200);
-    expect(mock.calls).toEqual(['PUT draft', 'POST revert']);
+    expect(mock.calls).toEqual(['PUT draft', 'PUT draft', 'POST revert']);
   });
 });

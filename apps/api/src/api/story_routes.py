@@ -150,8 +150,9 @@ def publish_story(story_id: str, user: Owner, service: Service) -> dict[str, Any
 
 def _lifecycle(story_id: str, user: User, run: Any) -> dict[str, Any]:
     """Unpublish, republish and revert. 422 when the story's state does not allow the action
-    (the same status publish uses for a refusal, with `reasons`), 409 only when a save landed
-    in between; either way nothing changed."""
+    (the same status publish uses for a refusal, with `reasons`), 409 only when a save or a
+    revert landed in between (unpublish and republish keep `updated_at`, so the compare-and-set
+    catches only those); either way nothing changed."""
     try:
         return detail(run(user.organisation_id, story_id))
     except StoryNotFoundError:
