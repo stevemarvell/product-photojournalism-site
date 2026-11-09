@@ -49,6 +49,8 @@ class Story:
     # sent on pagehide while the previous one was still in flight).
     last_saved_by: str | None = None
     previous_updated_at: datetime | None = None
+    # That tab's save counter at the time: an older save of the same tab cannot overwrite a newer.
+    last_saved_seq: int | None = None
 
     @property
     def draft(self) -> DraftFields:
@@ -100,6 +102,7 @@ def with_draft(
     now: datetime,
     client_id: str | None = None,
     base: datetime | None = None,
+    seq: int | None = None,
 ) -> Story:
     """Autosave: replace the draft fields. The published text and `live` are untouched.
     `client_id` and `base` (the `updated_at` the caller saw) record who saved from what."""
@@ -113,6 +116,7 @@ def with_draft(
         updated_at=_touched(story, now),
         last_saved_by=client_id,
         previous_updated_at=base if base is not None else story.updated_at,
+        last_saved_seq=seq,
     )
 
 
@@ -131,6 +135,7 @@ def published(story: Story, now: datetime) -> Story:
         updated_at=_touched(story, now),
         last_saved_by=None,
         previous_updated_at=None,
+        last_saved_seq=None,
     )
 
 

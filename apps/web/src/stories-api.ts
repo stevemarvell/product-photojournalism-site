@@ -68,6 +68,8 @@ async function reasonsOf(response: Response): Promise<string[]> {
 const CLIENT_ID =
   globalThis.crypto?.randomUUID?.() ?? `tab-${Math.random().toString(36).slice(2)}${Date.now()}`;
 
+let saveSeq = 0; // this tab's save counter, so the API can tell an older save from a newer
+
 /** Autosave: sends the `updated_at` last seen; a 409 means the draft changed elsewhere. */
 export async function saveDraft(
   id: string,
@@ -79,7 +81,7 @@ export async function saveDraft(
     const response = await fetch(`${base()}/stories/${encodeURIComponent(id)}/draft`, {
       method: 'PUT',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ ...draft, updated_at: updatedAt, client_id: CLIENT_ID }),
+      body: JSON.stringify({ ...draft, updated_at: updatedAt, client_id: CLIENT_ID, seq: ++saveSeq }),
       ...(keepalive ? { keepalive: true } : {}),
     });
     if (response.status === 409) return { kind: 'conflict' };

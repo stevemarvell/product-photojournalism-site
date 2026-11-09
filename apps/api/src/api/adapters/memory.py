@@ -41,6 +41,7 @@ class InMemoryStoryRepository:
         story: Story,
         expected_updated_at: datetime,
         client_id: str | None = None,
+        seq: int | None = None,
     ) -> Story:
         with self._lock:  # the compare and the write are one step
             key = (organisation_id, story.id)
@@ -53,6 +54,9 @@ class InMemoryStoryRepository:
                 client_id is not None
                 and stored.last_saved_by == client_id
                 and stored.previous_updated_at == expected_updated_at
+                and seq is not None
+                and stored.last_saved_seq is not None
+                and seq > stored.last_saved_seq
             )
             if not (current or own):
                 raise StoryConflictError(story.id)

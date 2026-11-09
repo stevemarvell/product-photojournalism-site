@@ -49,5 +49,6 @@ class PostgresStoryRepository:
         story: Story,
         expected_updated_at: datetime,
         client_id: str | None = None,
+        seq: int | None = None,
     ) -> Story:
         raise StorageUnavailableError(NOT_BUILT)

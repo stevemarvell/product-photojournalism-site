@@ -46,19 +46,21 @@ class StoryService:
         draft: DraftFields,
         seen_updated_at: datetime,
         client_id: str | None = None,
+        seq: int | None = None,
     ) -> Story:
         """Autosave. Raises InvalidContentError for a body with disallowed markup, and
         StoryConflictError unless `seen_updated_at` is the stored one, or `client_id` is the
-        tab that saved the stored version from that same base."""
+        tab that saved the stored version from that same base with a lower `seq`."""
         problems = content_problems(draft.content)
         if problems:
             raise InvalidContentError(problems)
         current = self.get(organisation_id, story_id)
         return self._stories.replace(
             organisation_id,
-            with_draft(current, draft, self._clock.now(), client_id, seen_updated_at),
+            with_draft(current, draft, self._clock.now(), client_id, seen_updated_at, seq),
             expected_updated_at=seen_updated_at,
             client_id=client_id,
+            seq=seq,
         )
 
     def publish(self, organisation_id: str, story_id: str) -> Story:

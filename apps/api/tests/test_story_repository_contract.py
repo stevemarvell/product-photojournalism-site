@@ -129,10 +129,10 @@ def test_the_same_client_may_supersede_its_own_last_save_from_the_same_base(
     story = new_story("s1", "org-a", T0)
     repo.create(story)
     base = story.updated_at
-    a = with_draft(story, DraftFields(title="A"), T0 + timedelta(minutes=1), "tab-1", base)
-    repo.replace("org-a", a, expected_updated_at=base, client_id="tab-1")
-    b = with_draft(a, DraftFields(title="B"), T0 + timedelta(minutes=2), "tab-1", base)
-    assert repo.replace("org-a", b, expected_updated_at=base, client_id="tab-1") == b
+    a = with_draft(story, DraftFields(title="A"), T0 + timedelta(minutes=1), "tab-1", base, 1)
+    repo.replace("org-a", a, expected_updated_at=base, client_id="tab-1", seq=1)
+    b = with_draft(a, DraftFields(title="B"), T0 + timedelta(minutes=2), "tab-1", base, 2)
+    assert repo.replace("org-a", b, expected_updated_at=base, client_id="tab-1", seq=2) == b
     assert repo.get("org-a", "s1") == b
     assert b.last_saved_by == "tab-1" and b.previous_updated_at == base
 
@@ -141,11 +141,25 @@ def test_another_client_with_the_old_base_still_conflicts(repo: StoryRepository)
     story = new_story("s1", "org-a", T0)
     repo.create(story)
     base = story.updated_at
-    a = with_draft(story, DraftFields(title="A"), T0 + timedelta(minutes=1), "tab-1", base)
-    repo.replace("org-a", a, expected_updated_at=base, client_id="tab-1")
-    b = with_draft(a, DraftFields(title="B"), T0 + timedelta(minutes=2), "tab-2", base)
+    a = with_draft(story, DraftFields(title="A"), T0 + timedelta(minutes=1), "tab-1", base, 1)
+    repo.replace("org-a", a, expected_updated_at=base, client_id="tab-1", seq=1)
+    b = with_draft(a, DraftFields(title="B"), T0 + timedelta(minutes=2), "tab-2", base, 2)
     with pytest.raises(StoryConflictError):
-        repo.replace("org-a", b, expected_updated_at=base, client_id="tab-2")
+        repo.replace("org-a", b, expected_updated_at=base, client_id="tab-2", seq=2)
     with pytest.raises(StoryConflictError):
         repo.replace("org-a", b, expected_updated_at=base)
     assert repo.get("org-a", "s1") == a
+
+
+def test_an_older_save_of_the_same_client_does_not_overwrite_a_newer_one(
+    repo: StoryRepository,
+) -> None:
+    story = new_story("s1", "org-a", T0)
+    repo.create(story)
+    base = story.updated_at
+    b = with_draft(story, DraftFields(title="B"), T0 + timedelta(minutes=1), "tab-1", base, 2)
+    repo.replace("org-a", b, expected_updated_at=base, client_id="tab-1", seq=2)
+    a = with_draft(b, DraftFields(title="A"), T0 + timedelta(minutes=2), "tab-1", base, 1)
+    with pytest.raises(StoryConflictError):
+        repo.replace("org-a", a, expected_updated_at=base, client_id="tab-1", seq=1)
+    assert repo.get("org-a", "s1") == b

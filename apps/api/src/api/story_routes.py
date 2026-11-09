@@ -34,6 +34,7 @@ class DraftBody(BaseModel):
     content: str = Field(max_length=200_000)
     updated_at: dt.datetime
     client_id: str | None = Field(default=None, min_length=1, max_length=64)
+    seq: int | None = Field(default=None, ge=0)
 
 
 def _text(title: str, description: str, location: str, when: dt.date | None, content: str) -> dict:
@@ -119,7 +120,7 @@ def save_draft(story_id: str, body: DraftBody, user: Owner, service: Service) ->
     try:
         return detail(
             service.save_draft(
-                user.organisation_id, story_id, draft, body.updated_at, body.client_id
+                user.organisation_id, story_id, draft, body.updated_at, body.client_id, body.seq
             )
         )
     except StoryNotFoundError:
