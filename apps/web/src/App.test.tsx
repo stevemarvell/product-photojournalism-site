@@ -39,18 +39,15 @@ afterEach(async () => {
 });
 
 describe('App', () => {
-  it('renders the shell', () => {
-    render(<App />);
-    expect(screen.getByTestId('shell')).toBeTruthy();
+  beforeEach(() => {
+    // Ionic's app chrome is the editor's: the timer behaviour below is about it.
+    window.history.pushState({}, '', '/editor');
+  });
+  afterEach(() => {
+    window.history.pushState({}, '', '/');
   });
 
-  it('links to the documentation the deployment still serves', () => {
-    render(<App />);
-    const link = screen.getByRole('link', { name: 'The project documentation' });
-    expect(link.getAttribute('href')).toBe('/docs/');
-  });
-
-  it("titles the toolbar from the project's own name, not a hardcoded one", () => {
+  it("titles the editor's toolbar from the project's own name, not a hardcoded one", () => {
     // Stubbed to a literal distinct from the real project name — asserting
     // against __APP_NAME__ itself would compare the component's value to
     // itself, which can't fail. If App.tsx ever hardcodes a string, the
@@ -60,52 +57,11 @@ describe('App', () => {
     expect(screen.getByText('stand-in-app')).toBeTruthy();
   });
 
-  it('shows the value fetched from the API', async () => {
-    const fetchSpy = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({ ok: true, commit: null, database: { adapter: 'memory', reachable: true } }),
-        { status: 200 },
-      ),
-    );
-    vi.stubGlobal('fetch', fetchSpy);
+  it('shows the public site, not the editor, anywhere but /editor', () => {
+    window.history.pushState({}, '', '/');
     render(<App />);
-    await vi.runAllTimersAsync();
-    expect(fetchSpy).toHaveBeenCalledWith('/api/health');
-    expect(screen.getByTestId('api-status').textContent).toContain('memory, reachable');
-  });
-
-  it('shows a plain error when the API is unreachable', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
-    render(<App />);
-    await vi.runAllTimersAsync();
-    expect(screen.getByTestId('api-error').textContent).toBe('The API could not be reached.');
-  });
-
-  it('says so, and makes no fetch, in a production build without VITE_API_URL', async () => {
-    vi.stubEnv('DEV', false);
-    vi.stubEnv('VITE_API_URL', '');
-    const fetchSpy = vi.fn();
-    vi.stubGlobal('fetch', fetchSpy);
-    render(<App />);
-    await vi.runAllTimersAsync();
-    expect(screen.getByTestId('api-error').textContent).toBe('API address not configured.');
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it('uses VITE_API_URL when set', async () => {
-    vi.stubEnv('VITE_API_URL', 'https://api.example');
-    const fetchSpy = vi.fn().mockRejectedValue(new TypeError('x'));
-    vi.stubGlobal('fetch', fetchSpy);
-    render(<App />);
-    await vi.runAllTimersAsync();
-    expect(fetchSpy).toHaveBeenCalledWith('https://api.example/health');
-  });
-
-  it('shows the same error when the API answers with a failure status', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 503 })));
-    render(<App />);
-    await vi.runAllTimersAsync();
-    expect(screen.getByTestId('api-error')).toBeTruthy();
+    expect(screen.getByTestId('public')).toBeTruthy();
+    expect(screen.queryByTestId('editor-content')).toBeNull();
   });
 
   /**

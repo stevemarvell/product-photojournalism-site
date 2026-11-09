@@ -22,6 +22,8 @@ from api.domain import StorageUnavailableError
 from api.image_routes import local_upload_router
 from api.image_routes import public_router as public_image_router
 from api.image_routes import router as image_router
+from api.public_routes import NoStorePublic
+from api.public_routes import router as public_router
 from api.security_headers import install_security_headers
 from api.story_routes import router as story_router
 from api.story_routes import storage_unavailable_handler
@@ -72,6 +74,7 @@ def create_app(
     app.include_router(story_router)
     app.include_router(image_router)
     app.include_router(public_image_router)
+    app.include_router(public_router)
     if container.local_uploads is not None:
         app.include_router(local_upload_router)
     app.add_exception_handler(StorageUnavailableError, storage_unavailable_handler)
@@ -90,6 +93,7 @@ def create_app(
     )
 
     app.add_middleware(NoStoreAuth)
+    app.add_middleware(NoStorePublic)
 
     # Credentials are not used, so a fixed origin list is safe; never "*" here.
     app.add_middleware(

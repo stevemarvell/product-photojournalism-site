@@ -8,7 +8,7 @@ same pull request.
 
 | Data | Holds | Who can read it |
 | --- | --- | --- |
-| **Stories** | Per story, a **draft** (title, description, location, date, markdown content) and **published** text (the same fields, copied from the draft at publish), plus whether it is live and its publish and edit times. The content can name images by id (`<Photo image="…" alt="…" />`) but holds no image data. | **Drafts: the owner only**, through the owner endpoints. **Published text: public by design**, once the public site exists (#16 and later) and only while the story is live. |
+| **Stories** | Per story, a **draft** (title, description, location, date, markdown content) and **published** text (the same fields, copied from the draft at publish), plus whether it is live and its publish and edit times. The content can name images by id (`<Photo image="…" alt="…" />`) but holds no image data. | **Drafts: the owner only**, through the owner endpoints. **Published text: public by design**, served anonymously by `GET /public/pieces` and `GET /public/pieces/{id}` and drawn by the public site, and only while the story is live. |
 | **Images** | Per image: an id, its status (processing, ready or failed), the **original** (the file as the owner uploaded it, still carrying its GPS and other EXIF), the **web versions** (JPEGs at 480, 960, 1600 and 2400 px wide where the original is at least that wide, never enlarged), and the width, height and byte size. | **Web versions: public by design**, served by key at `/public/images/<image id>-<width>.jpg`, with **all EXIF, GPS, ICC and comment data removed** (they are re-encoded from the decoded pixels). **Originals: nobody but the API's own processing code.** No response of any endpoint, owner or public, contains an original's URL; the owner's `GET /images/{id}` returns the status and web versions only. |
 | **Sessions** | A server-side record per sign-in: a random session id, the owner's user id and the session epoch. No secret, no password, no personal data beyond the id. | Nobody; it is only checked, never served. |
 | **The session cookie** | The signed cookie carries the session id, its epoch and the owner's Vercel id (to compare with `OWNER_VERCEL_ID`), or, mid-sign-in, an encrypted single-use PKCE record. | The visitor's own browser. |
@@ -41,6 +41,45 @@ chose to publish, and editing a live story changes the draft only until Publish.
 Every query is scoped to an organisation id, taken from the signed-in user, so one
 organisation's code path cannot read another's stories (today there is one
 organisation, the owner's).
+
+## What is public
+
+The public site (`/` and `/<id>`, issue #16) is readable with no login. Exactly this leaves the
+API for an anonymous reader, and nothing else of a story does:
+
+- **Per live story, its published title, description, location, date and content, its first
+  published date, and each Photo's web versions** (URLs, widths, alt text, caption, credit). A
+  story that is not live, never published, or another organisation's answers 404, the same
+  for all three. **No draft field is ever read** (`apps/api/src/api/application/public.py`
+  touches `published_*` only), and **no original's URL**: a resolved photo
+  (`PublicPhoto`) has no field that could hold one.
+- **Which organisation:** an anonymous read has no signed-in user to take it from, so it uses
+  the one the MVP has, `MVP_ORGANISATION_ID` (`api.domain.models`, the same value the owner's
+  `organisation_id` is built from). Every story and image read is filtered by it.
+- **The wording rule** (spec section 8): the word "story" is in no visible text, URL or
+  document metadata of the public site. The API paths the browser calls are
+  `/api/public/pieces`, not `stories`, so no URL it requests carries the word either. Checked
+  by `apps/web/e2e/public.spec.ts` (text, URL, title, metadata, attributes and every request
+  made) and `apps/api/tests/test_public_site.py` (public JSON).
+- **Freshness:** every `/public/pieces` response, success or error, is
+  `Cache-Control: no-store` (`NoStorePublic`), and the browser asks with `cache: no-store`, so Publish,
+  Unpublish and Republish show on the next load. Nothing public is cached except the web
+  versions of images (immutable, by id). Caching the pages with invalidation on publish (spec
+  section 8) is a later optimisation, not built.
+- **Until #34** the Postgres story methods raise `StorageUnavailableError`, so on production
+  the public reads answer 501 and the home page says "No application here yet.".
+
+**The renderer rule is a control, and it is enforced and tested.** A published body is MDX
+text, but the public renderer (`apps/web/src/render.ts`, drawn by `PublicSite.tsx`) never
+evaluates it: it parses only paragraphs, bold, italic and well-formed
+`<Photo image alt caption credit />` tags into plain data, which React prints as text nodes.
+Everything else (`import a from "x"`, `export const a = 1`, `{expressions}`, `<script>`,
+unknown tags, a malformed Photo tag, `&lt;script&gt;`) comes out as the characters it is. There
+is no `dangerouslySetInnerHTML` and no MDX runtime in the public bundle.
+`apps/web/src/render.test.ts`, `PublicSite.test.tsx` and the hostile-content test in
+`e2e/public.spec.ts` (against the built bundle) hold it. `content_problems` refuses most such
+text on save, but `import`/`export` lines are stored as prose, so this renderer rule is what
+holds.
 
 ## Where it is stored
 
@@ -116,8 +155,8 @@ load-bearing controls, and the verdict below holds only while all of them do:
 
 **What voids this verdict:** the session store being absent or bypassed (a route that
 reads the cookie without `current_user`), a public route that returns draft text, a
-second person given owner access, or the public renderer (issue 16) doing anything but
-parsing only the subset `content_problems` allows: it must never evaluate MDX, and
+second person given owner access, or the public renderer (`apps/web/src/render.ts`) doing anything but
+parsing only the subset `content_problems` allows: it must never evaluate MDX or build HTML from a body, and
 `content_problems` must keep running on save and on publish. Before the Postgres story adapter ships, revisit
 this page; images are now covered above; before Blob or the Postgres image adapter ships, revisit this page.
 

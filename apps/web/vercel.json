@@ -6,6 +6,13 @@
       "source": "/api/:path*",
       "destination": "https://photojournalism-site-api-stevemarvell-team.vercel.app/:path*"
     },
-    { "source": "/editor/:path*", "destination": "/index.html" }
+    {
+      "source": "/editor/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/:id([0-9a-fA-F-]+)",
+      "destination": "/index.html"
+    }
   ]
 }

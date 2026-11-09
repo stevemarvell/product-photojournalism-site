@@ -38,7 +38,7 @@ OWNER_ENDPOINTS = [
     "/images",
     "/images/{id}",
 ]
-PUBLIC_ENDPOINTS = ["/public/stories", "/public/stories/{id}"]
+PUBLIC_ENDPOINTS = ["/public/pieces", "/public/pieces/{id}"]
 
 
 @dataclass

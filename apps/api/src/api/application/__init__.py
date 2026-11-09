@@ -17,6 +17,7 @@ from api.application.ports import (
     StoryRepository,
     UploadTarget,
 )
+from api.application.public import PublicPhoto, PublicPiece, PublicSite, PublicSummary
 from api.application.sessions import SESSION_MAX_AGE, session_is_valid
 from api.application.stories import StoryService
 
@@ -31,6 +32,10 @@ __all__ = [
     "ImageStatusLookup",
     "ImageStore",
     "OriginalUploads",
+    "PublicPhoto",
+    "PublicPiece",
+    "PublicSite",
+    "PublicSummary",
     "RenderedImage",
     "SessionStore",
     "SignInNotConfiguredError",
