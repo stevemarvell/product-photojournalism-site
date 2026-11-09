@@ -29,6 +29,7 @@ function stubApi(me: { status: number; body?: unknown }) {
     if (url === '/api/auth/me') {
       return Promise.resolve(new Response(JSON.stringify(state.me.body ?? {}), { status: state.me.status }));
     }
+    if (url === '/api/stories') return Promise.resolve(new Response('[]', { status: 200 }));
     return Promise.reject(new Error(`unexpected ${url}`));
   });
   vi.stubGlobal('fetch', fetchSpy);

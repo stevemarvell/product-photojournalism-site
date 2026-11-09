@@ -5,3 +5,8 @@
   min-height: 60vh;
   text-align: center;
 }
+
+.drafting label, .photo-block label { display: block; margin: 0.5rem 0; }
+.drafting input, .drafting textarea, .photo-block input { display: block; width: 100%; max-width: 40rem; }
+.photo-block { border: 1px solid #bbb; padding: 0.5rem; margin: 0.5rem 0; }
+.body-editor-content { min-height: 10rem; }

@@ -19,3 +19,11 @@ class PublishRefusedError(Exception):
     def __init__(self, reasons: list[str]) -> None:
         super().__init__("; ".join(reasons))
         self.reasons = reasons
+
+
+class InvalidContentError(Exception):
+    """The draft body uses markup a story may not contain; `reasons` says what."""
+
+    def __init__(self, reasons: list[str]) -> None:
+        super().__init__("; ".join(reasons))
+        self.reasons = reasons
