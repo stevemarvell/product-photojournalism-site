@@ -41,14 +41,18 @@ npm install && npm run dev      # on http://localhost:5173
 node scripts/verify-apps.mjs web   # typecheck, eslint, vitest, build, e2e
 ```
 
-The home page fetches `/health` from the API at `VITE_API_URL` (build-time; the
-deployed value is `/api`, the web origin, which `vercel.json` rewrites to the API
-so the session cookie is first-party; `/api` is also the default under
-`npm run dev`, proxied to `http://localhost:8000` by `vite.config.ts`; a
-production build without it shows "API address not configured." and fetches nothing)
-and shows the database status, or a plain
-error if the API is unreachable. `/editor` is the owner-only editor: it asks `/api/auth/me` and sends a signed-out visitor to `/api/auth/login`, rendering nothing of the editor meanwhile. Run the API alongside it for local use (`IDENTITY_PROVIDER=stub`); the
-e2e suite mocks the API with `page.route`.
+The public site is `PublicSite.tsx`: the home page (live pieces, newest first as the API
+orders them), `/<uuid>` for one piece, and a not-found page, each a plain white page outside Ionic's
+chrome. It fetches `/api/public/pieces` (`public-api.ts`, `cache: no-store`; `VITE_API_URL` is
+build-time as before, `/api` deployed, a production build without it shows an error and fetches
+nothing). **The word "story" must appear in no visible text, URL or metadata** of it, and
+the API paths are `pieces` for that reason (`e2e/public.spec.ts` checks it). `render.ts` is the
+renderer: it parses only paragraphs, bold, italic and `<Photo />` and never evaluates MDX or builds
+HTML (`docs/data-governance.md`); do not add `dangerouslySetInnerHTML`. Where the API answers 501
+(Postgres stories not built, until #34) the home says "No application here yet.", which is also the
+string `smoke.sh` looks for in the bundle. `/editor` is owner-only: it asks `/api/auth/me` and sends a
+signed-out visitor to `/api/auth/login`, rendering nothing of the editor meanwhile. Run the API
+alongside it for local use (`IDENTITY_PROVIDER=stub`); the e2e suite mocks the API with `page.route`.
 
 `/editor` is the owner's story list and `/editor/:id` the drafting screen
 (`StoryEditor.tsx`): title, description, date and location fields plus
@@ -60,7 +64,7 @@ are edited in place; moves swap the tags in the markdown (`movePhoto`).
 The Photo button opens a multi-file picker (`BodyEditor.tsx`, `images-api.ts`): each file asks `/images/upload-target`, is PUT there with a progress row (a file over the limit is refused with the limit shown, before any byte is sent), and is registered; the blocks go in strictly in selection order. `useImageStatuses.ts` polls `GET /images/:id` for every image the draft names; Photo blocks show processing or a failed-image error, and `Preview.tsx` (a minimal draft preview) is greyed out until every image is ready. `useAutosave.ts` is the debounced save (409 stops it). Publish is disabled
 client-side for what the browser can know (`publishBlockers`) and shows the
 API's 422 reasons for the rest (image readiness). `vercel.json` must keep
-`/editor/:path*` serving `index.html`, beside the `/api` rewrite.
+`/editor/:path*` and `/:id(<hex and dashes>)` (the public `/<uuid>` pages) serving `index.html`, beside the `/api` rewrite.
 
 Once deployed, read the `deployment` skill under `.claude/skills/` here
 (written by `deploy:add`) before changing anything that deploys.

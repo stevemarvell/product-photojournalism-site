@@ -150,6 +150,9 @@ _ATTR_PARTS = re.compile(r"""([A-Za-z_][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 class PhotoBlock:
     image_id: str
     alt: str
+    # As stored: attribute values still carry their entities (see `unescape_attr`).
+    caption: str = ""
+    credit: str = ""
 
 
 def parse_photo_blocks(content: str) -> tuple[list[PhotoBlock], int]:
@@ -161,8 +164,25 @@ def parse_photo_blocks(content: str) -> tuple[list[PhotoBlock], int]:
             m.group(1): m.group(2) if m.group(2) is not None else m.group(3)
             for m in _ATTR_PARTS.finditer(match.group(1))
         }
-        blocks.append(PhotoBlock(attrs.get("image", "").strip(), attrs.get("alt", "").strip()))
+        blocks.append(
+            PhotoBlock(
+                attrs.get("image", "").strip(),
+                attrs.get("alt", "").strip(),
+                attrs.get("caption", ""),
+                attrs.get("credit", ""),
+            )
+        )
     return blocks, len(re.findall(r"<Photo\b", content))
+
+
+_ENTITY = re.compile(r"&(amp|quot|lt|gt|#x22|#34);", re.IGNORECASE)
+_ENTITY_CHARS = {"amp": "&", "quot": '"', "lt": "<", "gt": ">", "#x22": '"', "#34": '"'}
+
+
+def unescape_attr(value: str) -> str:
+    """A Photo attribute value as text: the inverse of the editor's escaping, in one pass
+    (so `&amp;amp;` is `&amp;`). The same set of entities as the web app's `unescapeAttr`."""
+    return _ENTITY.sub(lambda m: _ENTITY_CHARS[m.group(1).lower()], value)
 
 
 def publish_problems(
@@ -207,3 +227,11 @@ def owner_order(stories: list[Story]) -> list[Story]:
         reverse=True,
     )
     return unpublished + [s for _, _, s in ever_published]
+
+
+def public_order(stories: list[Story]) -> list[Story]:
+    """The home page (spec section 8): live stories only, newest first by first_published_at.
+    Unpublishing and republishing does not change that date, so it does not change the place.
+    Ties break on id so the order is stable."""
+    shown = [s for s in stories if s.live and s.first_published_at is not None]
+    return sorted(shown, key=lambda s: (s.first_published_at, s.id), reverse=True)  # type: ignore[arg-type,return-value]

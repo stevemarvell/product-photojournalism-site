@@ -1,6 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App } from './App';
 import { Editor } from './Editor';
 
 // Same teardown discipline as App.test.tsx: flush Ionic's timers before unmount.
@@ -96,13 +95,5 @@ describe('the editor route guard', () => {
     await vi.waitFor(() => expect(screen.queryByTestId('editor-content')).toBeNull());
     expect(fetchSpy).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' });
     expect(screen.queryByTestId('editor-content')).toBeNull();
-  });
-});
-
-describe('the home page sign-in', () => {
-  it('links the Sign in with Vercel button to /api/auth/login', () => {
-    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
-    render(<App />);
-    expect(screen.getByTestId('sign-in').getAttribute('href')).toBe('/api/auth/login');
   });
 });

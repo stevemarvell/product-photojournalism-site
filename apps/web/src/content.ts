@@ -8,7 +8,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes, Parent } from 'mdast';
 
 const ATTR = `[A-Za-z_][\\w-]*\\s*=\\s*(?:"[^"]*"|'[^']*')`;
-const PHOTO_SOURCE = `<Photo(?:\\s+${ATTR})*\\s*/>`;
+export const PHOTO_SOURCE = `<Photo(?:\\s+${ATTR})*\\s*/>`;
 const ATTR_PARTS = /([A-Za-z_][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 
 export interface PhotoAttrs {

@@ -57,6 +57,16 @@ implementations; `composition.py` picks them from environment variables, and
 takes the signed-in user's `organisation_id`. Storage is in-memory only: the Postgres
 story methods raise `NotImplementedError` (the API answers 501) until its follow-up.
 
+## Public site
+
+`GET /public/pieces` and `GET /public/pieces/{id}` (anonymous; the path says `pieces`, not
+`stories`, because the public site never carries that word in a URL the browser can see).
+`application/public.py` (`PublicSite`) reads only `published_*` of live stories in
+`MVP_ORGANISATION_ID` (anonymous reads have no user), orders by first published date, and
+resolves each Photo to its web versions; `public_routes.py` shapes it and `NoStorePublic`
+makes every answer `Cache-Control: no-store`. `tests/test_public_site.py` is its scenarios,
+including a sweep of every public answer for draft text and original URLs.
+
 ## Images
 
 The browser asks `POST /images/upload-target {size}` (413 with the limit when too big,

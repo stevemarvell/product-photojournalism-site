@@ -14,10 +14,15 @@ class User:
     organisation_id: str = "default"
 
 
+# The one organisation there is (spec section 4: organisation_id is a constant in the
+# MVP). Signed-in reads take their organisation from the user, which is this; anonymous
+# reads (the public site) have no user, so they take it from here, and nowhere else.
+MVP_ORGANISATION_ID = "owner-org"
+
 # The single user row: the owner, in the one organisation there is. Every
 # identity provider that signs the owner in builds from this, so there is one
 # definition of who the owner is and which organisation they belong to.
-OWNER = User(id="owner", name="Owner", is_owner=True, organisation_id="owner-org")
+OWNER = User(id="owner", name="Owner", is_owner=True, organisation_id=MVP_ORGANISATION_ID)
 
 
 @dataclass(frozen=True)
