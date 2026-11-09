@@ -129,7 +129,13 @@ describe('addDeploy', () => {
   it('records a template hash for exactly the keys project.mjs allows', () => {
     addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'thing-api', url: 'https://thing-api.example', commitEndpoint: '/health', root, manifestPath });
     const hashes = JSON.parse(readFileSync(manifestPath, 'utf8')).apps.api.deploy.templateHashes;
-    expect(Object.keys(hashes).sort()).toEqual([...TEMPLATE_HASH_KEYS].sort());
+    // A literal, not TEMPLATE_HASH_KEYS: add.mjs builds its kinds from that constant, so comparing
+    // against it can never fail. Adding a key must force a deliberate edit here.
+    expect(Object.keys(hashes).sort()).toEqual(['skill', 'vercelJson']);
+  });
+
+  it('allows exactly the template hash keys skill and vercelJson', () => {
+    expect([...TEMPLATE_HASH_KEYS].sort()).toEqual(['skill', 'vercelJson']);
   });
 
   it('writes the deploy block, vercel.json and the deployment skill, filling in placeholders', () => {
