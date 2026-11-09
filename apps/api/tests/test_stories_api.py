@@ -337,3 +337,35 @@ def test_a_signed_in_user_who_is_not_the_owner_cannot_use_story_endpoints() -> N
     assert client.post("/stories").status_code == 403
     assert client.get("/stories").status_code == 403
     assert container.stories.list("owner-org") == []
+
+
+def test_a_tab_may_supersede_its_own_in_flight_save_from_the_same_base() -> None:
+    client = signed_in_client()
+    story = create(client)
+    a = save(client, story, title="A", client_id="tab-1", seq=1)
+    assert a.status_code == 200
+    b = save(client, story, title="B", client_id="tab-1", seq=2)  # same base as A, same tab
+    assert b.status_code == 200
+    assert client.get(f"/stories/{story['id']}").json()["draft"]["title"] == "B"
+
+
+def test_an_older_save_of_the_same_tab_arriving_late_is_refused_and_b_stays() -> None:
+    client = signed_in_client()
+    story = create(client)
+    assert save(client, story, title="B", client_id="tab-1", seq=2).status_code == 200
+    late_a = save(client, story, title="A", client_id="tab-1", seq=1)  # same base, older
+    assert late_a.status_code == 409
+    same_seq = save(client, story, title="A2", client_id="tab-1", seq=2)
+    assert same_seq.status_code == 409
+    assert client.get(f"/stories/{story['id']}").json()["draft"]["title"] == "B"
+
+
+def test_another_client_with_the_old_base_is_refused_and_the_text_is_kept() -> None:
+    client = signed_in_client()
+    story = create(client)
+    assert save(client, story, title="A", client_id="tab-1", seq=1).status_code == 200
+    other = save(client, story, title="B", client_id="tab-2", seq=2)
+    assert other.status_code == 409
+    no_id = save(client, story, title="C")
+    assert no_id.status_code == 409
+    assert client.get(f"/stories/{story['id']}").json()["draft"]["title"] == "A"

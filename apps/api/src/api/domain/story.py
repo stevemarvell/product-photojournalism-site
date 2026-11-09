@@ -44,6 +44,13 @@ class Story:
     published_content: str
     created_at: datetime
     updated_at: datetime
+    # Which editor tab produced this version, and the `updated_at` that save was based on:
+    # the same tab may overwrite its own last save from that same base (a keepalive save
+    # sent on pagehide while the previous one was still in flight).
+    last_saved_by: str | None = None
+    previous_updated_at: datetime | None = None
+    # That tab's save counter at the time: an older save of the same tab cannot overwrite a newer.
+    last_saved_seq: int | None = None
 
     @property
     def draft(self) -> DraftFields:
@@ -89,8 +96,16 @@ def _touched(story: Story, now: datetime) -> datetime:
     return max(now, story.updated_at + timedelta(microseconds=1))
 
 
-def with_draft(story: Story, draft: DraftFields, now: datetime) -> Story:
-    """Autosave: replace the draft fields. The published text and `live` are untouched."""
+def with_draft(
+    story: Story,
+    draft: DraftFields,
+    now: datetime,
+    client_id: str | None = None,
+    base: datetime | None = None,
+    seq: int | None = None,
+) -> Story:
+    """Autosave: replace the draft fields. The published text and `live` are untouched.
+    `client_id` and `base` (the `updated_at` the caller saw) record who saved from what."""
     return replace(
         story,
         draft_title=draft.title,
@@ -99,6 +114,9 @@ def with_draft(story: Story, draft: DraftFields, now: datetime) -> Story:
         draft_date=draft.date,
         draft_content=draft.content,
         updated_at=_touched(story, now),
+        last_saved_by=client_id,
+        previous_updated_at=base if base is not None else story.updated_at,
+        last_saved_seq=seq,
     )
 
 
@@ -115,6 +133,9 @@ def published(story: Story, now: datetime) -> Story:
         published_date=story.draft_date,
         published_content=story.draft_content,
         updated_at=_touched(story, now),
+        last_saved_by=None,
+        previous_updated_at=None,
+        last_saved_seq=None,
     )
 
 

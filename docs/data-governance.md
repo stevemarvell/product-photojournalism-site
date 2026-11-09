@@ -87,8 +87,10 @@ load-bearing controls, and the verdict below holds only while all of them do:
   `require_owner` itself and the audit probes it like any other owner route.
 - **`content_problems`** (`apps/api/src/api/domain/content.py`) is the only thing that
   restricts what a story body may contain: prose, bold, italic and well-formed
-  `<Photo>` tags, with no other tag, raw HTML, `{expression}` or `import`/`export`
-  line. The editor's own limits are a convenience and are not a control. It is checked
+  `<Photo>` tags, with no other tag, raw HTML or `{expression}`: `<` and `{` are refused
+  outright. `import`/`export` lines are not checked (they are plain prose; a line check
+  refused prose and missed forms), so the other control is the renderer rule below: it
+  parses only this subset and never evaluates MDX. The editor's own limits are a convenience and are not a control. It is checked
   on every draft save (`PUT /stories/{id}/draft`) and again on publish, so the text
   that becomes public never rests on the save path alone; `apps/api/tests/test_story_content.py`
   covers both.

@@ -33,6 +33,8 @@ class DraftBody(BaseModel):
     date: dt.date | None = None
     content: str = Field(max_length=200_000)
     updated_at: dt.datetime
+    client_id: str | None = Field(default=None, min_length=1, max_length=64)
+    seq: int | None = Field(default=None, ge=0)
 
 
 def _text(title: str, description: str, location: str, when: dt.date | None, content: str) -> dict:
@@ -116,7 +118,11 @@ def get_story(story_id: str, user: Owner, service: Service) -> dict[str, Any]:
 def save_draft(story_id: str, body: DraftBody, user: Owner, service: Service) -> dict[str, Any]:
     draft = DraftFields(body.title, body.description, body.location, body.date, body.content)
     try:
-        return detail(service.save_draft(user.organisation_id, story_id, draft, body.updated_at))
+        return detail(
+            service.save_draft(
+                user.organisation_id, story_id, draft, body.updated_at, body.client_id, body.seq
+            )
+        )
     except StoryNotFoundError:
         raise HTTPException(status_code=404, detail="story not found") from None
     except InvalidContentError as invalid:

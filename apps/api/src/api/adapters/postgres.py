@@ -43,5 +43,12 @@ class PostgresStoryRepository:
     def list(self, organisation_id: str) -> list[Story]:
         raise StorageUnavailableError(NOT_BUILT)
 
-    def replace(self, organisation_id: str, story: Story, expected_updated_at: datetime) -> Story:
+    def replace(
+        self,
+        organisation_id: str,
+        story: Story,
+        expected_updated_at: datetime,
+        client_id: str | None = None,
+        seq: int | None = None,
+    ) -> Story:
         raise StorageUnavailableError(NOT_BUILT)
