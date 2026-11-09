@@ -47,13 +47,24 @@ implementations; `composition.py` picks them from environment variables, and
 | `PUBLIC_WEB_ORIGIN` | the origin visitors use; the OAuth redirect URI is `<it>/api/auth/callback` (default: the deployed web app when `VERCEL_ENV` is set, else `http://localhost:5173`) |
 | `CORS_ALLOWED_ORIGINS` | comma-separated; `http://localhost:5173,http://127.0.0.1:5173`; never `*` |
 
+## Stories
+
+`/stories` (owner only): create, list, read, `PUT /{id}/draft` (409 when the sent
+`updated_at` is stale) and `POST /{id}/publish` (422 with `reasons`). The rules live in
+`domain/story.py`, use cases in `application/stories.py`, and every repository call
+takes the signed-in user's `organisation_id`. Storage is in-memory only: the Postgres
+story methods raise `NotImplementedError` (the API answers 501) until its follow-up.
+
 ## Auth
 
 Every route that is not public (`api.guard.PUBLIC_*`: `/health`, `/version`,
 `/auth/*`, `/public/*`) must depend on `api.guard.require_owner`;
 `tests/test_owner_guard.py` enumerates the app's routes and fails on one that
 answers a no-session request with anything but 401. The session is a signed
-cookie (HttpOnly, Secure when served over https, SameSite=Lax). The web app
+cookie (HttpOnly, Secure when served over https, SameSite=Lax) that names a
+server-side record in the `SessionStore`: `current_user` checks the record and its
+epoch on every request, so `POST /auth/logout` and `POST /auth/revoke-all` (owner
+only, listed in `guard.OWNER_ONLY_UNDER_PUBLIC`) revoke a copied cookie. The web app
 reaches the API as `/api/*` on its own origin (rewrite in `apps/web/vercel.json`),
 so the cookie is first-party. Locally, `npm run dev` in `apps/web` proxies `/api`
 to `:8000`; `IDENTITY_PROVIDER=stub` signs in as the owner.

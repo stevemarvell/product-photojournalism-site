@@ -8,12 +8,61 @@ from collections.abc import Mapping, MutableMapping
 from datetime import datetime
 from typing import Any, Protocol
 
-from api.domain import User
+from api.domain import ImageStatus, SessionRecord, Story, User
 
 
 class StoryRepository(Protocol):
+    """Stories, always scoped to an organisation: every method takes `organisation_id`
+    and never returns or touches another organisation's story."""
+
     def ping(self) -> bool:
         """True if the backing store can be reached. Never raises, never leaks."""
+        ...
+
+    def create(self, story: Story) -> None:
+        """Store a new story (under `story.organisation_id`)."""
+        ...
+
+    def get(self, organisation_id: str, story_id: str) -> Story | None: ...
+
+    def list(self, organisation_id: str) -> list[Story]:
+        """Every story of the organisation, in no particular order."""
+        ...
+
+    def replace(self, organisation_id: str, story: Story, expected_updated_at: datetime) -> Story:
+        """Store `story` in place of the stored one, atomically (one transaction), but only if
+        the stored `updated_at` is still `expected_updated_at`.
+
+        Raises StoryNotFoundError, or StoryConflictError when it has changed since.
+        """
+        ...
+
+
+class ImageStatusLookup(Protocol):
+    """Where the publish rule learns whether an image is ready (the image pipeline, #15)."""
+
+    def status(self, organisation_id: str, image_id: str) -> ImageStatus | None:
+        """The image's status; None when there is no such image."""
+        ...
+
+
+class SessionStore(Protocol):
+    """Server-side record of signed-in sessions, so a session can be revoked.
+
+    The signed cookie carries a session id and the epoch it was issued under;
+    it is honoured only while the store still has that id at that epoch.
+    """
+
+    def create(self, user_id: str) -> SessionRecord: ...
+
+    def get(self, session_id: str) -> SessionRecord | None:
+        """The record, with the user's current epoch; None if absent or deleted."""
+        ...
+
+    def delete(self, session_id: str) -> None: ...
+
+    def revoke_all(self, user_id: str) -> None:
+        """Bump the user's epoch: every cookie issued before is refused from now on."""
         ...
 
 

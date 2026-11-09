@@ -1,7 +1,7 @@
 """The site's core records. Plain dataclasses: nothing here imports a framework."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from enum import StrEnum
 
 
 @dataclass(frozen=True)
@@ -26,8 +26,22 @@ class Image:
     content_type: str
 
 
+class ImageStatus(StrEnum):
+    """Processing state of an image (spec section 4). Web versions exist only once ready."""
+
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True)
-class Story:
+class SessionRecord:
+    """A signed-in session as the server remembers it (the cookie carries only `id`).
+
+    `epoch` is the user's current session epoch: a cookie whose own epoch differs
+    was issued before a revoke-all and is refused.
+    """
+
     id: str
-    title: str
-    created_at: datetime
+    user_id: str
+    epoch: int

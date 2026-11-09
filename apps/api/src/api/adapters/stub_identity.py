@@ -18,7 +18,9 @@ class StubIdentityProvider:
         return OWNER
 
     def begin_sign_in(self, session: MutableMapping[str, Any], redirect_uri: str) -> str:
-        return "/editor"
+        # Straight on to the callback, which opens a server-side session as it does
+        # for a real sign-in: owner routes need that session, not just this provider.
+        return redirect_uri
 
     def complete_sign_in(
         self, session: MutableMapping[str, Any], redirect_uri: str, params: Mapping[str, str]

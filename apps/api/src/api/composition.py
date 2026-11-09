@@ -4,6 +4,8 @@ STORY_REPOSITORY   memory | postgres (needs DATABASE_URL, or POSTGRES_URL, which
                    Vercel/Neon integration injects). The default is postgres only where
                    VERCEL_ENV=production, so a deployment never silently runs on memory
                    and a preview never gets the database unless it is asked for.
+SESSIONS / image status: in-memory for now (a persistent session store and the real
+                   image-status lookup are follow-ups); not configurable.
 IMAGE_STORE        filesystem (default); IMAGE_DIR sets where (default .data/images,
                    /tmp/images where VERCEL_ENV is set: the bundle is read-only there)
 IDENTITY_PROVIDER  none | stub (only with API_ENVIRONMENT=development; refused when
@@ -25,12 +27,23 @@ from pathlib import Path
 
 from api.adapters.clock import SystemClock
 from api.adapters.filesystem import FilesystemImageStore
-from api.adapters.memory import InMemoryStoryRepository
+from api.adapters.memory import (
+    InMemoryImageStatusLookup,
+    InMemorySessionStore,
+    InMemoryStoryRepository,
+)
 from api.adapters.no_identity import NoIdentityProvider
 from api.adapters.postgres import PostgresStoryRepository
 from api.adapters.stub_identity import StubIdentityProvider
 from api.adapters.vercel_identity import VercelIdentityProvider
-from api.application import Clock, IdentityProvider, ImageStore, StoryRepository
+from api.application import (
+    Clock,
+    IdentityProvider,
+    ImageStatusLookup,
+    ImageStore,
+    SessionStore,
+    StoryRepository,
+)
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +65,8 @@ class Container:
     stories: StoryRepository
     story_repository_name: str
     images: ImageStore
+    image_status: ImageStatusLookup
+    sessions: SessionStore
     identity: IdentityProvider
     identity_name: str
     clock: Clock
@@ -136,6 +151,8 @@ def build_container(env: Mapping[str, str]) -> Container:
         stories=stories,
         story_repository_name=repo_name,
         images=images,
+        image_status=InMemoryImageStatusLookup(),
+        sessions=InMemorySessionStore(),
         identity=identity,
         identity_name=identity_name,
         clock=SystemClock(),

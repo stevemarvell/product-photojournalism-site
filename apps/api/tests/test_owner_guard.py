@@ -96,6 +96,28 @@ def test_the_audit_observes_the_real_app_and_finds_no_unguarded_route() -> None:
         set(result.public)
     )
     assert result.problems == []
+    # The story endpoints, and the one owner route under the public /auth prefix, were
+    # probed without a session and answered 401 (not skipped as "public").
+    assert {
+        "POST /stories",
+        "GET /stories",
+        "GET /stories/{story_id}",
+        "PUT /stories/{story_id}/draft",
+        "POST /stories/{story_id}/publish",
+        "POST /auth/revoke-all",
+    } <= set(result.guarded)
+    assert "/auth/revoke-all" not in result.public
+
+
+def test_an_owner_route_under_a_public_prefix_that_forgets_its_guard_fails_the_audit() -> None:
+    # Control for the revoke-all arrangement: listed as owner-only, but unguarded -> a problem.
+    app = FastAPI()
+
+    @app.post("/auth/revoke-all")
+    def unguarded() -> dict[str, str]:
+        return {"revoked": "everything, for anyone"}
+
+    assert audit(app).problems == ["POST /auth/revoke-all answered 200, not 401"]
 
 
 def test_the_audit_also_passes_in_the_deployed_unconfigured_state() -> None:
@@ -109,17 +131,17 @@ def test_the_audit_reports_an_unguarded_write_path_and_counts_a_guarded_one() ->
     # Control: without this the audit could pass by looking at nothing.
     app = create_app(env={})
 
-    @app.post("/stories")
+    @app.post("/notes")
     def forgot_the_guard() -> dict[str, str]:
         return {"created": "oops"}
 
-    @app.put("/stories/{story_id}/draft", dependencies=[Depends(require_owner)])
+    @app.put("/notes/{story_id}/draft", dependencies=[Depends(require_owner)])
     def remembered_the_guard(story_id: str) -> dict[str, str]:
         return {"saved": story_id}
 
     result = audit(app)
-    assert result.problems == ["POST /stories answered 200, not 401"]
-    assert result.guarded == ["PUT /stories/{story_id}/draft"]
+    assert result.problems == ["POST /notes answered 200, not 401"]
+    assert "PUT /notes/{story_id}/draft" in result.guarded
 
 
 def test_the_audit_fails_a_mounted_sub_app_and_a_websocket_unless_public() -> None:
@@ -174,7 +196,8 @@ class FakeIdentity:
     def complete_sign_in(
         self, session: MutableMapping[str, Any], redirect_uri: str, params: Mapping[str, str]
     ) -> User:
-        raise NotImplementedError
+        assert self.user is not None
+        return self.user
 
     def sign_out(self, session: MutableMapping[str, Any]) -> None:
         session.clear()
@@ -185,26 +208,29 @@ def guarded_app(user: User | None) -> TestClient:
     app = create_app(container=container)
     state: dict[str, int] = {"writes": 0}
 
-    @app.post("/stories", dependencies=[Depends(require_owner)])
+    @app.post("/notes", dependencies=[Depends(require_owner)])
     def create_story() -> dict[str, int]:
         state["writes"] += 1
         return state
 
-    return TestClient(app)
+    client = TestClient(app)
+    if user is not None:
+        client.get("/auth/callback")  # opens the server-side session the guard also requires
+    return client
 
 
 def test_no_session_is_401_and_changes_nothing() -> None:
     client = guarded_app(None)
-    assert client.post("/stories").status_code == 401
-    assert client.post("/stories").status_code == 401
+    assert client.post("/notes").status_code == 401
+    assert client.post("/notes").status_code == 401
 
 
 def test_a_signed_in_user_who_is_not_the_owner_is_403_and_changes_nothing() -> None:
     client = guarded_app(User(id="u2", name="Editor", is_owner=False))
-    assert client.post("/stories").status_code == 403
+    assert client.post("/notes").status_code == 403
 
 
 def test_the_owner_passes_the_guard() -> None:
     client = guarded_app(User(id="owner", name="Owner", is_owner=True))
-    r = client.post("/stories")
+    r = client.post("/notes")
     assert (r.status_code, r.json()) == (200, {"writes": 1})

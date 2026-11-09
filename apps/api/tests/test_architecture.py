@@ -43,6 +43,13 @@ def test_domain_and_application_import_no_framework_driver_or_adapter() -> None:
         assert forbidden_imports(f.read_text()) == [], f.name
 
 
-def test_the_four_ports_are_declared() -> None:
-    for name in ("StoryRepository", "ImageStore", "IdentityProvider", "Clock"):
+def test_the_ports_are_declared() -> None:
+    for name in (
+        "StoryRepository",
+        "ImageStore",
+        "IdentityProvider",
+        "Clock",
+        "ImageStatusLookup",
+        "SessionStore",
+    ):
         assert getattr(api.application.ports, name) is getattr(api.application, name)
