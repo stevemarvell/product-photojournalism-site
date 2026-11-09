@@ -13,6 +13,7 @@ from api.domain.errors import (
     StorageUnavailableError,
     StoryConflictError,
     StoryNotFoundError,
+    TransitionRefusedError,
 )
 from api.domain.image import (
     WEB_WIDTHS,
@@ -34,7 +35,10 @@ from api.domain.story import (
     public_order,
     publish_problems,
     published,
+    republished,
+    reverted,
     unescape_attr,
+    unpublished,
     with_draft,
 )
 
@@ -74,5 +78,9 @@ __all__ = [
     "unescape_attr",
     "publish_problems",
     "published",
+    "republished",
+    "reverted",
+    "unpublished",
     "with_draft",
+    "TransitionRefusedError",
 ]

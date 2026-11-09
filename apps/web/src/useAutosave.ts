@@ -142,10 +142,20 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
     return failure.current;
   }, [run]);
 
+  /** After Revert: the draft is the server's again, so there is nothing unsaved and the next save uses `next`. */
+  const reset = useCallback((next: string) => {
+    updatedAt.current = next;
+    pending.current = null;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    failure.current = 'error';
+    set('idle');
+  }, []);
+
   /** The server's newer `updated_at` after Publish, so the next autosave is not a false conflict. */
   const adopt = useCallback((next: string) => {
     updatedAt.current = next;
   }, []);
 
-  return { status, reasons, change, flush, adopt, allowLeave };
+  return { status, reasons, change, flush, adopt, reset, allowLeave };
 }

@@ -271,6 +271,207 @@ describe('publish', () => {
   });
 });
 
+const PUBLISHED = { title: 'Live title', description: 'Live', location: '', date: null, content: PHOTO };
+
+/** A story published before: `live` as stated, a draft as stated (the published text above). */
+function publishedStory(over: { live?: boolean; draft?: Partial<StoryDetail['draft']> } = {}): StoryDetail {
+  return {
+    id: 's1',
+    live: over.live ?? true,
+    updated_at: '2026-11-09T10:00:00Z',
+    published: PUBLISHED,
+    draft: { ...PUBLISHED, ...over.draft },
+  };
+}
+
+const action = (spy: ReturnType<typeof stubFetch>) =>
+  spy.mock.calls.map(([url, init]) => `${init?.method ?? 'GET'} ${url}`);
+
+describe('lifecycle actions (issue #17)', () => {
+  it('Revert is hidden for a never-published story', () => {
+    stubFetch(() => json(story()));
+    render(<Drafting story={story({ title: 'T' })} />);
+    expect(screen.queryByTestId('revert')).toBeNull();
+    expect(screen.queryByTestId('unpublish')).toBeNull();
+    expect(screen.queryByTestId('republish')).toBeNull();
+  });
+
+  it('Revert is disabled while the draft matches the published text, enabled once it differs', () => {
+    stubFetch(() => json(story()));
+    render(<Drafting story={publishedStory()} />);
+    expect(screen.getByTestId('revert')).toHaveProperty('disabled', true);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Edited' } });
+    expect(screen.getByTestId('revert')).toHaveProperty('disabled', false);
+  });
+
+  it('shows Unpublish only when live and Republish only when published before and not live', () => {
+    stubFetch(() => json(story()));
+    const { unmount } = render(<Drafting story={publishedStory({ live: true })} />);
+    expect(screen.getByTestId('unpublish')).toBeTruthy();
+    expect(screen.queryByTestId('republish')).toBeNull();
+    unmount();
+    render(<Drafting story={publishedStory({ live: false })} />);
+    expect(screen.getByTestId('republish')).toBeTruthy();
+    expect(screen.queryByTestId('unpublish')).toBeNull();
+  });
+
+  it('says Publish will update the live version when live and the draft differs, and not otherwise', () => {
+    stubFetch(() => json(story()));
+    const { unmount } = render(<Drafting story={publishedStory({ live: true, draft: { title: 'Newer' } })} />);
+    expect(screen.getByTestId('update-live-note').textContent).toBe('Publish will update the live version.');
+    unmount();
+    render(<Drafting story={publishedStory({ live: true })} />);
+    expect(screen.queryByTestId('update-live-note')).toBeNull();
+    cleanup();
+    render(<Drafting story={publishedStory({ live: false, draft: { title: 'Newer' } })} />);
+    expect(screen.queryByTestId('update-live-note')).toBeNull();
+  });
+
+  it('Unpublish calls the API and flips the buttons', async () => {
+    const spy = stubFetch(() => json({ ...publishedStory({ live: false }), updated_at: '2026-11-09T10:00:01Z' }));
+    render(<Drafting story={publishedStory()} />);
+    fireEvent.click(screen.getByTestId('unpublish'));
+    await waitFor(() => expect(screen.getByTestId('republish')).toBeTruthy());
+    expect(action(spy)).toEqual(['POST /api/stories/s1/unpublish']);
+    expect(screen.queryByTestId('unpublish')).toBeNull();
+  });
+
+  it('Republish calls the API and flips the buttons', async () => {
+    const spy = stubFetch(() => json(publishedStory({ live: true })));
+    render(<Drafting story={publishedStory({ live: false })} />);
+    fireEvent.click(screen.getByTestId('republish'));
+    await waitFor(() => expect(screen.getByTestId('unpublish')).toBeTruthy());
+    expect(action(spy)).toEqual(['POST /api/stories/s1/republish']);
+  });
+
+  it('shows the API reasons when it refuses an action', async () => {
+    stubFetch(() => json({ detail: { message: 'action not allowed', reasons: ['the story is not live'] } }, 422));
+    render(<Drafting story={publishedStory()} />);
+    fireEvent.click(screen.getByTestId('unpublish'));
+    await waitFor(() => expect(screen.getByTestId('publish-message').textContent).toContain('the story is not live'));
+  });
+
+  it('Publish over published text asks first; cancelling publishes nothing', async () => {
+    const spy = stubFetch(() => json(publishedStory()));
+    render(<Drafting story={publishedStory({ draft: { title: 'Newer' } })} />);
+    fireEvent.click(screen.getByTestId('publish'));
+    expect(await screen.findByTestId('confirm')).toBeTruthy();
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('confirm-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('confirm')).toBeNull());
+    expect(spy).not.toHaveBeenCalled();
+    expect(screen.getByTestId('publish')).toHaveProperty('disabled', false);
+  });
+
+  it('Publish over published text goes ahead once confirmed', async () => {
+    const spy = stubFetch(() => json({ ...publishedStory(), updated_at: '2026-11-09T10:00:01Z' }));
+    render(<Drafting story={publishedStory({ draft: { title: 'Newer' } })} />);
+    fireEvent.click(screen.getByTestId('publish'));
+    fireEvent.click(await screen.findByTestId('confirm-ok'));
+    await waitFor(() => expect(screen.getByTestId('publish-message').textContent).toContain('Published'));
+    expect(action(spy).at(-1)).toBe('POST /api/stories/s1/publish');
+  });
+
+  it('Publish of a never-published story does not ask', async () => {
+    const spy = stubFetch(() => json({ ...publishedStory(), updated_at: '2026-11-09T10:00:01Z' }));
+    render(<Drafting story={story({ title: 'T', description: 'D', content: PHOTO })} />);
+    fireEvent.click(screen.getByTestId('publish'));
+    await waitFor(() => expect(screen.getByTestId('publish-message').textContent).toContain('Published'));
+    expect(screen.queryByTestId('confirm')).toBeNull();
+    expect(action(spy)).toEqual(['POST /api/stories/s1/publish']);
+  });
+
+  it('Revert asks first; cancelling changes nothing and calls nothing', async () => {
+    const spy = stubFetch(() => json(publishedStory()));
+    render(<Drafting story={publishedStory({ draft: { title: 'Newer' } })} />);
+    fireEvent.click(screen.getByTestId('revert'));
+    expect(await screen.findByTestId('confirm')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('confirm-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('confirm')).toBeNull());
+    expect(spy).not.toHaveBeenCalled();
+    expect((screen.getByTestId('field-title') as HTMLInputElement).value).toBe('Newer');
+  });
+
+  it('Revert, confirmed, reloads the draft and its updated_at, and the next save uses it', async () => {
+    const reverted = { ...publishedStory(), updated_at: '2026-11-09T10:05:00Z' };
+    const spy = stubFetch((url) => json(url.endsWith('/revert') ? reverted : { ...reverted, updated_at: '2026-11-09T10:06:00Z' }));
+    render(<Drafting story={publishedStory({ draft: { title: 'Newer' } })} />);
+    fireEvent.click(screen.getByTestId('revert'));
+    fireEvent.click(await screen.findByTestId('confirm-ok'));
+    await waitFor(() => expect((screen.getByTestId('field-title') as HTMLInputElement).value).toBe('Live title'));
+    expect(action(spy)).toEqual(['POST /api/stories/s1/revert']);
+    expect(screen.getByTestId('revert')).toHaveProperty('disabled', true); // now matches
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'After revert' } });
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    expect(JSON.parse((spy.mock.calls[1]?.[1] as RequestInit).body as string).updated_at).toBe('2026-11-09T10:05:00Z');
+  });
+
+  it('Revert sends a pending autosave and waits for the one in flight, then reverts, in that order', async () => {
+    const finish: ((r: Response) => void)[] = [];
+    const order: string[] = [];
+    const spy = stubFetch((url, init) => {
+      order.push(`${init?.method} ${url}`);
+      if (init?.method === 'PUT') {
+        return new Promise<Response>((resolve) => finish.push(resolve)) as unknown as Response;
+      }
+      return json({ ...publishedStory(), updated_at: '2026-11-09T10:09:00Z' });
+    });
+    render(<Drafting story={publishedStory()} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'One' } });
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1), { timeout: 4000 }); // in flight
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Two' } }); // pending behind it
+
+    fireEvent.click(screen.getByTestId('revert'));
+    fireEvent.click(await screen.findByTestId('confirm-ok'));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(order).toEqual(['PUT /api/stories/s1/draft']); // revert waits for the save in flight
+
+    finish[0]?.(json({ ...publishedStory(), updated_at: '2026-11-09T10:07:00Z' }));
+    await waitFor(() => expect(finish).toHaveLength(2)); // the pending edit is sent, not dropped
+    expect(JSON.parse((spy.mock.calls[1]?.[1] as RequestInit).body as string).title).toBe('Two');
+    expect(order).toHaveLength(2); // and revert still waits for it
+    finish[1]?.(json({ ...publishedStory(), updated_at: '2026-11-09T10:08:00Z' }));
+    await waitFor(() => expect(order).toHaveLength(3));
+    expect(order[2]).toBe('POST /api/stories/s1/revert');
+    await waitFor(() => expect((screen.getByTestId('field-title') as HTMLInputElement).value).toBe('Live title'));
+  });
+
+  it('a refused Revert has already saved the typing made inside the pause, and shows the reasons', async () => {
+    const spy = stubFetch((_url, init) =>
+      init?.method === 'PUT'
+        ? json({ ...publishedStory({ draft: { title: 'Typed' } }), updated_at: '2026-11-09T10:01:00Z' })
+        : json({ detail: { message: 'action not allowed', reasons: ['the draft already matches the published text'] } }, 422),
+    );
+    const confirmRevert = vi.fn().mockResolvedValue(true);
+    render(<Drafting story={publishedStory({ draft: { title: 'Older' } })} confirmRevert={confirmRevert} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Typed' } });
+    fireEvent.click(screen.getByTestId('revert')); // confirmed at once, inside the 800 ms pause
+    await waitFor(() => expect(screen.getByTestId('publish-message').textContent).toContain('already matches'));
+    expect(action(spy)).toEqual(['PUT /api/stories/s1/draft', 'POST /api/stories/s1/revert']);
+    expect(JSON.parse((spy.mock.calls[0]?.[1] as RequestInit).body as string).title).toBe('Typed');
+    expect((screen.getByTestId('field-title') as HTMLInputElement).value).toBe('Typed');
+  });
+
+  it('Revert does not copy when the in-flight save hits a conflict', async () => {
+    let finishSave: (r: Response) => void = () => {};
+    const order: string[] = [];
+    const spy = stubFetch((url, init) => {
+      order.push(`${init?.method} ${url}`);
+      return new Promise<Response>((resolve) => {
+        finishSave = (r) => resolve(r);
+      }) as unknown as Response;
+    });
+    render(<Drafting story={publishedStory()} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'One' } });
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    fireEvent.click(screen.getByTestId('revert'));
+    fireEvent.click(await screen.findByTestId('confirm-ok'));
+    finishSave(json({ detail: 'changed' }, 409));
+    await waitFor(() => expect(screen.getByTestId('publish-message').textContent).toContain('Changed elsewhere'));
+    expect(order).toEqual(['PUT /api/stories/s1/draft']);
+  });
+});
+
 describe('the story list', () => {
   const stories = [
     { id: 'a', live: false, title: '', description: '', first_published_at: null },

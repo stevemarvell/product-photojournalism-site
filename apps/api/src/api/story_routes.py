@@ -19,6 +19,7 @@ from api.domain import (
     Story,
     StoryConflictError,
     StoryNotFoundError,
+    TransitionRefusedError,
     User,
 )
 from api.guard import container_of, require_owner
@@ -145,6 +146,38 @@ def publish_story(story_id: str, user: Owner, service: Service) -> dict[str, Any
         raise HTTPException(
             status_code=422, detail={"message": "publish refused", "reasons": refused.reasons}
         ) from None
+
+
+def _lifecycle(story_id: str, user: User, run: Any) -> dict[str, Any]:
+    """Unpublish, republish and revert. 422 when the story's state does not allow the action
+    (the same status publish uses for a refusal, with `reasons`), 409 only when a save or a
+    revert landed in between (unpublish and republish keep `updated_at`, so the compare-and-set
+    catches only those); either way nothing changed."""
+    try:
+        return detail(run(user.organisation_id, story_id))
+    except StoryNotFoundError:
+        raise HTTPException(status_code=404, detail="story not found") from None
+    except StoryConflictError:
+        raise HTTPException(status_code=409, detail="the draft changed elsewhere; retry") from None
+    except TransitionRefusedError as refused:
+        raise HTTPException(
+            status_code=422, detail={"message": "action not allowed", "reasons": refused.reasons}
+        ) from None
+
+
+@router.post("/{story_id}/unpublish")
+def unpublish_story(story_id: str, user: Owner, service: Service) -> dict[str, Any]:
+    return _lifecycle(story_id, user, service.unpublish)
+
+
+@router.post("/{story_id}/republish")
+def republish_story(story_id: str, user: Owner, service: Service) -> dict[str, Any]:
+    return _lifecycle(story_id, user, service.republish)
+
+
+@router.post("/{story_id}/revert")
+def revert_story(story_id: str, user: Owner, service: Service) -> dict[str, Any]:
+    return _lifecycle(story_id, user, service.revert)
 
 
 def _found(read: Any) -> Story:

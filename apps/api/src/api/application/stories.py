@@ -1,6 +1,7 @@
 """Story use cases (spec sections 4, 5 and 11). Every call is for one organisation."""
 
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 
 from api.application.ports import Clock, ImageStatusLookup, StoryRepository
@@ -15,6 +16,9 @@ from api.domain import (
     owner_order,
     publish_problems,
     published,
+    republished,
+    reverted,
+    unpublished,
     with_draft,
 )
 
@@ -81,4 +85,28 @@ class StoryService:
             organisation_id,
             published(current, self._clock.now()),
             expected_updated_at=current.updated_at,
+        )
+
+    def unpublish(self, organisation_id: str, story_id: str) -> Story:
+        """Raises TransitionRefusedError (nothing changes) unless the story is live."""
+        return self._transition(organisation_id, story_id, lambda s: unpublished(s))
+
+    def republish(self, organisation_id: str, story_id: str) -> Story:
+        """Raises TransitionRefusedError unless it was published before and is not live."""
+        return self._transition(organisation_id, story_id, lambda s: republished(s))
+
+    def revert(self, organisation_id: str, story_id: str) -> Story:
+        """Published text over the draft. Raises TransitionRefusedError unless it was
+        published before and the draft differs."""
+        now = self._clock.now()
+        return self._transition(organisation_id, story_id, lambda s: reverted(s, now))
+
+    def _transition(
+        self, organisation_id: str, story_id: str, change: Callable[[Story], Story]
+    ) -> Story:
+        """Read, apply a domain change, store it only if nothing was saved in between
+        (a StoryConflictError otherwise), the same compare-and-set as publish."""
+        current = self.get(organisation_id, story_id)
+        return self._stories.replace(
+            organisation_id, change(current), expected_updated_at=current.updated_at
         )
