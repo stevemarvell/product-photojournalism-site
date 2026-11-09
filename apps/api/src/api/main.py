@@ -13,13 +13,15 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from api.application import SESSION_MAX_AGE
 from api.auth_routes import NoStoreAuth
 from api.auth_routes import owner_router as auth_owner_router
 from api.auth_routes import router as auth_router
 from api.composition import Container, build_container
+from api.domain import StorageUnavailableError
 from api.security_headers import install_security_headers
-from api.story_routes import not_implemented_handler
 from api.story_routes import router as story_router
+from api.story_routes import storage_unavailable_handler
 
 # Defaults to "production", the safe setting, so a forgotten variable fails
 # closed. API_ENVIRONMENT=development turns on the OpenAPI surface below.
@@ -30,10 +32,9 @@ API_ENVIRONMENT = os.environ.get("API_ENVIRONMENT", "production")
 DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
 
 
-# How long a sign-in lasts. The cookie is signed and also names a server-side
-# session record (api.guard.current_user), so signing out or revoking all
-# sessions refuses a copied cookie at once, before this runs out.
-SESSION_MAX_AGE = 12 * 60 * 60
+# The cookie lasts api.application.SESSION_MAX_AGE and also names a server-side session
+# record (api.guard.current_user). On one instance, signing out or revoking all refuses a
+# copied cookie at once; across instances that waits for the persistent store (#34).
 
 # How long /health reuses a database ping.
 HEALTH_CACHE_TTL = timedelta(seconds=10)
@@ -66,7 +67,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(auth_owner_router)
     app.include_router(story_router)
-    app.add_exception_handler(NotImplementedError, not_implemented_handler)
+    app.add_exception_handler(StorageUnavailableError, storage_unavailable_handler)
 
     # The session: a signed cookie (itsdangerous via Starlette), always HttpOnly,
     # SameSite=Lax so the redirect back from Vercel carries it, and Secure

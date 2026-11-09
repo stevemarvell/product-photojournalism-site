@@ -34,10 +34,18 @@ organisation, the owner's).
   built before the owner is given access. The follow-up needs the stories table and
   migrations, a persistent session store, and the shared repository contract suite
   un-skipped for Postgres.
-- **Sessions on a serverless host** held in memory are per instance: a session may be
-  refused after a restart or when another instance answers, and the owner signs in
-  again. That fails closed (a lost record refuses access, never grants it); a
-  persistent session store removes the nuisance.
+- **Sessions on a serverless host** held in memory are per instance. Lookups fail
+  closed: an instance that has no record for a cookie refuses it, so the owner may be
+  signed out after a restart or when another instance answers. **Revocation does not
+  fail closed across instances**: sign-out or revoke-all deletes the record only on the
+  instance that handled it, and another instance that still holds the record keeps
+  honouring the cookie until the record expires (12 hours, the cookie's own lifetime).
+  Revocation is reliable on a single instance only, until the persistent session store
+  of #34 lands. **Sign-in on production must not be enabled (#27) before #34**, or the
+  owner accepts per-instance revocation for up to 12 hours. Rotating `SESSION_SECRET`
+  remains the remedy that works across every instance.
+- Records expire after the session max age (12 hours), and revoke-all deletes the
+  user's records as well as bumping the epoch.
 
 `/health` exposes only the adapter name and whether it is reachable, never the
 connection string.
@@ -64,7 +72,8 @@ load-bearing controls, and the verdict below holds only while all of them do:
 - **Server-side sessions.** Every sign-in creates a record in the `SessionStore`, and
   every owner request must present a cookie whose session id is in the store at the
   stored epoch (`api.guard.current_user`). **Signing out deletes the record**, so a
-  copy of the cookie stops working at once. **`POST /auth/revoke-all`** bumps the
+  copy of the cookie stops working at once on that instance (see the caveat above on
+  other instances). **`POST /auth/revoke-all`** bumps the
   epoch: every session, the caller's included, is refused on its next request.
   Rotating `SESSION_SECRET` still invalidates everything, and is the remedy if the
   secret itself leaks.

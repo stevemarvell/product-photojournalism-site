@@ -1,6 +1,11 @@
 """The domain: plain dataclasses and rules, no framework or driver imports."""
 
-from api.domain.errors import PublishRefusedError, StoryConflictError, StoryNotFoundError
+from api.domain.errors import (
+    PublishRefusedError,
+    StorageUnavailableError,
+    StoryConflictError,
+    StoryNotFoundError,
+)
 from api.domain.models import OWNER, Image, ImageStatus, SessionRecord, User
 from api.domain.story import (
     DraftFields,
@@ -22,6 +27,7 @@ __all__ = [
     "PhotoBlock",
     "PublishRefusedError",
     "SessionRecord",
+    "StorageUnavailableError",
     "Story",
     "StoryConflictError",
     "StoryNotFoundError",

@@ -14,6 +14,7 @@ from api.adapters.postgres import PostgresStoryRepository
 from api.application import StoryRepository
 from api.domain import (
     DraftFields,
+    StorageUnavailableError,
     StoryConflictError,
     StoryNotFoundError,
     new_story,
@@ -112,11 +113,11 @@ def test_replace_of_a_missing_story_or_another_organisations_is_not_found(
 def test_the_postgres_adapter_does_not_pretend_to_store_stories_yet() -> None:
     # Not skipped: until the follow-up lands, a deployed default must fail loudly, not quietly.
     postgres = PostgresStoryRepository("postgresql://x:y@127.0.0.1:1/z")
-    with pytest.raises(NotImplementedError, match="Postgres story adapter: follow-up issue"):
+    with pytest.raises(StorageUnavailableError, match="Postgres story adapter: follow-up issue"):
         postgres.list("org-a")
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(StorageUnavailableError):
         postgres.get("org-a", "s1")
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(StorageUnavailableError):
         postgres.create(new_story("s1", "org-a", T0))
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(StorageUnavailableError):
         postgres.replace("org-a", new_story("s1", "org-a", T0), expected_updated_at=T0)

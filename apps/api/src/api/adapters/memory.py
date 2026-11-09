@@ -5,9 +5,10 @@ Nothing here survives a restart (or, on a serverless host, a cold start).
 
 import secrets
 import threading
-from collections.abc import Mapping
-from datetime import datetime
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime, timedelta
 
+from api.application.sessions import SESSION_MAX_AGE
 from api.domain import ImageStatus, SessionRecord, Story, StoryConflictError, StoryNotFoundError
 
 
@@ -58,8 +59,14 @@ class InMemoryImageStatusLookup:
 
 
 class InMemorySessionStore:
-    def __init__(self) -> None:
-        self._sessions: dict[str, str] = {}  # id -> user id
+    def __init__(
+        self,
+        max_age: timedelta = timedelta(seconds=SESSION_MAX_AGE),
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
+        self._max_age = max_age
+        self._now = now
+        self._sessions: dict[str, tuple[str, datetime]] = {}  # id -> (user id, created_at)
         self._epochs: dict[str, int] = {}  # user id -> current epoch
         self._lock = threading.Lock()
 
@@ -67,13 +74,17 @@ class InMemorySessionStore:
         with self._lock:
             session_id = secrets.token_urlsafe(32)
             epoch = self._epochs.get(user_id, 0)
-            self._sessions[session_id] = user_id
+            self._sessions[session_id] = (user_id, self._now())
             return SessionRecord(session_id, user_id, epoch)
 
     def get(self, session_id: str) -> SessionRecord | None:
         with self._lock:
-            user_id = self._sessions.get(session_id)
-            if user_id is None:
+            found = self._sessions.get(session_id)
+            if found is None:
+                return None
+            user_id, created_at = found
+            if self._now() - created_at >= self._max_age:
+                del self._sessions[session_id]  # expired: the cookie's own max age has passed
                 return None
             # A session issued before a revoke-all reports the new epoch, so the
             # (older) epoch in its cookie no longer matches.
@@ -86,3 +97,5 @@ class InMemorySessionStore:
     def revoke_all(self, user_id: str) -> None:
         with self._lock:
             self._epochs[user_id] = self._epochs.get(user_id, 0) + 1
+            for sid in [sid for sid, (u, _) in self._sessions.items() if u == user_id]:
+                del self._sessions[sid]

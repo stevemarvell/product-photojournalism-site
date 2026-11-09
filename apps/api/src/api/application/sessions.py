@@ -2,6 +2,9 @@
 
 from api.application.ports import SessionStore
 
+# How long a sign-in lasts: the cookie's max age, and how long a stored record is honoured.
+SESSION_MAX_AGE = 12 * 60 * 60
+
 
 def session_is_valid(store: SessionStore, user_id: str, session_id: object, epoch: object) -> bool:
     """True only when the store has this session, for this user, at the cookie's epoch."""

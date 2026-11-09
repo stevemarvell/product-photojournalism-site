@@ -175,8 +175,14 @@ def owner_order(stories: list[Story]) -> list[Story]:
     """The owner's list (spec section 7): never-published stories first, newest created
     first (they are the work in hand); then published ones by first_published_at, newest
     first. Ties break on id so the order is stable."""
-    unpublished = [s for s in stories if s.first_published_at is None]
-    ever_published = [s for s in stories if s.first_published_at is not None]
-    unpublished.sort(key=lambda s: (s.created_at, s.id), reverse=True)
-    ever_published.sort(key=lambda s: (s.first_published_at or s.created_at, s.id), reverse=True)
-    return unpublished + ever_published
+    unpublished = sorted(
+        (s for s in stories if s.first_published_at is None),
+        key=lambda s: (s.created_at, s.id),
+        reverse=True,
+    )
+    ever_published = sorted(
+        ((s.first_published_at, s.id, s) for s in stories if s.first_published_at is not None),
+        key=lambda t: (t[0], t[1]),
+        reverse=True,
+    )
+    return unpublished + [s for _, _, s in ever_published]

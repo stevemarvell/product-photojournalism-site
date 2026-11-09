@@ -1,6 +1,6 @@
 """Postgres StoryRepository. For now its only behaviour is a connectivity check.
 
-No tables or migrations yet: the story methods raise NotImplementedError until the
+No tables or migrations yet: the story methods raise StorageUnavailableError until the
 Postgres story adapter follow-up lands (the in-memory adapter implements them). It
 connects lazily, so constructing it with an unreachable database does not fail startup.
 """
@@ -9,7 +9,7 @@ from datetime import datetime
 
 import psycopg
 
-from api.domain import Story
+from api.domain import StorageUnavailableError, Story
 
 TIMEOUT_S = 2
 NOT_BUILT = (
@@ -35,13 +35,13 @@ class PostgresStoryRepository:
             return False
 
     def create(self, story: Story) -> None:
-        raise NotImplementedError(NOT_BUILT)
+        raise StorageUnavailableError(NOT_BUILT)
 
     def get(self, organisation_id: str, story_id: str) -> Story | None:
-        raise NotImplementedError(NOT_BUILT)
+        raise StorageUnavailableError(NOT_BUILT)
 
     def list(self, organisation_id: str) -> list[Story]:
-        raise NotImplementedError(NOT_BUILT)
+        raise StorageUnavailableError(NOT_BUILT)
 
     def replace(self, organisation_id: str, story: Story, expected_updated_at: datetime) -> Story:
-        raise NotImplementedError(NOT_BUILT)
+        raise StorageUnavailableError(NOT_BUILT)

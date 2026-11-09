@@ -290,6 +290,19 @@ def test_the_list_puts_never_published_first_then_first_published_newest_first()
 # --- Not-built storage and non-owners ------------------------------------------
 
 
+def test_an_unrelated_not_implemented_error_is_a_500_not_a_501() -> None:
+    class Broken(InMemoryStoryRepository):
+        def list(self, organisation_id: str):
+            raise NotImplementedError("some other bug")
+
+    client = TestClient(
+        create_app(container=replace(make_container(), stories=Broken())),
+        raise_server_exceptions=False,
+    )
+    client.get("/auth/callback", follow_redirects=False)
+    assert client.get("/stories").status_code == 500
+
+
 def test_an_adapter_that_cannot_store_stories_yet_answers_501_not_a_crash() -> None:
     from api.adapters.postgres import PostgresStoryRepository
 

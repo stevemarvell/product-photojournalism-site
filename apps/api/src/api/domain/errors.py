@@ -9,6 +9,10 @@ class StoryConflictError(Exception):
     """The story changed since the caller last saw it (its `updated_at` no longer matches)."""
 
 
+class StorageUnavailableError(Exception):
+    """This adapter does not store the data yet (the Postgres story adapter, until built)."""
+
+
 class PublishRefusedError(Exception):
     """The draft does not pass the publish rule; `reasons` says why, one per failure."""
 

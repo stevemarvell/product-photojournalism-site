@@ -144,6 +144,7 @@ def _found(read: Any) -> Story:
         raise HTTPException(status_code=404, detail="story not found") from None
 
 
-def not_implemented_handler(request: Request, exc: Exception) -> JSONResponse:
-    """An adapter that does not store stories yet (Postgres, until its follow-up lands)."""
+def storage_unavailable_handler(request: Request, exc: Exception) -> JSONResponse:
+    """An adapter that does not store stories yet (Postgres, until its follow-up lands).
+    Only StorageUnavailableError maps here; any other exception is an ordinary 500."""
     return JSONResponse(status_code=501, content={"detail": "story storage is not available"})
