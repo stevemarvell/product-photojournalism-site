@@ -1,6 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { publishBlockers } from './content';
+import { parsePhoto, photoTags, publishBlockers } from './content';
+import { DraftPreview } from './Preview';
+import { ImageStatusContext, useImageStatuses } from './useImageStatuses';
 import { getStory, publishStory, type DraftText, type StoryDetail } from './stories-api';
 import { useAutosave, type SaveStatus } from './useAutosave';
 
@@ -78,6 +80,11 @@ export function Drafting({
   );
   const editContent = useCallback((content: string) => edit({ content }), [edit]);
 
+  const imageIds = useMemo(
+    () => photoTags(draft.content).map((t) => parsePhoto(t).image).filter(Boolean),
+    [draft.content],
+  );
+  const imageStates = useImageStatuses(imageIds);
   const blockers = publishBlockers(draft);
   const conflict = autosave.status === 'conflict';
 
@@ -108,6 +115,7 @@ export function Drafting({
   };
 
   return (
+    <ImageStatusContext.Provider value={imageStates}>
     <div data-testid="drafting" className="drafting">
       <p>
         <a
@@ -157,6 +165,8 @@ export function Drafting({
       <Suspense fallback={<p role="status">Loading editor…</p>}>
         <BodyEditor initial={story.draft.content} onChange={editContent} />
       </Suspense>
+
+      <DraftPreview draft={draft} imageIds={imageIds} />
 
       <p data-testid="save-indicator" role="status" aria-live="polite">
         {STATUS_TEXT[autosave.status]}
@@ -211,5 +221,6 @@ export function Drafting({
         </ul>
       )}
     </div>
+    </ImageStatusContext.Provider>
   );
 }

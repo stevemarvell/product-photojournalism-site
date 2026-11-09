@@ -10,3 +10,13 @@
 .drafting input, .drafting textarea, .photo-block input { display: block; width: 100%; max-width: 40rem; }
 .photo-block { border: 1px solid #bbb; padding: 0.5rem; margin: 0.5rem 0; }
 .body-editor-content { min-height: 10rem; }
+.uploads { list-style: none; padding: 0; margin: 0.5rem 0; }
+.uploads progress { width: 8rem; vertical-align: middle; }
+.photo-status { color: #666; margin: 0.25rem 0; }
+.photo-error { color: #a00; margin: 0.25rem 0; }
+.photo-thumb { display: block; margin: 0.25rem 0; }
+.greyed { opacity: 0.5; cursor: not-allowed; }
+.preview { border: 1px solid #ddd; padding: 1rem; margin: 0.5rem 0; background: #fff; }
+.preview img { width: 100%; height: auto; display: block; }
+.preview figure { margin: 1rem 0; }
+.preview-area { margin: 0.75rem 0; }

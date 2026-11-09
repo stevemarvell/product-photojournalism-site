@@ -57,7 +57,7 @@ a Photo button and a source toggle. The heading, list, quote and link plugins
 are deliberately not loaded, and `content.ts` `flattenMarkdown` strips their
 markdown (as an mdast pass) from source view and from every save, and `canonicalPhotos` writes Photo attributes with `&`, `"`, `<`, `>` as entities. The browser is only a convenience: the API's `content_problems` is the real restriction. Photo blocks (`PhotoBlock.tsx`)
 are edited in place; moves swap the tags in the markdown (`movePhoto`).
-`useAutosave.ts` is the debounced save (409 stops it). Publish is disabled
+The Photo button opens a multi-file picker (`BodyEditor.tsx`, `images-api.ts`): each file asks `/images/upload-target`, is PUT there with a progress row (a file over the limit is refused with the limit shown, before any byte is sent), and is registered; the blocks go in strictly in selection order. `useImageStatuses.ts` polls `GET /images/:id` for every image the draft names; Photo blocks show processing or a failed-image error, and `Preview.tsx` (a minimal draft preview) is greyed out until every image is ready. `useAutosave.ts` is the debounced save (409 stops it). Publish is disabled
 client-side for what the browser can know (`publishBlockers`) and shows the
 API's 422 reasons for the rest (image readiness). `vercel.json` must keep
 `/editor/:path*` serving `index.html`, beside the `/api` rewrite.

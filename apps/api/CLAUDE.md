@@ -42,6 +42,8 @@ implementations; `composition.py` picks them from environment variables, and
 | --- | --- |
 | `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`, else `POSTGRES_URL`); default is `postgres` when `VERCEL_ENV` is set |
 | `IMAGE_STORE` / `IMAGE_DIR` | `filesystem` / `.data/images` (`/tmp/images` when `VERCEL_ENV` is set) |
+| `IMAGE_UPLOADS` | `local` (originals PUT to this API's owner-only `/images/uploads/{token}`) or `off`; default `local` only with `API_ENVIRONMENT=development` and no `VERCEL_ENV`, else `off` (uploads answer 503); `local` with `VERCEL_ENV` set refuses to start |
+| `IMAGE_MAX_BYTES`, `IMAGE_PROCESSING_TIMEOUT_SECONDS` | `26214400` (25 MB), `120` |
 | `IDENTITY_PROVIDER` | `none` (signs nobody in), `stub` (owner; only with `API_ENVIRONMENT=development`, refused when `VERCEL_ENV` is set), `vercel` (Sign in with Vercel; the default when `VERCEL_ENV` is set, else `none`) |
 | `VERCEL_OAUTH_CLIENT_ID`, `VERCEL_OAUTH_CLIENT_SECRET`, `OWNER_VERCEL_ID`, `SESSION_SECRET` (32+ chars) | all four needed by `vercel`; with any missing the API still starts, `/auth/*` answers 503 "sign-in not configured" and owner routes 401 |
 | `PUBLIC_WEB_ORIGIN` | the origin visitors use; the OAuth redirect URI is `<it>/api/auth/callback` (default: the deployed web app when `VERCEL_ENV` is set, else `http://localhost:5173`) |
@@ -54,6 +56,19 @@ implementations; `composition.py` picks them from environment variables, and
 `domain/story.py`, use cases in `application/stories.py`, and every repository call
 takes the signed-in user's `organisation_id`. Storage is in-memory only: the Postgres
 story methods raise `NotImplementedError` (the API answers 501) until its follow-up.
+
+## Images
+
+The browser asks `POST /images/upload-target {size}` (413 with the limit when too big,
+503 when no target is configured), PUTs the file to the returned `upload_url`, then
+registers it with `POST /images {original_url}`; the row starts `processing` and
+`ImageProcessor` (in-process thread locally, behind a port because where it runs in
+production is open) makes the web versions with Pillow, re-encoding from pixels so no
+EXIF survives. `GET /images/{id}` (owner) returns status and web versions and **never
+`original_url`**; `GET /public/images/{key}` serves web-version keys only. The real
+`ImageStatusLookup` is `ImageService.status`; a stuck image is failed when read past the
+timeout, by the `Clock` port. Vercel Blob replaces `OriginalUploads` and `ImageStore`
+(follow-up). Rules in `domain/image.py`, use cases in `application/images.py`.
 
 ## Auth
 
