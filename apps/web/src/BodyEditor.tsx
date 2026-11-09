@@ -15,7 +15,7 @@ import {
 } from '@mdxeditor/editor';
 import '@mdxeditor/editor/style.css';
 
-import { flattenMarkdown, movePhoto } from './content';
+import { canonicalPhotos, escapeAttr, flattenMarkdown, movePhoto, toEditorMarkdown } from './content';
 import { PHOTO_DESCRIPTOR, PhotoContext, createPhotoStore } from './PhotoBlock';
 
 function PhotoButton() {
@@ -31,7 +31,7 @@ function PhotoButton() {
         insert({
           name: 'Photo',
           kind: 'flow',
-          props: { image: id.trim(), alt: '', caption: '', credit: '' },
+          props: { image: escapeAttr(id.trim()), alt: '', caption: '', credit: '' },
         });
       }}
     />
@@ -73,8 +73,7 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
 
   const handleChange = useCallback(
     (markdown: string) => {
-      const flat = flattenMarkdown(markdown);
-      onChange(flat);
+      onChange(canonicalPhotos(flattenMarkdown(markdown)));
     },
     [onChange],
   );
@@ -88,7 +87,7 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
         const current = editor.current?.getMarkdown() ?? '';
         const next = movePhoto(current, blocks.indexOf(block), direction);
         if (next === current) return;
-        editor.current?.setMarkdown(next);
+        editor.current?.setMarkdown(toEditorMarkdown(next));
         handleChange(next);
       },
     );
@@ -104,7 +103,7 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
             onLeaveSource={() => {
               // Source view may hold markup the visual editor has no node for.
               const current = editor.current?.getMarkdown() ?? '';
-              const flat = flattenMarkdown(current);
+              const flat = toEditorMarkdown(flattenMarkdown(current));
               if (flat !== current) editor.current?.setMarkdown(flat);
             }}
           />
@@ -122,7 +121,7 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
       >
         <MDXEditor
           ref={editor}
-          markdown={flattenMarkdown(initial)}
+          markdown={toEditorMarkdown(flattenMarkdown(initial))}
           onChange={handleChange}
           plugins={plugins}
           contentEditableClassName="body-editor-content"

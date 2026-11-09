@@ -58,4 +58,18 @@ describe('visual and source views', () => {
     expect(content?.textContent).toContain('Big');
     expect(content?.textContent).toContain('x');
   });
+
+  it('writes special characters in alt, caption and credit as entities, and reads them back unchanged', async () => {
+    const onChange = vi.fn();
+    const tag = '<Photo image="img-1" alt="He said &quot;go&quot; &amp;amp; left" caption="a &lt;b&gt;" credit="" />';
+    render(<BodyEditor initial={tag} onChange={onChange} />);
+    const alt = (await screen.findByTestId('photo-alt')) as HTMLInputElement;
+    expect(alt.value).toBe('He said "go" &amp; left');
+    expect((screen.getByTestId('photo-caption') as HTMLInputElement).value).toBe('a <b>');
+    fireEvent.change(screen.getByTestId('photo-credit'), { target: { value: 'R & "D"' } });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange.mock.calls.at(-1)?.[0]).toBe(
+      '<Photo image="img-1" alt="He said &quot;go&quot; &amp;amp; left" caption="a &lt;b&gt;" credit="R &amp; &quot;D&quot;" />',
+    );
+  });
 });

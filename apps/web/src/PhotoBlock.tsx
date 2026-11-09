@@ -1,7 +1,7 @@
 import { createContext, useContext, useRef, useState, useSyncExternalStore } from 'react';
 import { useMdastNodeUpdater, type JsxComponentDescriptor, type JsxEditorProps, type MdastJsx } from '@mdxeditor/editor';
 
-import { parsePhoto, type PhotoAttrs } from './content';
+import { escapeAttr, unescapeAttr, type PhotoAttrs } from './content';
 
 /**
  * Where the Photo blocks sit relative to each other. A block asks for its own
@@ -48,11 +48,17 @@ function place(store: PhotoStore | null, el: HTMLElement | null): string {
   return `${index}/${blocks.length}`;
 }
 
+/**
+ * The editor holds each attribute in its escaped form (see toEditorMarkdown) and
+ * prints it back as it is, so this shows the unescaped text and writes the
+ * escaped one.
+ */
 function attrsOf(node: MdastJsx): PhotoAttrs {
-  const text = node.attributes
-    .map((a) => (a.type === 'mdxJsxAttribute' && typeof a.value === 'string' ? `${a.name}="${a.value}"` : ''))
-    .join(' ');
-  return parsePhoto(`<Photo ${text} />`);
+  const value = (name: string) => {
+    const a = node.attributes.find((x) => x.type === 'mdxJsxAttribute' && x.name === name);
+    return a && typeof a.value === 'string' ? unescapeAttr(a.value) : '';
+  };
+  return { image: value('image'), alt: value('alt'), caption: value('caption'), credit: value('credit') };
 }
 
 const FIELDS = ['image', 'alt', 'caption', 'credit'] as const;
@@ -82,7 +88,7 @@ function PhotoBlockEditor({ mdastNode }: JsxEditorProps) {
     const next = { ...attrs, [field]: value };
     setAttrs(next);
     update({
-      attributes: FIELDS.map((name) => ({ type: 'mdxJsxAttribute' as const, name, value: next[name] })),
+      attributes: FIELDS.map((name) => ({ type: 'mdxJsxAttribute' as const, name, value: escapeAttr(next[name]) })),
     });
   };
 

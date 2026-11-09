@@ -11,7 +11,7 @@ export const AUTOSAVE_DELAY_MS = 800;
  * newest draft and restarts the pause; one save runs at a time, each sending
  * the `updated_at` the last save returned. A 409 stops autosaving for good
  * ("changed elsewhere, reload"). `flush` saves any pending change now and
- * resolves true when nothing is left unsaved: Publish waits on it.
+ * says whether it all saved, hit a conflict, or failed: Publish and leaving wait on it.
  */
 export function useAutosave(storyId: string, initialUpdatedAt: string, delay = AUTOSAVE_DELAY_MS) {
   const [status, setStatus] = useState<SaveStatus>('idle');
@@ -21,14 +21,6 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
   const inFlight = useRef<Promise<void> | null>(null);
   const stopped = useRef(false);
   const mounted = useRef(true);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, []);
 
   const set = (s: SaveStatus) => {
     if (mounted.current) setStatus(s);
@@ -63,6 +55,31 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
     return inFlight.current;
   }, [storyId]);
 
+  useEffect(() => {
+    mounted.current = true;
+    // Leaving the page (close, reload, a full navigation) cannot wait for the
+    // pause or for a response: send what is pending now, with keepalive so the
+    // browser finishes the request after the page is gone.
+    const onPageHide = () => {
+      const draft = pending.current;
+      if (!draft || stopped.current || inFlight.current) return;
+      pending.current = null;
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      void saveDraft(storyId, draft, updatedAt.current, true);
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      mounted.current = false;
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      // Unmounted inside the pause (an in-app navigation): save now, not never.
+      if (pending.current && !stopped.current) void run();
+    };
+  }, [storyId, run]);
+
+
   const change = useCallback(
     (draft: DraftText) => {
       if (stopped.current) return;
@@ -77,13 +94,14 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
     [run, delay],
   );
 
-  const flush = useCallback(async (): Promise<boolean> => {
+  const flush = useCallback(async (): Promise<'saved' | 'conflict' | 'error'> => {
     if (timer.current) {
       clearTimeout(timer.current);
       timer.current = null;
     }
     await run();
-    return !stopped.current && pending.current === null;
+    if (stopped.current) return 'conflict';
+    return pending.current === null ? 'saved' : 'error';
   }, [run]);
 
   /** The server's newer `updated_at` after Publish, so the next autosave is not a false conflict. */

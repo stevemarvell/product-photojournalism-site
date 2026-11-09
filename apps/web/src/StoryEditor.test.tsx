@@ -82,6 +82,57 @@ describe('story fields and autosave', () => {
   });
 });
 
+describe('leaving with an edit still inside the pause', () => {
+  const saved = () => json({ ...story(), updated_at: '2026-11-09T10:00:01Z' });
+
+  it('sends the edit when the screen unmounts before the pause ends', async () => {
+    const fetchSpy = stubFetch(saved);
+    const { unmount } = render(<Drafting story={story()} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Typed just now' } });
+    expect(fetchSpy).not.toHaveBeenCalled(); // still inside the debounce
+    unmount();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/stories/s1/draft');
+    expect(JSON.parse(init.body as string).title).toBe('Typed just now');
+  });
+
+  it('sends the edit on pagehide with keepalive, so closing the tab does not lose it', () => {
+    const fetchSpy = stubFetch(saved);
+    render(<Drafting story={story()} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Closing now' } });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(init.keepalive).toBe(true);
+    expect(JSON.parse(init.body as string).title).toBe('Closing now');
+  });
+
+  it('All stories saves the pending edit before it navigates', async () => {
+    const order: string[] = [];
+    stubFetch(() => {
+      order.push('put');
+      return saved();
+    });
+    const navigate = vi.fn(() => order.push('navigate'));
+    render(<Drafting story={story()} navigate={navigate} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Last words' } });
+    fireEvent.click(screen.getByTestId('all-stories'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/editor'));
+    expect(order).toEqual(['put', 'navigate']);
+  });
+
+  it('All stories stays, rather than lose the edit, when the save fails', async () => {
+    stubFetch(() => new Response('x', { status: 500 }));
+    const navigate = vi.fn();
+    render(<Drafting story={story()} navigate={navigate} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Unsaved' } });
+    fireEvent.click(screen.getByTestId('all-stories'));
+    await waitFor(() => expect(screen.getByTestId('save-indicator').textContent).toContain('Could not save'));
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
 describe('publish', () => {
   it('is disabled with a short reason when the draft fails the rule', () => {
     stubFetch(() => json({}));

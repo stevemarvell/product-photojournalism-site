@@ -4,6 +4,9 @@
  * Kept free of React and MDXEditor so the rules are unit-testable.
  */
 
+import { fromMarkdown } from 'mdast-util-from-markdown';
+import type { Nodes, Parent } from 'mdast';
+
 const ATTR = `[A-Za-z_][\\w-]*\\s*=\\s*(?:"[^"]*"|'[^']*')`;
 const PHOTO_SOURCE = `<Photo(?:\\s+${ATTR})*\\s*/>`;
 const ATTR_PARTS = /([A-Za-z_][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
@@ -20,9 +23,24 @@ export function photoTags(content: string): string[] {
   return content.match(new RegExp(PHOTO_SOURCE, 'g')) ?? [];
 }
 
+/**
+ * Attribute values are stored with `&`, `"`, `<` and `>` as entities (`&` first,
+ * so a literal `&amp;` survives). The server accepts exactly this form.
+ */
+export function escapeAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+const ENTITY: Record<string, string> = { amp: '&', quot: '"', lt: '<', gt: '>', '#x22': '"', '#34': '"' };
+
+/** The inverse of escapeAttr, in one pass so `&amp;amp;` becomes `&amp;`, not `&`. */
+export function unescapeAttr(value: string): string {
+  return value.replace(/&(amp|quot|lt|gt|#x22|#34);/gi, (_m, name: string) => ENTITY[name.toLowerCase()] ?? _m);
+}
+
 export function parsePhoto(tag: string): PhotoAttrs {
   const attrs: Record<string, string> = {};
-  for (const m of tag.matchAll(ATTR_PARTS)) attrs[m[1] ?? ''] = m[2] ?? m[3] ?? '';
+  for (const m of tag.matchAll(ATTR_PARTS)) attrs[m[1] ?? ''] = unescapeAttr(m[2] ?? m[3] ?? '');
   return {
     image: attrs['image'] ?? '',
     alt: attrs['alt'] ?? '',
@@ -33,8 +51,22 @@ export function parsePhoto(tag: string): PhotoAttrs {
 
 /** One Photo tag, attributes in the fixed order the spec writes them. */
 export function photoTag(p: PhotoAttrs): string {
-  const esc = (v: string) => v.replace(/"/g, '&quot;');
-  return `<Photo image="${esc(p.image)}" alt="${esc(p.alt)}" caption="${esc(p.caption)}" credit="${esc(p.credit)}" />`;
+  return `<Photo image="${escapeAttr(p.image)}" alt="${escapeAttr(p.alt)}" caption="${escapeAttr(p.caption)}" credit="${escapeAttr(p.credit)}" />`;
+}
+
+/** Every Photo tag rewritten in the one canonical, escaped form (what the server accepts). */
+export function canonicalPhotos(content: string): string {
+  return content.replace(new RegExp(PHOTO_SOURCE, 'g'), (tag) => photoTag(parsePhoto(tag)));
+}
+
+/**
+ * The text handed to MDXEditor. It decodes attribute entities once on import and
+ * prints attribute values back as they are, so the canonical entities are
+ * protected by encoding `&` a second time: the editor then holds the escaped
+ * form as its value and writes the same bytes back out.
+ */
+export function toEditorMarkdown(content: string): string {
+  return content.replace(new RegExp(PHOTO_SOURCE, 'g'), (tag) => photoTag(parsePhoto(tag)).replace(/&/g, '&amp;'));
 }
 
 /**
@@ -61,42 +93,94 @@ export function movePhoto(content: string, index: number, direction: -1 | 1): st
 /**
  * Flattens everything the editor does not offer — headings, lists, quotes,
  * links, code, rules — to plain paragraphs, keeping bold, italic and Photo
- * lines. Applied to what is pasted or typed in source view and again before
- * every save, so such markup never reaches the stored draft.
+ * lines. It reads the markdown as a document (mdast), so only real heading,
+ * list, quote, link and code nodes are touched; prose that merely looks like
+ * markup in the middle of a line is left alone. An ordered-list marker that
+ * starts a paragraph (`1984. The year…`) is kept, with its dot escaped so it
+ * stays prose. Applied to what is pasted or typed in source view and before
+ * every save.
  */
 export function flattenMarkdown(markdown: string): string {
-  const out: string[] = [];
-  let inFence = false;
-  for (const raw of markdown.split('\n')) {
-    if (/^\s*(```|~~~)/.test(raw)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) {
-      out.push(raw);
-      continue;
-    }
-    if (raw.trimStart().startsWith('<Photo')) {
-      out.push(raw);
-      continue;
-    }
-    let line = raw;
-    if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line) || /^\s{0,3}(=+|-+)\s*$/.test(line)) continue;
-    line = line.replace(/^\s{0,3}#{1,6}(\s+|$)/, '');
-    for (;;) {
-      const next = line.replace(/^\s*(>\s?|[-*+]\s+|\d+[.)]\s+)/, '');
-      if (next === line) break;
-      line = next;
-    }
-    line = line
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1')
-      .replace(/<(https?:\/\/[^>\s]+)>/g, '$1')
-      .replace(/`([^`]*)`/g, '$1');
-    out.push(line);
+  const tree = fromMarkdown(markdown);
+  let out = '';
+  let at = 0;
+  for (const node of tree.children) {
+    const start = node.position?.start.offset ?? at;
+    out += markdown.slice(at, start) + block(node, markdown);
+    at = node.position?.end.offset ?? start;
   }
-  return out.join('\n');
+  return out + markdown.slice(at);
+}
+
+const slice = (node: Nodes, src: string) =>
+  src.slice(node.position?.start.offset ?? 0, node.position?.end.offset ?? 0);
+
+/** The text of a block, markup the editor lacks removed; an unchanged block is returned as written. */
+function block(node: Nodes, src: string): string {
+  switch (node.type) {
+    case 'paragraph':
+    case 'heading':
+      return inline(node, src);
+    case 'blockquote':
+      return node.children.map((c) => block(c, src)).filter(Boolean).join('\n\n');
+    case 'list': {
+      const start = node.start ?? 1;
+      const ordered = node.ordered === true;
+      return node.children
+        .map((item, i) => {
+          const text = item.children.map((c) => block(c, src)).filter(Boolean).join('\n\n');
+          if (!ordered) return text;
+          const delimiter = src.slice(item.position?.start.offset ?? 0).match(/^\s*\d+([.)])/)?.[1] ?? '.';
+          return `${start + i}\\${delimiter} ${text}`;
+        })
+        .join('\n\n');
+    }
+    case 'code':
+      return node.value;
+    case 'thematicBreak':
+    case 'definition':
+      return '';
+    default:
+      return slice(node, src);
+  }
+}
+
+/** A paragraph or heading's text, with links, images and inline code reduced to their text. */
+function inline(node: Parent, src: string): string {
+  const first = node.children[0]?.position?.start.offset;
+  const last = node.children[node.children.length - 1]?.position?.end.offset;
+  if (first === undefined || last === undefined) return '';
+  // For a heading this leaves out the `#` markers, which are outside its children.
+  return span(node.children as Nodes[], first, last, src);
+}
+
+/** The source between `from` and `to`, where `children` sit, with their markup replaced. */
+function span(children: Nodes[], from: number, to: number, src: string): string {
+  let text = '';
+  let at = from;
+  for (const child of children) {
+    const s = child.position?.start.offset;
+    const e = child.position?.end.offset;
+    if (s === undefined || e === undefined) continue;
+    let replacement: string | undefined;
+    if (child.type === 'link' || child.type === 'linkReference') replacement = inline(child, src);
+    else if (child.type === 'image' || child.type === 'imageReference') replacement = child.alt ?? '';
+    else if (child.type === 'inlineCode') replacement = child.value;
+    else if ('children' in child && child.children.length > 0) {
+      replacement = child.type === 'strong' || child.type === 'emphasis' ? nested(child, s, e, src) : undefined;
+    }
+    if (replacement === undefined) continue;
+    text += src.slice(at, s) + replacement;
+    at = e;
+  }
+  return text + src.slice(at, to);
+}
+
+/** A strong or emphasis node: its own markers kept, its contents flattened. */
+function nested(node: Parent, from: number, to: number, src: string): string {
+  const first = node.children[0]?.position?.start.offset ?? from;
+  const last = node.children[node.children.length - 1]?.position?.end.offset ?? to;
+  return src.slice(from, first) + span(node.children as Nodes[], first, last, src) + src.slice(last, to);
 }
 
 export interface DraftForRule {

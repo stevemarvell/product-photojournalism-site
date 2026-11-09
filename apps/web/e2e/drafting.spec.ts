@@ -195,12 +195,12 @@ test.describe('the drafting screen', () => {
     await page.getByPlaceholder('Image id').fill('img-42');
     await page.getByRole('button', { name: 'Insert photo' }).last().click();
     await expect(page.getByTestId('photo-block')).toHaveCount(1);
-    await page.getByTestId('photo-alt').fill('A boat');
+    await page.getByTestId('photo-alt').fill('A "boat" & more');
     await page.getByTestId('photo-caption').fill('Moored');
     await page.getByTestId('photo-credit').fill('S. Marvell');
     await expect(page.getByTestId('save-indicator')).toHaveText('Saved');
     expect(String(mock.saves.at(-1)?.body['content'])).toContain(
-      '<Photo image="img-42" alt="A boat" caption="Moored" credit="S. Marvell" />',
+      '<Photo image="img-42" alt="A &quot;boat&quot; &amp; more" caption="Moored" credit="S. Marvell" />',
     );
   });
 

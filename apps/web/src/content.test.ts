@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flattenMarkdown, movePhoto, parsePhoto, photoTag, photoTags, publishBlockers } from './content';
+import { canonicalPhotos, escapeAttr, flattenMarkdown, toEditorMarkdown, unescapeAttr, movePhoto, parsePhoto, photoTag, photoTags, publishBlockers } from './content';
 
 const A = '<Photo image="a" alt="A" caption="" credit="" />';
 const B = '<Photo image="b" alt="B" caption="cap" credit="me" />';
@@ -17,7 +17,7 @@ describe('flattenMarkdown', () => {
     ['> quoted', 'quoted'],
     ['- item', 'item'],
     ['* item', 'item'],
-    ['1. first', 'first'],
+    ['1. first', '1\\. first'],
     ['[link](http://x.test)', 'link'],
     ['see [a](http://x) and [b](http://y)', 'see a and b'],
     ['![pic](http://x/y.png)', 'pic'],
@@ -28,7 +28,48 @@ describe('flattenMarkdown', () => {
   });
 
   it('drops rules and fence markers and flattens nested markers', () => {
-    expect(flattenMarkdown('---\n```\ncode\n```\n> - nested')).toBe('code\nnested');
+    expect(flattenMarkdown('---\n```\ncode\n```\n> - nested')).toBe('\ncode\nnested');
+  });
+});
+
+describe('flattenMarkdown keeps real prose', () => {
+  it('keeps the number that starts a sentence, escaping its dot so it stays prose', () => {
+    expect(flattenMarkdown('1984. The year everything changed.')).toBe('1984\\. The year everything changed.');
+  });
+  it('leaves a hyphen or dot inside a line, and a number after other words, alone', () => {
+    const md = 'Well - fine. In 1984. Then 2. more, and a-b - c.';
+    expect(flattenMarkdown(md)).toBe(md);
+  });
+  it('flattens a bullet that starts a line (a real list) and keeps bold inside a link', () => {
+    expect(flattenMarkdown('the year\n- of the cat')).toBe('the year\nof the cat');
+    expect(flattenMarkdown('see [a **bold** link](http://x.test) now')).toBe('see a **bold** link now');
+  });
+  it('flattens a heading containing emphasis', () => {
+    expect(flattenMarkdown('## A *big* day')).toBe('A *big* day');
+  });
+});
+
+describe('attribute escaping', () => {
+  it.each(['He said "go"', 'a &amp; b', 'a & b', 'x <b> y', '&quot;', '&amp;amp;', ''])(
+    'round-trips %j through escapeAttr and unescapeAttr, and through a Photo tag',
+    (value) => {
+      expect(unescapeAttr(escapeAttr(value))).toBe(value);
+      expect(escapeAttr(value)).not.toMatch(/["<>]/);
+      expect(parsePhoto(photoTag({ image: 'i', alt: value, caption: value, credit: value })).alt).toBe(value);
+    },
+  );
+  it('encodes & first, so a literal &amp; stays distinguishable', () => {
+    expect(escapeAttr('He said "go" & &amp;')).toBe('He said &quot;go&quot; &amp; &amp;amp;');
+  });
+  it('rewrites a Photo tag the editor printed raw into the canonical escaped form', () => {
+    expect(canonicalPhotos('<Photo image="a" alt="x <b> & &#x22;q&#x22;" caption="" credit="" />')).toBe(
+      '<Photo image="a" alt="x &lt;b&gt; &amp; &quot;q&quot;" caption="" credit="" />',
+    );
+  });
+  it('doubles & for the editor, which decodes once and prints back what it holds', () => {
+    expect(toEditorMarkdown(photoTag({ image: 'a', alt: 'a &amp; "b"', caption: '', credit: '' }))).toBe(
+      '<Photo image="a" alt="a &amp;amp;amp; &amp;quot;b&amp;quot;" caption="" credit="" />',
+    );
   });
 });
 

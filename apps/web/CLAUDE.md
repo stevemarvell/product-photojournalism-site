@@ -55,7 +55,7 @@ e2e suite mocks the API with `page.route`.
 `BodyEditor.tsx`, MDXEditor (pinned exact, lazy-loaded) with only bold, italic,
 a Photo button and a source toggle. The heading, list, quote and link plugins
 are deliberately not loaded, and `content.ts` `flattenMarkdown` strips their
-markdown from source view and from every save. Photo blocks (`PhotoBlock.tsx`)
+markdown (as an mdast pass) from source view and from every save, and `canonicalPhotos` writes Photo attributes with `&`, `"`, `<`, `>` as entities. The browser is only a convenience: the API's `content_problems` is the real restriction. Photo blocks (`PhotoBlock.tsx`)
 are edited in place; moves swap the tags in the markdown (`movePhoto`).
 `useAutosave.ts` is the debounced save (409 stops it). Publish is disabled
 client-side for what the browser can know (`publishBlockers`) and shows the

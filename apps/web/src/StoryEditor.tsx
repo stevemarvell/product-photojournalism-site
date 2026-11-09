@@ -50,9 +50,11 @@ const publishWithoutAsking: ConfirmPublish = () => Promise.resolve(true);
 export function Drafting({
   story,
   confirmPublish = publishWithoutAsking,
+  navigate = (url: string) => window.location.assign(url),
 }: {
   story: StoryDetail;
   confirmPublish?: ConfirmPublish;
+  navigate?: (url: string) => void;
 }) {
   const [draft, setDraft] = useState<DraftText>(story.draft);
   const [live, setLive] = useState(story.live);
@@ -82,7 +84,7 @@ export function Drafting({
     setMessage([]);
     try {
       if (!(await confirmPublish(story))) return;
-      if (!(await autosave.flush())) {
+      if ((await autosave.flush()) !== 'saved') {
         setMessage(['The draft could not be saved first.']);
         return;
       }
@@ -106,7 +108,21 @@ export function Drafting({
   return (
     <div data-testid="drafting" className="drafting">
       <p>
-        <a href="/editor">All stories</a> · {live ? 'Live' : 'Not live'}
+        <a
+          href="/editor"
+          data-testid="all-stories"
+          onClick={(e) => {
+            // Save any edit still inside the pause before leaving the page.
+            e.preventDefault();
+            void autosave.flush().then((result) => {
+              // On a failed save stay, so the edit is not lost; a conflict has nothing to save.
+              if (result !== 'error') navigate('/editor');
+            });
+          }}
+        >
+          All stories
+        </a>{' '}
+        · {live ? 'Live' : 'Not live'}
       </p>
       <label>
         Title

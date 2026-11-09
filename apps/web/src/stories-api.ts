@@ -50,12 +50,18 @@ export type SaveResult =
   | { kind: 'error' };
 
 /** Autosave: sends the `updated_at` last seen; a 409 means the draft changed elsewhere. */
-export async function saveDraft(id: string, draft: DraftText, updatedAt: string): Promise<SaveResult> {
+export async function saveDraft(
+  id: string,
+  draft: DraftText,
+  updatedAt: string,
+  keepalive = false,
+): Promise<SaveResult> {
   try {
     const response = await fetch(`${base()}/stories/${encodeURIComponent(id)}/draft`, {
       method: 'PUT',
       headers: JSON_HEADERS,
       body: JSON.stringify({ ...draft, updated_at: updatedAt }),
+      ...(keepalive ? { keepalive: true } : {}),
     });
     if (response.status === 409) return { kind: 'conflict' };
     if (!response.ok) return { kind: 'error' };

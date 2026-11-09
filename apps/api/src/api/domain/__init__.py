@@ -1,6 +1,8 @@
 """The domain: plain dataclasses and rules, no framework or driver imports."""
 
+from api.domain.content import content_problems
 from api.domain.errors import (
+    InvalidContentError,
     PublishRefusedError,
     StorageUnavailableError,
     StoryConflictError,
@@ -25,7 +27,9 @@ __all__ = [
     "Image",
     "ImageStatus",
     "PhotoBlock",
+    "InvalidContentError",
     "PublishRefusedError",
+    "content_problems",
     "SessionRecord",
     "StorageUnavailableError",
     "Story",

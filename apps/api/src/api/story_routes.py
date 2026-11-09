@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from api.application import StoryService
 from api.domain import (
     DraftFields,
+    InvalidContentError,
     PublishRefusedError,
     Story,
     StoryConflictError,
@@ -118,6 +119,10 @@ def save_draft(story_id: str, body: DraftBody, user: Owner, service: Service) ->
         return detail(service.save_draft(user.organisation_id, story_id, draft, body.updated_at))
     except StoryNotFoundError:
         raise HTTPException(status_code=404, detail="story not found") from None
+    except InvalidContentError as invalid:
+        raise HTTPException(
+            status_code=422, detail={"message": "content not allowed", "reasons": invalid.reasons}
+        ) from None
     except StoryConflictError:
         raise HTTPException(status_code=409, detail="the draft changed elsewhere; reload") from None
 

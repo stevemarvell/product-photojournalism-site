@@ -6,9 +6,11 @@ from datetime import datetime
 from api.application.ports import Clock, ImageStatusLookup, StoryRepository
 from api.domain import (
     DraftFields,
+    InvalidContentError,
     PublishRefusedError,
     Story,
     StoryNotFoundError,
+    content_problems,
     new_story,
     owner_order,
     publish_problems,
@@ -40,7 +42,11 @@ class StoryService:
     def save_draft(
         self, organisation_id: str, story_id: str, draft: DraftFields, seen_updated_at: datetime
     ) -> Story:
-        """Autosave. Raises StoryConflictError unless `seen_updated_at` is the stored one."""
+        """Autosave. Raises InvalidContentError for a body with disallowed markup, and
+        StoryConflictError unless `seen_updated_at` is the stored one."""
+        problems = content_problems(draft.content)
+        if problems:
+            raise InvalidContentError(problems)
         current = self.get(organisation_id, story_id)
         return self._stories.replace(
             organisation_id,
