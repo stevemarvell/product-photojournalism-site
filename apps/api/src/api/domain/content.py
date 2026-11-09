@@ -23,9 +23,8 @@ _TAG = re.compile(rf"<Photo((?:[ \t]+{_ATTR})*)[ \t]*/>")
 _ATTR_NAME = re.compile(r'([A-Za-z_][\w-]*)="')
 # Real ESM syntax at the start of a line, not prose that begins with "import".
 _ESM_LINE = re.compile(
-    r"""^[ \t]*(?:import\s*(?:[\w$*{][^\n]*?\s+from\s*)?['"]"""
-    r"""|export\s+(?:const|let|var|function|class|async|default|\{|\*))""",
-    re.MULTILINE,
+    r"""(?:^|[\r\n])[ \t]*(?:import\s*(?:[\w$*{][^\n]*?\s+from\s*)?['"]"""
+    r"""|export\s*[*{]|export\s+(?:const|let|var|function|class|async|default))""",
 )
 # A `<` or `{` is refused wherever it appears, even as `\<` or `\{`: a backslash
 # can itself be escaped (`\\<` is a literal backslash and a live `<`), so the

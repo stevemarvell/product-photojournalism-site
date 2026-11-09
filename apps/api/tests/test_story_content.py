@@ -51,6 +51,8 @@ def test_allowed_bodies(content: str) -> None:
         "text\nexport const a = 1",
         "export default function X() {}",
         "export { a }",
+        'export*from"x"',
+        'a\rimport a from "b"',
         "\\<script>alert(1)</script>",
         "\\\\<script>alert(1)</script>",
         "\\\\\\<script>",

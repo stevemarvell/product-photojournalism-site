@@ -73,12 +73,13 @@ export function useAutosave(storyId: string, initialUpdatedAt: string, delay = A
     // Leaving the page (close, reload, a full navigation) cannot wait for the
     // pause or for a response: send what is pending now, with keepalive so the
     // browser finishes the request after the page is gone. A keepalive request
-    // body is limited to 64 KB, so a longer draft may not get through, and a save
-    // already in flight is not repeated; the beforeunload prompt below is what
-    // covers those cases.
+    // body is limited to 64 KB, so a longer draft may not get through; the
+    // beforeunload prompt below is what covers that case. A save already in flight
+    // does not hold this back: newer text is sent with the last known updated_at,
+    // and if the in-flight save lands first this one is a harmless 409.
     const onPageHide = () => {
       const draft = pending.current;
-      if (!draft || stopped.current || inFlight.current) return;
+      if (!draft || stopped.current) return;
       pending.current = null;
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;

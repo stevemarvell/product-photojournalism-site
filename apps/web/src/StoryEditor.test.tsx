@@ -108,6 +108,19 @@ describe('leaving with an edit still inside the pause', () => {
     expect(JSON.parse(init.body as string).title).toBe('Closing now');
   });
 
+  it('sends newer text on pagehide with keepalive while a save is still in flight', async () => {
+    const fetchSpy = stubFetch(() => new Promise<Response>(() => {})); // never resolves
+    render(<Drafting story={story()} />);
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'First' } });
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    fireEvent.change(screen.getByTestId('field-title'), { target: { value: 'Newer' } });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const init = fetchSpy.mock.calls[1]?.[1] as RequestInit;
+    expect(init.keepalive).toBe(true);
+    expect(JSON.parse(init.body as string).title).toBe('Newer');
+  });
+
   it('All stories saves the pending edit before it navigates', async () => {
     const order: string[] = [];
     stubFetch(() => {
