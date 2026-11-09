@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PublicSite, routeOf } from './PublicSite';
 import type { Piece, PieceSummary } from './public-api';
@@ -136,18 +136,20 @@ describe('a piece page', () => {
     const before = document.title;
     const { unmount } = render(<PublicSite path={`/${ID}`} />);
     await screen.findByTestId('piece');
-    expect(document.title).toBe('Dusk');
-    expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe('A walk');
+    await waitFor(() => expect(document.title).toBe('Dusk'));
+    await waitFor(() =>
+      expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe('A walk'),
+    );
     unmount();
-    expect(document.title).toBe(before);
-    expect(document.querySelector('meta[name="description"]')).toBeNull();
+    await waitFor(() => expect(document.title).toBe(before));
+    await waitFor(() => expect(document.querySelector('meta[name="description"]')).toBeNull());
   });
 
   it('shows a normal not-found page for an id the API does not know or has not live', async () => {
     vi.stubGlobal('fetch', answer(404, { detail: 'not found' }));
     render(<PublicSite path={`/${ID}`} />);
     expect((await screen.findByTestId('not-found')).textContent).toBe('Page not found');
-    expect(document.title).toBe('Page not found');
+    await waitFor(() => expect(document.title).toBe('Page not found'));
   });
 
   it('shows the not-found page, with no fetch, for a path that is not a /<uuid>', () => {
@@ -190,6 +192,18 @@ describe('a piece page', () => {
     expect(text).toContain('<script>window.__pwned = 1</script>'); // as characters
     expect(text).toContain('{window.__pwned = 1}');
     expect(text).toContain('<img src=x onerror="window.__pwned = 1">');
+  });
+
+  it('leaves out a Photo naming an inherited property (constructor, __proto__, toString) and still renders', async () => {
+    const tags = ['constructor', '__proto__', 'toString', 'hasOwnProperty']
+      .map((id) => `<Photo image="${id}" alt="x" />`)
+      .join('\n\n');
+    vi.stubGlobal('fetch', answer(200, piece(`Before.\n\n${tags}\n\nAfter.`)));
+    render(<PublicSite path={`/${ID}`} />);
+    const article = await screen.findByTestId('piece');
+    expect(article.textContent).toContain('Before.');
+    expect(article.textContent).toContain('After.');
+    expect(screen.queryByTestId('photo')).toBeNull();
   });
 
   it('shows a plain error where the API cannot answer, and not a not-found page', async () => {

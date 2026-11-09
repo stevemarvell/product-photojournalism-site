@@ -100,6 +100,7 @@ function Body({ blocks, photos }: { blocks: Block[]; photos: Record<string, Publ
             </p>
           );
         }
+        if (!Object.hasOwn(photos, block.photo.image)) return null;
         const resolved = photos[block.photo.image];
         if (!resolved) return null;
         return <Photo key={i} photo={resolved} alt={block.photo.alt} caption={block.photo.caption} credit={block.photo.credit} first={seen++ === 0} />;
