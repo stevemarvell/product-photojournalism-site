@@ -236,7 +236,7 @@ const DEPENDABOT_ECOSYSTEMS = ['github-actions', 'npm', 'uv'];
  * The base's .github/dependabot.yml cut at its top-level `updates:` list into
  * `{ header, entries }`: `header` the lines up to and including `updates:`,
  * `entries` one `{ ecosystem, lines }` per `- package-ecosystem:` item with the
- * comments that sit inside it. There is no YAML parser among the dependencies;
+ * comments that sit inside it. The only YAML parser among the dependencies is a test-only one (`yaml`); this stays dependency-free:
  * the file is split by indentation and anything this does not understand
  * throws, so a shape change in the base's file cannot be silently dropped from
  * a product's.

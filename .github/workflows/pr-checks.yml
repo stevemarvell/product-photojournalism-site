@@ -1,0 +1,168 @@
+name: PR checks
+
+# Two cheap advisory checks, one runner. Each used to be its own workflow
+# (`test-census.yml`, `contention.yml`) and each billed a whole minute for
+# about fifteen seconds of work, because Actions rounds every job up. As two
+# steps of one job they bill one minute between them.
+#
+# CENSUS. Does this pull request end up with fewer tests than it started with,
+# and if so does it say so? A static count of the test sources at two commits,
+# straight out of git: no suite, no toolchain. `edited` is in the trigger list
+# on purpose: the way to resolve a failure is to add a `Removes tests:` line to
+# the pull request body, and a check that did not re-run when the body changed
+# would make the fix invisible. That is also why it is not part of `verify`,
+# which must not run on `edited` (a full verify per body edit costs far more
+# than this saves), and why it is not required by the back door.
+#
+# CONTENTION. Do two open pull requests collide, and did anybody say so?
+# GitHub computes mergeability against the base branch and never between two
+# pull requests, so two branches touching the same line can both report
+# MERGEABLE while only one can land. `pull_request` answers "does this collide
+# with anything open right now"; `push` to develop answers "did what just
+# landed break anything still open", which nothing else covers: after a merge
+# no workflow runs on the pull requests that were not merged. So the push
+# trigger stays, and is the one post-merge run this repository keeps besides
+# `smoke`. It is advisory: the script exits 0 whatever it finds, and the signal
+# is the comment. Two colliding pull requests are not a defect in either.
+#
+# WHAT FOLDING COST. Contention used to serialise globally (`group:
+# contention`, no cancel) so two runs could not both find no comment and both
+# post one. The census needs the opposite: per-pull-request, cancel the
+# superseded run, and never let one pull request's run displace another's. A
+# job has one concurrency group, so this takes the census's. The race left is
+# two pull requests pushed in the same few seconds, each seeing a third
+# pull request with no contention comment yet: a duplicate advisory comment.
+# `findComment` picks the last marked comment, so later runs update one of
+# them. Annoying, not wrong.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened, edited]
+  push:
+    branches: [develop]
+
+concurrency:
+  # A body edit gets its own group. Sharing one with pushes let an edit made
+  # right after a push cancel the push's run, and that run's contention steps
+  # (which an edit skips) then never ran for the new head. Pushes keep per-ref
+  # cancel, so a newer push still supersedes an older one; two edits supersede
+  # each other, which is right because only the latest body counts.
+  # `edited` also fires for a title or base change, which the job skips (below)
+  # and which must not cancel a body edit's census either, so only a body edit
+  # shares the `-edited` group; any other edit gets a group of its own.
+  group: pr-checks-${{ github.ref }}${{ github.event.action == 'edited' && (github.event.changes.body && '-edited' || format('-{0}', github.run_id)) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: pr checks
+    # `edited` fires for a title or base change as well as a body change, and
+    # each would bill a minute for a census only a body edit can alter (and a
+    # contention verdict that nothing about a title changes). `changes.body` is
+    # an object, `{from: ...}`, only when the body changed; the job is skipped
+    # (not billed) otherwise. Every non-`edited` event passes.
+    if: github.event.action != 'edited' || github.event.changes.body
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Contention writes one comment per pull request and edits its own
+    # thereafter, but GitHub has no comment-only permission: `pull-requests:
+    # write` also permits merging, closing, retitling and labelling any open
+    # pull request, and it is live while this job runs scripts from the pull
+    # request's own checkout. The census step runs under that token too now.
+    # `docs/data-governance.md` records the bound and what voids it. No secrets
+    # other than the token are in scope.
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The census reads both commits with `git ls-tree`, and merge-tree
+          # needs the real merge base of every pair, so the whole history has
+          # to be here. A shallow clone would make git report unrelated
+          # histories, which parseMergeTree reads as "could not run" rather
+          # than "clean" on purpose.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Count the tests on both sides
+        if: github.event_name == 'pull_request'
+        env:
+          # The body is read for one fixed pattern, never interpolated into a
+          # shell command or a prompt. It reaches the script as an environment
+          # variable for that reason.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        # No pipe into `tee`: the default runner shell is `bash -e` without
+        # `pipefail`, so a pipeline would report tee's exit code and this job
+        # would go green on a failed count. The script writes
+        # `$GITHUB_STEP_SUMMARY` itself, so there is nothing to pipe.
+        #
+        # A failing count is how the census fails the job. The contention
+        # steps below run `if: ${{ !cancelled() && ... }}`, so a failing census
+        # does not stop them. They are advisory: the script exits 0 whatever it
+        # finds, though a step that crashes (checkout, the API, git) would still
+        # turn the job red, which is the same signal as any broken workflow.
+        run: |
+          node scripts/test-census.mjs \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}"
+
+      # A body edit changes nothing contention reports on, so it is skipped
+      # there: the job is already running for the census, but there is no
+      # reason to spend its API calls.
+      - name: List the open pull requests
+        id: open
+        if: ${{ !cancelled() && github.event.action != 'edited' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # No `set -e`: an API failure here should leave OPEN_PRS empty and
+          # produce a run that finds nothing, not a red job on a pull request
+          # that has nothing wrong with it.
+          gh pr list --base develop --state open --limit 100 \
+            --json number,title,headRefOid > open-prs.json || echo '[]' > open-prs.json
+          {
+            echo 'json<<PRS_EOF'
+            cat open-prs.json
+            echo 'PRS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the heads being compared
+        if: ${{ !cancelled() && github.event.action != 'edited' }}
+        env:
+          OPEN_PRS: ${{ steps.open.outputs.json }}
+        run: |
+          set -uo pipefail
+          # The script decides which heads, because MAX_PULL_REQUESTS is its
+          # ceiling to declare. The triggering pull request is passed in because
+          # it is reported on whether or not the ceiling would have kept it.
+          node scripts/pr-contention.mjs --refs ${{ github.event.pull_request.number || '' }} > refs.txt
+          if [ -s refs.txt ]; then
+            xargs -r git fetch --no-tags origin < refs.txt
+          fi
+
+      - name: Say what collides with what
+        if: ${{ !cancelled() && github.event.action != 'edited' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          OPEN_PRS: ${{ steps.open.outputs.json }}
+          BASE_REF: develop
+        # Every open pull request is reported on, whichever event fired:
+        # commenting only on the triggering one would leave a pull request that
+        # was already open with no warning at all. The quiet ones stay quiet.
+        #
+        # BASE_SHA is resolved here rather than from the event payload: on a
+        # pull_request event `base.sha` is the tip as of when the event fired,
+        # and the point of this check is the merge that landed after it.
+        run: |
+          set -uo pipefail
+          BASE_SHA="$(git rev-parse origin/develop)"
+          export BASE_SHA
+          node scripts/pr-contention.mjs ${{ github.event.pull_request.number || '' }}

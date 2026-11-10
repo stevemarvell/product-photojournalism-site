@@ -124,6 +124,30 @@ matching that shape as answered already — nothing to fix, nothing to reply
 to. Everything else — a numbered/bulleted finding, an inline comment — is a
 finding to work in step 3.
 
+**The reviews run once per pull request**, when it is opened, reopened or
+marked ready, and again only when the `re-review` label is added (step 4).
+They do not re-run on a push. So after a fix round the original comments are
+still there and nothing new has been posted, and the driver has to tell a
+fresh finding from one already answered. **A finding is answered when a reply
+from this driver or its implementer already sits under it**: an inline comment
+whose thread has a reply posted by someone other than `claude[bot]`, or a
+top-level verdict comment that a later pull-request comment references (or
+that step 3 resolved). A `claude[bot]` comment with no such reply is fresh.
+List the inline ones still open with:
+
+```bash
+# A reply carries in_reply_to_id; a finding is open while nothing replies to it.
+gh api repos/{owner}/{repo}/pulls/<n>/comments --paginate \
+  --jq '[.[] | select(.in_reply_to_id != null) | .in_reply_to_id] as $answered
+        | .[] | select(.user.login=="claude[bot]" and .in_reply_to_id == null
+                       and ([.id] | inside($answered) | not))
+        | {id, path, line, body}'
+```
+
+Anything that comes back is open. A top-level verdict comment has no thread, so
+read the pull request comments in order: one that follows your reply is a new
+review, one that precedes it is old.
+
 ### 3. Fix real findings and reply — ceiling: 2 rounds (SOP 1, "sending an agent back for rework")
 
 One round is: read every open finding from step 2, then for each one:
@@ -167,6 +191,10 @@ One round is: read every open finding from step 2, then for each one:
     <<'MD'`), never by interpolating into a double-quoted `--body "…"`:
     replies quote CI and review output, and `$(…)` or a backtick in that text
     would be executed by the shell.
+- **Whether to ask for a re-review is decided once, in step 4** ("Re-review
+  before merging"). Do not add the label here; note whether this round changed
+  code for a `high` or `critical` finding or touched a control, because step 4
+  asks.
 - Send one brief per round covering every finding that reproduced, so the
   implementer pushes the round's fixes together and the branch never sits
   with a fix committed but unexplained. Reply to each finding once its fix
@@ -178,16 +206,93 @@ a separate budget for that); the driver confirms it from the checks.
 
 **Round 2 exists only if round 1 left something unresolved** — a finding
 still disputed, a fix that did not turn `verify` green, or new findings
-posted against the round-1 push (the reviews re-run on `synchronize`). Redo
-the same procedure once more.
+posted by a `re-review` the driver asked for after round 1 (the reviews do
+not re-run on a push). Redo the same procedure once more.
 
 **Ceiling hit** (something is still unresolved after round 2): stop. Do not
 attempt a third round, do not merge with an unanswered finding. Go to step 5.
 
 ### 4. Merge and prune
 
-Merge only when **both** are true, checked, not assumed:
+#### Re-review before merging
 
+This is the one place the condition for `re-review` is defined; everything else
+points here. The reviews run once per pull request and never re-run on a push,
+so a fix, or a pull request opened harmlessly and extended later, is not looked
+at again unless the driver asks. A workflow cannot ask for it (a label added
+with `GITHUB_TOKEN` starts no run); the coordinator's own token can. Ask when
+**either** holds:
+
+- a fix round (step 3) changed code in response to a `high` or `critical`
+  finding, or touched a control (anything meant to *prevent* something: a
+  header, a permission, a gate, a filter; SOP 3), since a control's fix is what
+  a passing test does not prove; or
+- the diff since the last review touches `.github/` or any path
+  `scripts/review-scope.mjs` sends to the security review (everything that is
+  not plain Markdown outside `.claude/` and `.github/`).
+
+Otherwise reply to the findings and merge when `verify` is green. Work it out
+with one block (`$BRANCH` is the pull request's head branch, `<n>` its number):
+
+```bash
+BRANCH=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.ref)
+HEAD=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha)
+LAST=$(node scripts/last-reviewed.mjs "$BRANCH"); code=$?
+echo "last reviewed: $LAST (exit $code)"
+if [ "$code" = 0 ] && [ "$LAST" != "$HEAD" ]; then
+  # The file list comes from git, not the API: `compare` lists 30 files by
+  # default and `gh api --paginate` does not work through the cloud proxy.
+  if git fetch -q origin "$LAST" "$HEAD" && git cat-file -e "$LAST^{commit}"; then
+    # --no-renames: a rename otherwise prints only its new path, so moving
+    # a security-relevant file to a .md path would look like prose.
+    git diff --name-only --no-renames "$LAST...$HEAD" | node scripts/review-scope.mjs --since
+  else
+    echo "re-review: needed (cannot fetch $LAST, probably force-pushed away)"
+  fi
+fi
+```
+
+`last-reviewed.mjs` counts a `claude-code-review.yml` run only if every review
+job that ran succeeded and its `Check a review was actually produced` step
+succeeded (one review skipped by scope is fine; one failed or cancelled is not;
+a Dependabot run that skips every step and ends green is not). A failed run, a
+cancelled one and a label-only run in which everything was skipped are not
+"reviewed". Read the
+result:
+
+- **exit 2** (`gh` failed): an API error is not "no runs". Retry once; if it
+  still fails, do not guess; stop and report.
+- **exit 3, `none`, or exit 4, `pending`**: no review has finished, so the
+  initial review is queued, running or has never worked. **Wait for the initial
+  review** (step 1) and do not add the label. If it never arrives, run the
+  checkers by hand (below).
+- **exit 0 and `LAST` equals `HEAD`**: nothing changed since a review; only the
+  fix-round condition above can still ask.
+- **`re-review: needed`**, or `LAST` could not be fetched (a force-push removed
+  it, so nothing is known about what changed): ask. An empty or unreadable diff
+  also counts as needed. `review-scope.mjs --since` also treats a list of 300
+  or more names as needed; that guard (`COMPARE_FILE_CAP`) is for a list taken
+  from the API, which truncates, and is only a fallback here because `git diff`
+  does not.
+- **`touches .github/workflows/: true`**: the review action refuses a pull
+  request that edits workflows, so a label would buy nothing. Run
+  `security-checker` and `code-checker` by hand instead, as the `delegate`
+  skill says, and reply to what they find.
+- **A pull request authored by `dependabot[bot]`**: do not add the label (its
+  runs have no review credential, `docs/data-governance.md`). Run the checkers
+  by hand.
+
+To ask, delete the label and then add it: `gh api -X DELETE
+repos/{owner}/{repo}/issues/<n>/labels/re-review` (a 404 is fine), then `gh api
+-X POST repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=re-review'`. A
+cancelled run can leave the label on, and GitHub sends `labeled` only when a
+label is *added*, so a stuck one would swallow the request. The workflow runs
+both reviews once and removes the label when they finish; wait for the review
+checks (step 1) and read them (step 2) before merging. A label costs about 5.6
+billed minutes (scope, both reviews, and the `clear re-review` job, which bills
+at least a minute).
+
+Merge only when **both** are true, checked, not assumed:
 - `npm run verify` is green on the branch's current head.
 - Every finding from step 2 has a reply posted in step 3 (or needed none),
   and every one that needs a person has its own `human` issue linked in

@@ -1,9 +1,15 @@
 name: verify
 
+# Pull requests only, plus a button. There is deliberately no `push` to
+# `develop` trigger: a merge re-ran the verify the pull request had just passed,
+# a second ~2.4 billed minutes per merge for the same tree. The cost
+# is that nothing mechanical verifies a direct push to `develop`, so "never
+# push to develop" is discipline alone. `workflow_dispatch` is how a person
+# runs it against a branch by hand. No `edited` trigger either: a body edit
+# would start a full verify, and only the census needs those (pr-checks.yml).
 on:
   pull_request:
-  push:
-    branches: [develop]
+  workflow_dispatch:
 
 concurrency:
   group: verify-${{ github.ref }}

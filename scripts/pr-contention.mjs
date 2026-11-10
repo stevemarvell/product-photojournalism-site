@@ -234,7 +234,7 @@ export function contentionVerdict({ subject, base, rivals = [], truncated = 0 } 
   const testWarning = (paths) => {
     const { tests } = partitionConflicts(paths);
     if (tests.length === 0) return '';
-    return `\n\n**${tests.length === 1 ? 'One of these is a test file' : 'Some of these are test files'}: ${list(tests)}.** Resolve test conflicts as a union, not a choice. Where two branches each *added* a test at the same anchor, both additions are correct and git can only offer you one of them — taking a side leaves the behaviour correct, the suite green, and an assertion silently gone. The \`test census\` check counts both sides and will notice if the total falls.`;
+    return `\n\n**${tests.length === 1 ? 'One of these is a test file' : 'Some of these are test files'}: ${list(tests)}.** Resolve test conflicts as a union, not a choice. Where two branches each *added* a test at the same anchor, both additions are correct and git can only offer you one of them — taking a side leaves the behaviour correct, the suite green, and an assertion silently gone. The \`test census\` in the \`pr checks\` job counts both sides and will notice if the total falls.`;
   };
 
   if (unknown.length > 0 && baseConflicts.length === 0 && colliding.length === 0) {

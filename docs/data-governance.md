@@ -180,3 +180,17 @@ something in the configuration.
 these secrets is set.** Before that, move branch-code steps out of the
 credentialed jobs or pass the secrets only to the action's own step, and
 rewrite this section.
+
+The `pr checks` job in `.github/workflows/pr-checks.yml` (it replaces the old
+`contention` and `test census` workflows) is the same shape with no secret in
+the table: it runs `scripts/pr-contention.mjs` and `scripts/test-census.mjs`
+from the pull request's checkout with `GITHUB_TOKEN` scoped
+`pull-requests: write`. GitHub has no comment-only permission, so that scope
+also permits merging, closing and labelling any open pull request. The same two
+bounds hold and the same trigger voids it.
+
+The code and security reviews run once, when a pull request is opened or marked
+ready, and again only when the `re-review` label is added. They do not re-run on
+a push, and they are advisory. That holds while one person with write access
+drives merges and adds `re-review` as `drive-pr` step 4 says; a second writer
+voids it.

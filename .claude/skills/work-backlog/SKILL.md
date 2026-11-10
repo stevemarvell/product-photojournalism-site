@@ -77,6 +77,9 @@ counterpart to `drive-pr`, which runs a known recipe.
      'labels[]=do not automate'`.
 3. **Drive it.** Follow `drive-pr` for that pull request. Its own ceilings
    apply inside this one (40 polls, 2 fix rounds, 30 smoke polls).
+   - `drive-pr` step 4, "Re-review before merging", applies before every merge
+     here. Unattended merging without it voids the bound in
+     `docs/data-governance.md`.
    - If `drive-pr` stops on a ceiling, stop this skill too: report the
      pull request and what is left, and do not start the next issue.
 4. **Re-triage.** After the merge and the smoke check, go back to step 1. The

@@ -6,7 +6,8 @@ name: Claude Code Review
 # which on this repository is the pull request and nowhere else. `smoke` runs
 # after a merge and is the right shape for a deployment check; a security
 # finding that arrives then is an incident report, not a review. So both jobs
-# run on `pull_request` and neither runs on the push to `develop`.
+# run on `pull_request` and neither runs on the push to `develop`. See
+# "ONCE PER PULL REQUEST" below for which pull request events.
 #
 # WHAT THIS GUARDS AGAINST. Without a dedicated security review, every
 # security finding here is found by a person or an ad-hoc session instead of
@@ -53,13 +54,39 @@ name: Claude Code Review
 # bubblewrap rather than by the model choosing not to run anything else.
 # `docs/sops.md` SOP 10.
 
+# ONCE PER PULL REQUEST, NOT PER PUSH. The two reviews used to run on every
+# `synchronize`, about 3.6 billed minutes of Sonnet per push, and most pushes
+# are a fix round answering the review before it. They now run when a pull
+# request is opened, reopened or marked ready, and again only when somebody
+# adds the `re-review` label (the `labeled` event, filtered below to that one
+# label). When the driver adds it is defined in one place, `drive-pr` step 4
+# ("Re-review before merging"). The last job removes the label so it can be
+# added again. Nothing re-runs a review by itself after a push, so a pull
+# request that grows after its review is not reviewed again unless someone
+# asks.
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, ready_for_review, reopened, labeled]
 
 concurrency:
-  group: claude-code-review-${{ github.ref }}
-  cancel-in-progress: true
+  # Three kinds of run, three groups.
+  #  - opened / reopened / ready_for_review: one group per ref, newer cancels
+  #    older (a review of a superseded state is not worth finishing).
+  #  - `re-review`: its own group with cancel-in-progress false, so a second
+  #    request queues behind the running one instead of killing it, and a
+  #    `ready_for_review` cannot cancel it either. GitHub keeps one pending run
+  #    per group, so a third request replaces a second still waiting; that is
+  #    harmless, because the one that runs removes the same label.
+  #  - any other label: starts this workflow with every job skipped (nothing
+  #    billed), so it gets a group of its own, keyed on run id, and cancels
+  #    nobody.
+  # Cancellations still possible: opened/reopened/ready_for_review runs cancel
+  # each other, and a person can cancel a run by hand. A cancelled workflow does
+  # not execute `clear-re-review`, so the label can be left on; drive-pr deletes
+  # the label before adding it (a 404 is fine), so a stuck label cannot swallow
+  # a later request.
+  group: claude-code-review-${{ github.ref }}-${{ github.event.action == 'labeled' && (github.event.label.name == 're-review' && 're-review' || github.run_id) || 'review' }}
+  cancel-in-progress: ${{ !(github.event.action == 'labeled' && github.event.label.name == 're-review') }}
 
 jobs:
   # Which reviews this pull request is worth spending a session on. One job so
@@ -70,6 +97,9 @@ jobs:
   # to say so.
   scope:
     name: scope
+    # Any label starts this workflow; only `re-review` is a request for a review.
+    # Skipped here, so are both review jobs that `needs:` this one.
+    if: github.event.action != 'labeled' || github.event.label.name == 're-review'
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -432,3 +462,32 @@ jobs:
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
           WORKFLOW_CHANGED: ${{ needs.scope.outputs.workflows }}
         run: node scripts/assert-review-ran.mjs
+
+  # Bills at least a minute of its own, so a `re-review` costs about 5.6 billed
+  # minutes (scope 1, the reviews about 3.6, this 1), not just the reviews.
+  #
+  # Takes the `re-review` label off once the reviews it asked for have finished,
+  # whatever they concluded, so adding it again is a fresh request: GitHub sends
+  # `labeled` only when a label is added, and a label that stayed would never be
+  # added twice. Runs only for that label. Writes labels and nothing else, with
+  # no checkout and no secrets. A failure to remove it is a warning, not a red
+  # job: the reviews have run, and a person can take the label off by hand.
+  clear-re-review:
+    name: clear re-review
+    needs: [scope, code-review, security-review]
+    if: always() && github.event.action == 'labeled' && github.event.label.name == 're-review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Remove the re-review label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh api -X DELETE "repos/$REPOSITORY/issues/$PR_NUMBER/labels/re-review" >/dev/null \
+            || echo "::warning title=re-review label not removed::Could not remove the re-review label from #$PR_NUMBER. Remove it by hand, or adding it again will not start a review."
