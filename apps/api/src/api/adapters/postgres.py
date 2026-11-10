@@ -51,12 +51,15 @@ class PostgresDatabase:
         with self._lock:
             if self._migrated:
                 return
+            failure: str | None = None
             try:
                 self._run_migrations(self._database_url)
             except Exception as exc:
-                # Only the exception's type: its text can contain the connection string.
-                log.error("database migration failed (%s); refusing to serve", type(exc).__name__)
-                raise StorageUnavailableError(UNAVAILABLE) from None
+                failure = type(exc).__name__  # its text can contain the connection string
+            if failure is not None:
+                # Raised outside the except block: the original is not in __context__ either.
+                log.error("database migration failed (%s); refusing to serve", failure)
+                raise StorageUnavailableError(UNAVAILABLE)
             self._migrated = True
 
     @contextmanager
@@ -65,13 +68,32 @@ class PostgresDatabase:
         self.ensure_migrated()
         try:
             conn = psycopg.connect(self._database_url, connect_timeout=CONNECT_TIMEOUT_S)
-        except psycopg.OperationalError:
-            raise StorageUnavailableError(UNAVAILABLE) from None
+        except (psycopg.Error, ValueError, TypeError) as exc:
+            # A refused connection, or a URL libpq cannot parse. The text can hold the
+            # password, so only the type is logged.
+            failure = type(exc).__name__
+        else:
+            failure = None
+        if failure is not None:
+            # Raised outside the except block, so the original (and its text) is not even
+            # in this exception's __context__.
+            log.error("database connection failed (%s)", failure)
+            raise StorageUnavailableError(UNAVAILABLE)
+        lost: str | None = None
         try:
-            with conn:
-                yield conn
-        except psycopg.OperationalError:
-            raise StorageUnavailableError(UNAVAILABLE) from None
+            try:
+                with conn:
+                    yield conn
+            except psycopg.Error as exc:
+                if not (isinstance(exc, psycopg.errors.ConnectionException) or conn.broken):
+                    # Anything else (QueryCanceled, LockNotAvailable, DeadlockDetected, a
+                    # constraint) is not an outage: it propagates as an ordinary 500.
+                    log.error("database error (%s)", type(exc).__name__)
+                    raise
+                lost = type(exc).__name__  # SQLSTATE class 08, or the connection died
+            if lost is not None:
+                log.error("database connection lost (%s)", lost)
+                raise StorageUnavailableError(UNAVAILABLE)
         finally:
             conn.close()
 

@@ -173,6 +173,9 @@ def test_a_migration_that_fails_fails_closed_logs_no_secret_and_is_retried(
     assert len(calls) == 2  # not cached as done: the next request tries again
     assert db.ping() is False
     assert "database migration failed" in caplog.text
+    with pytest.raises(StorageUnavailableError) as info:
+        repo.list("org-a")
+    assert info.value.__cause__ is None and info.value.__context__ is None
     assert pg_url not in caplog.text and "boom" not in caplog.text
 
 
@@ -243,3 +246,46 @@ def test_two_app_instances_on_one_database_share_stories_and_revocation(pg_url: 
 
     assert a.post("/auth/revoke-all").status_code in (200, 204)
     assert b.get("/stories").status_code == 401  # refused on the other instance's next request
+
+
+def test_a_malformed_database_url_is_storage_unavailable_and_leaks_no_password(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    db = PostgresDatabase("postgresql://u:hunter2pw@[bad", run_migrations=lambda url: None)
+    with caplog.at_level(logging.DEBUG), pytest.raises(StorageUnavailableError) as info:
+        PostgresStoryRepository(db).list("org-a")
+    assert "hunter2pw" not in caplog.text and "hunter2pw" not in str(info.value)
+    exc: BaseException | None = info.value
+    while exc is not None:  # the whole chain, cause and context
+        assert "hunter2pw" not in repr(exc) + str(exc)
+        exc = exc.__cause__ or exc.__context__
+
+
+@needs_postgres
+def test_a_statement_timeout_is_not_an_outage_it_propagates_and_logs_the_type_only(
+    pg_url: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    sep = "&" if "?" in pg_url else "?"
+    slow = PostgresDatabase(pg_url + sep + "options=-c%20statement_timeout%3D50")
+    repo = PostgresStoryRepository(slow)
+    repo.list("org-a")  # migrates and works at this timeout
+    with (
+        caplog.at_level(logging.DEBUG),
+        pytest.raises(psycopg.errors.QueryCanceled),
+        slow.connection() as conn,
+    ):
+        conn.execute("select pg_sleep(2)")
+    assert "database error (QueryCanceled)" in caplog.text
+    assert "pg_sleep" not in caplog.text and "statement" not in caplog.text.replace(
+        "database error (QueryCanceled)", ""
+    )
+
+
+@needs_postgres
+def test_a_connection_class_error_mid_statement_is_storage_unavailable(pg_url: str) -> None:
+    db = PostgresDatabase(pg_url)
+    with pytest.raises(StorageUnavailableError), db.connection() as conn:
+        pid = conn.execute("select pg_backend_pid()").fetchone()[0]
+        with psycopg.connect(pg_url, autocommit=True) as admin:
+            admin.execute("select pg_terminate_backend(%s)", (pid,))
+        conn.execute("select 1")
