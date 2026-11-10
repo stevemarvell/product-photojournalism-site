@@ -32,10 +32,10 @@ on:
   push:
     branches: [develop]
   schedule:
-    # Every 3 hours, offset from the hour so it doesn't pile onto :00 with
+    # Every 6 hours, offset from the hour so it doesn't pile onto :00 with
     # everyone else's crons. Added by `npm run deploy:add`: the engine ships
     # without it, so nothing here costs a runner minute until an app deploys.
-    - cron: '17 */3 * * *'
+    - cron: '17 */6 * * *'
   workflow_dispatch:
 
 jobs:

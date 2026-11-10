@@ -52,12 +52,12 @@ const TEMPLATE_DIRS = { vercel: join(HERE, 'vercel/template') };
 
 // The uptime-check trigger smoke.yml gains once something is deployed. The
 // cadence is a deliberate cost decision against the account's shared Actions
-// minutes: every 3 hours, offset from the hour so it doesn't pile onto :00.
+// minutes: every 6 hours, offset from the hour so it doesn't pile onto :00.
 export const SMOKE_SCHEDULE = `  schedule:
-    # Every 3 hours, offset from the hour so it doesn't pile onto :00 with
+    # Every 6 hours, offset from the hour so it doesn't pile onto :00 with
     # everyone else's crons. Added by \`npm run deploy:add\`: the engine ships
     # without it, so nothing here costs a runner minute until an app deploys.
-    - cron: '17 */3 * * *'
+    - cron: '17 */6 * * *'
 `;
 
 const SMOKE_WORKFLOW = '.github/workflows/smoke.yml';

@@ -126,6 +126,38 @@ export function reviewScope(paths) {
   };
 }
 
+/**
+ * Whether paths changed since a pull request was last reviewed are ones the
+ * security review would run for: the driver's rule before merging (drive-pr
+ * step 4). The reviews run once per pull request, so a pull request opened
+ * harmlessly and extended later is otherwise never looked at. This is the same
+ * answer `reviewScope` gives, so `.github/**`, `.claude/**` and every non-prose
+ * file count, and an empty list counts too: a diff that could not be read must
+ * not be the reason a change merges unreviewed. The caller skips the check when
+ * the head has not moved since the last review.
+ */
+export function needsSecurityRereview(paths) {
+  const files = [...paths].map((path) => String(path).trim()).filter(Boolean);
+  // A list taken from the API is cut off (`compare` lists 30 files by default
+  // and at most 300), and the rest is unseen. `git diff --name-only` is not cut
+  // off, which is why drive-pr uses it; this is the fallback for a list that
+  // came from the API anyway. Treat it as needing a review rather than trust the part.
+  if (files.length >= COMPARE_FILE_CAP) return true;
+  return reviewScope(files).security;
+}
+
+/** The most files GitHub's `compare` endpoint ever lists; an API-sourced list this long may be truncated. */
+export const COMPARE_FILE_CAP = 300;
+
+/**
+ * A string safe to print to a terminal: control characters (escape sequences,
+ * carriage returns, anything below space and the C1 range) become `?`. A
+ * changed file's name is attacker-chosen text, and this prints some.
+ */
+export function printable(text) {
+  return String(text).replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
+}
+
 /** Read the whole of stdin, so the caller can pipe `gh api ... --jq` into us. */
 async function readStdin() {
   const chunks = [];
@@ -134,7 +166,17 @@ async function readStdin() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const scope = reviewScope((await readStdin()).split('\n'));
+  const input = (await readStdin()).split('\n');
+  if (process.argv.includes('--since')) {
+    // `git diff --name-only --no-renames <last>...<head> | node scripts/review-scope.mjs --since`
+    const needed = needsSecurityRereview(input);
+    const scope = reviewScope(input);
+    console.log(`re-review: ${needed ? 'needed' : 'not needed'}`);
+    console.log(`touches .github/workflows/: ${scope.workflows}`);
+    console.log(printable(scope.why));
+    process.exit(0);
+  }
+  const scope = reviewScope(input);
   const output = process.env['GITHUB_OUTPUT'];
   if (output) {
     appendFileSync(
@@ -145,5 +187,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   console.log(`code review: ${scope.code}`);
   console.log(`security review: ${scope.security}`);
   console.log(`touches .github/workflows/: ${scope.workflows}`);
-  console.log(scope.why);
+  console.log(printable(scope.why));
 }

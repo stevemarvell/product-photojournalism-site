@@ -76,6 +76,48 @@ Three loops *are* mechanically bounded:
   `MAX_CONSECUTIVE_BLOCKS`, and a test holds it to the three attempts
   `.claude/commands/ship.md` declares.
 
+### What CI runs, and when
+
+Actions bills every job rounded up to a whole minute, on a free allowance, so
+what a push or a merge starts is a spending decision and is written down here.
+
+- **`verify` runs on pull requests and by hand (`workflow_dispatch`). It does
+  not run on a push to `develop`.** The merge re-ran what the pull request had
+  just passed. The price: **nothing mechanical verifies a direct push to
+  `develop`**, so "never commit or push directly to `develop`" is discipline
+  alone, with no check behind it either way. It was already unenforced on a
+  free-plan private repository (no rulesets), but a bad direct push used to
+  turn the next `verify` red and now does not. A person who suspects one runs
+  `verify` by hand from the Actions tab against `develop`.
+- **`pr checks`** (`pr-checks.yml`) is the census and contention in one job,
+  on pull request events including `edited` (a body edit is how a `Removes
+  tests:` line is read) and on a push to `develop` (contention only: it is the
+  one thing that tells an open pull request a merge broke it).
+  `verify` has no `edited` trigger and must not gain one: a full verify per
+  body edit costs far more than the census saves.
+- **`scope` is a job of its own** in `claude-code-review.yml` because the two
+  review jobs `needs:` it, and `needs:` cannot cross workflows. Folding it into
+  `pr-checks` would put the reviews on `edited` and onto pushes. It checks out
+  the base commit on purpose (see the workflow), so it stays apart from the
+  credentialed jobs too.
+- **The Claude reviews run once per pull request**: when it is opened, reopened
+  or marked ready. They do not re-run on a push. The `re-review` label runs
+  both once more and the workflow removes it when they finish. When the driver
+  adds it is defined in `drive-pr` step 4 and nowhere else. Nothing adds the
+  label by itself, so no review loop can run unattended.
+- **`smoke` runs on every push to `develop`** and, once an app deploys, on a
+  schedule every 6 hours (`SMOKE_SCHEDULE` in `scripts/deploy/add.mjs`).
+
+Cost, **estimated**, not metered per change. The source is the billed minutes
+per job measured over 2026-11-08 to 2026-11-10: `verify` about 2.4 on pull
+requests, code review about 1.9, security review about 1.7, and `scope`, census
+and contention about 1 each (rounded up per job). Before these cuts that was
+about 9 billed minutes per push to a pull request, and about 4 more per merge.
+After, a push should cost about 3.4 (`verify` and `pr checks`), the reviews
+about 5.6 more (`scope`, both reviews, and the `clear re-review` job, which bills at least a minute) only on open and on `re-review`, and a merge about
+2 (`pr checks` and `smoke`). Re-measure from the Actions usage report before
+relying on these.
+
 ---
 
 ## SOP 2: Work that needs a person is labelled, not attempted
@@ -511,12 +553,13 @@ conflict by deleting evidence, and nothing in the file's own suite can tell.
 
 ### What enforces this
 
-The `test census` check (`scripts/test-census.mjs`) counts declarations on
+The test census (`scripts/test-census.mjs`, a step of the `pr checks` job) counts declarations on
 both sides of a pull request and goes red when the head has fewer without that
 line. It is the backstop, and it counts declarations rather than results — a
 row deleted from inside an `it.each` table is still invisible.
 
-The `contention` check (`scripts/pr-contention.mjs`) is the earlier warning.
+The contention step (`scripts/pr-contention.mjs`, the other step of the `pr
+checks` job) is the earlier warning.
 It three-way merges every open pull request against the base tip and against
 every other open head, and comments when two collide — naming which of the
 conflicting files are test files, because those are the ones this SOP is about.

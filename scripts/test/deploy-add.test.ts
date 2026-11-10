@@ -428,7 +428,7 @@ describe('the scheduled smoke run (#254)', () => {
     const base = realSmoke();
     const scheduled = withSmokeSchedule(base);
     expect(scheduleLines(scheduled)).toHaveLength(1);
-    expect(scheduled).toContain("- cron: '17 */3 * * *'");
+    expect(scheduled).toContain("- cron: '17 */6 * * *'");
     expect(scheduled.indexOf('  schedule:')).toBeLessThan(scheduled.indexOf('  workflow_dispatch:'));
     expect(scheduled.replace(SMOKE_SCHEDULE, '')).toBe(base);
   });
@@ -445,7 +445,7 @@ describe('the scheduled smoke run (#254)', () => {
     expect(scheduleLines(text)).toHaveLength(1); // the job, which is not a trigger
     const scheduled = withSmokeSchedule(text);
     expect(scheduled).not.toBe(text);
-    expect(scheduled.slice(0, scheduled.indexOf('\njobs:'))).toContain("- cron: '17 */3 * * *'");
+    expect(scheduled.slice(0, scheduled.indexOf('\njobs:'))).toContain("- cron: '17 */6 * * *'");
     expect(withSmokeSchedule(scheduled)).toBe(scheduled);
   });
 

@@ -27,9 +27,12 @@ the comparison behind that choice is recorded in the base repository).
 | `code-checker` | Correctness and quality review of a diff or pull request. | nothing |
 | `security-checker` | Exposure review against `docs/data-governance.md`. | nothing |
 
-CI already runs both checkers on every pull request (`claude-code-review.yml`).
-Spawn one by hand only for a review CI cannot do — a pull request that edits
-`.github/workflows/`, where `claude-code-action` refuses to run.
+CI runs both checkers once per pull request, when it is opened, reopened or
+marked ready, and again only when the `re-review` label is added; it does not
+re-run on a push (`claude-code-review.yml`; when the driver asks for one is in
+`drive-pr` step 4). Spawn one by hand only for a review CI cannot do — a pull
+request that edits `.github/workflows/`, where `claude-code-action` refuses to
+run, or one authored by `dependabot[bot]`.
 
 Never hand over an issue labelled `human`, `do not automate`, `blocked…` or
 `template`. `scripts/triage.mjs` already excludes them; a hand-picked task gets
@@ -37,7 +40,7 @@ the same check.
 
 **Ceiling: 3 implementers at once**, matching `MAX_ISSUES_PER_RUN` (SOP 1).
 Each costs 57k–144k tokens (SOP 4), and parallel agents on overlapping files
-only produce `contention`.
+only produce contention warnings (`pr checks`).
 
 ## The brief
 

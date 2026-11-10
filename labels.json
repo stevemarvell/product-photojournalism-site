@@ -45,6 +45,11 @@
     "description": "A record of an incident: what happened, why, and what changed"
   },
   {
+    "name": "re-review",
+    "color": "d4c5f9",
+    "description": "Add to run the code and security reviews once more. The workflow removes it when they finish."
+  },
+  {
     "name": "aia0",
     "color": "5319e7",
     "description": "Step 0 — Gated: permission, infrastructure, governance"

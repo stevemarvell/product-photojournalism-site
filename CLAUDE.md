@@ -44,7 +44,7 @@ sync. Repository-specific facts go in the sections outside this block. -->
 - **Every behaviour change ships with a test.** A bug fix means a test that
   fails before the fix. A new feature means the happy path and the error path.
   A change that ends up with *fewer* tests than its base says so in the pull
-  request body, in a line beginning `Removes tests:` — the `test census` check
+  request body, in a line beginning `Removes tests:` — the `pr checks` job
   counts both sides and goes red without one.
 
 - **Code is written by `implementer` agents.** The coordinating session — the
@@ -146,12 +146,16 @@ npm run verify:apps                # every app's own checks, from project.json
 node scripts/verify-apps.mjs web   # one app's: typecheck, eslint, vitest, build, e2e
 ```
 
-CI runs `verify` on every pull request and on pushes to `develop`; it is the
-one check the coordinator waits for before merging. A `smoke` workflow runs
+CI runs `verify` on every pull request and by hand (`workflow_dispatch`); it is
+the one check the coordinator waits for before merging. It does **not** run on
+a push to `develop`: nothing mechanical verifies a direct push, so "never push
+to `develop`" is discipline alone (SOP 1, "What CI runs, and when"). A `smoke` workflow runs
 after each merge: for each deployed app in `project.json`, it waits for the
 deployment to be this commit, then runs that app's own checks
-(`scripts/smoke.mjs`). Claude Code Review comments on every pull request; it
-is advisory.
+(`scripts/smoke.mjs`). Claude Code Review comments once per pull request, when it is opened or marked
+ready, and again only when the `re-review` label is added; it does not re-run
+on a push, and it is advisory. When the driver adds `re-review` is defined in
+`drive-pr` step 4.
 
 ## Agents and skills
 
