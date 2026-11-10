@@ -125,6 +125,23 @@ describe('validate', () => {
     expect(validate(minimal()).name).toBe('thing');
   });
 
+  it('accepts services: ["postgres"] and an empty list', () => {
+    const ok = minimal();
+    ok.apps.svc!.services = ['postgres'];
+    expect(validate(ok).apps.svc!.services).toEqual(['postgres']);
+    ok.apps.svc!.services = [];
+    expect(() => validate(ok)).not.toThrow();
+  });
+
+  it('refuses an unknown service, and services that is not a list', () => {
+    const unknown = minimal();
+    (unknown.apps.svc as { services: string[] }).services = ['postgres', 'redis'];
+    expect(() => validate(unknown)).toThrow(/apps\.svc\.services.*redis/);
+    const notList = minimal();
+    (notList.apps.svc as { services: unknown }).services = 'postgres';
+    expect(() => validate(notList)).toThrow(/apps\.svc\.services must be a list/);
+  });
+
   it('names the field that is wrong', () => {
     const badToolchain = minimal();
     (badToolchain.apps.svc as { toolchain: string }).toolchain = 'ruby';
@@ -332,17 +349,17 @@ describe('cli', () => {
   });
 
   it('says, per toolchain, whether any app uses it, as lines $GITHUB_OUTPUT takes as they are', () => {
-    expect(cli(['toolchains'], minimal())).toEqual(['node=true', 'python=true', 'e2e=false']);
+    expect(cli(['toolchains'], minimal())).toEqual(['node=true', 'python=true', 'e2e=false', 'postgres=false']);
     const { svc, ui } = minimal().apps;
-    expect(cli(['toolchains'], { ...minimal(), apps: { svc: svc! } })).toEqual(['node=false', 'python=true', 'e2e=false']);
-    expect(cli(['toolchains'], { ...minimal(), apps: { ui: ui! } })).toEqual(['node=true', 'python=false', 'e2e=false']);
+    expect(cli(['toolchains'], { ...minimal(), apps: { svc: svc! } })).toEqual(['node=false', 'python=true', 'e2e=false', 'postgres=false']);
+    expect(cli(['toolchains'], { ...minimal(), apps: { ui: ui! } })).toEqual(['node=true', 'python=false', 'e2e=false', 'postgres=false']);
   });
 
   it('says e2e=true when an app verifies with an e2e command, and false for a node app that does not', () => {
     const { ui } = minimal().apps;
     const withVerify = (verify: string[]): Project => ({ ...minimal(), apps: { ui: { ...ui!, verify } } });
-    expect(cli(['toolchains'], withVerify(['npm run test', 'npm run e2e']))).toEqual(['node=true', 'python=false', 'e2e=true']);
-    expect(cli(['toolchains'], withVerify(['npm run test', 'npm run build']))).toEqual(['node=true', 'python=false', 'e2e=false']);
+    expect(cli(['toolchains'], withVerify(['npm run test', 'npm run e2e']))).toEqual(['node=true', 'python=false', 'e2e=true', 'postgres=false']);
+    expect(cli(['toolchains'], withVerify(['npm run test', 'npm run build']))).toEqual(['node=true', 'python=false', 'e2e=false', 'postgres=false']);
     // A word match, not a substring: a script that merely contains the letters is not an e2e run.
     expect(cli(['toolchains'], withVerify(['npm run fe2esque']))).toContain('e2e=false');
     expect(cli(['toolchains'], withVerify(['npm run e2esque']))).toContain('e2e=false');
@@ -355,12 +372,19 @@ describe('cli', () => {
 
   // catalogue.json is in the base only; a product holds what it was assembled with.
   it.skipIf(!existsSync(join(REPO_ROOT, 'catalogue.json')))('says e2e=true for the base itself, whose web app verifies with npm run e2e', () => {
-    expect(cli(['toolchains'], loadProject())).toEqual(['node=true', 'python=true', 'e2e=true']);
+    expect(cli(['toolchains'], loadProject())).toEqual(['node=true', 'python=true', 'e2e=true', 'postgres=false']);
   });
 
   it('says false for all of them in an engine-only product, which has no app at all', () => {
     const engineOnly = validate({ name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} });
-    expect(cli(['toolchains'], engineOnly)).toEqual(['node=false', 'python=false', 'e2e=false']);
+    expect(cli(['toolchains'], engineOnly)).toEqual(['node=false', 'python=false', 'e2e=false', 'postgres=false']);
+  });
+
+  it('says postgres=true when any app declares the postgres service', () => {
+    const withPg = minimal();
+    withPg.apps.svc!.services = ['postgres'];
+    expect(cli(['toolchains'], withPg)).toEqual(['node=true', 'python=true', 'e2e=false', 'postgres=true']);
+    expect(cli(['toolchains'], minimal())).toContain('postgres=false');
   });
 
   it('refuses a subcommand it does not have', () => {

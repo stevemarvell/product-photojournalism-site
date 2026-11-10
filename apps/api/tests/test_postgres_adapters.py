@@ -1,6 +1,6 @@
 """Postgres-only behaviour: migrations, the publish transaction, the compare-and-set under
-real concurrency, and failure handling. Needs TEST_DATABASE_URL (skipped, with the reason,
-without it) except the tests that need no database at all."""
+real concurrency, and failure handling. Needs TEST_DATABASE_URL (skipped locally with the
+reason, a failure in CI, without it) except the tests that need no database at all."""
 
 import logging
 import threading

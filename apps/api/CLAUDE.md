@@ -59,8 +59,8 @@ in-memory or Postgres (`adapters/postgres.py`: stories, sessions; `replace` is o
 `UPDATE`). Migrations are yoyo SQL files in `src/api/migrations/`, run by `adapters/migrate.py`
 under an advisory lock before the process's first query; add a new numbered file, never edit an
 applied one. `StorageUnavailableError` (503) means the database could not be reached or migrated.
-The Postgres tests need `TEST_DATABASE_URL` (a throwaway database; its tables are dropped) and
-skip with a stated reason without it; CI has no Postgres service yet.
+The Postgres tests need `TEST_DATABASE_URL` (a throwaway database; its tables are dropped). Without it
+they skip with a stated reason locally and fail when `CI` is set: the `api` app declares `"services": ["postgres"]` in `project.json`, which makes verify.yml start one.
 
 ## Public site
 

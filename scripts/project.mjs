@@ -17,10 +17,14 @@
 // (smoke, preview-prune, the ignore step) skips it. `npm run deploy:add`
 // (scripts/deploy/add.mjs) is how a `deploy` block gets added.
 //
+// Services are opt-in per app: `"services": ["postgres"]` asks CI for a real
+// Postgres (verify.yml starts one and exports TEST_DATABASE_URL). An app that
+// declares none costs nothing. Known services are in SERVICES below.
+//
 // CLI, for workflows and shells:
 //
 //     node scripts/project.mjs apps [toolchain]   # app paths, one per line
-//     node scripts/project.mjs toolchains         # node=true / python=false / e2e=true, for $GITHUB_OUTPUT
+//     node scripts/project.mjs toolchains         # node=true / python=false / e2e=true / postgres=false, for $GITHUB_OUTPUT
 //     node scripts/project.mjs --has-deploy       # true/false; exit 0 iff true
 import { readFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
@@ -35,6 +39,9 @@ export const MANIFEST = join(ROOT, 'project.json');
 export const HARNESS_CODE = ['scripts', '.claude/hooks', '.claude/statusline.mjs', 'project.json', 'catalogue.json'];
 
 const TOOLCHAINS = new Set(['python', 'node']);
+
+// Backing services an app may ask CI to provide. Only `postgres` for now.
+const SERVICES = new Set(['postgres']);
 
 // Every deploy provider this layer knows, and the ignore script each one's
 // build-skip decision lives behind. scripts/deploy/index.mjs is the registry
@@ -96,6 +103,12 @@ export function validate(project) {
     if (!TOOLCHAINS.has(app.toolchain)) fail(`${at}.toolchain must be one of ${[...TOOLCHAINS].join(', ')}`);
     if (!Array.isArray(app.reads) || app.reads.length === 0) fail(`${at}.reads must list at least one path`);
     if (app.ignores !== undefined && !Array.isArray(app.ignores)) fail(`${at}.ignores must be a list`);
+    if (app.services !== undefined) {
+      if (!Array.isArray(app.services)) fail(`${at}.services must be a list`);
+      for (const service of app.services) {
+        if (!SERVICES.has(service)) fail(`${at}.services has unknown service ${JSON.stringify(service)} (expected ${[...SERVICES].join(', ')})`);
+      }
+    }
     if (app.verify !== undefined && !(Array.isArray(app.verify) && app.verify.every((c) => typeof c === 'string' && c.trim()))) {
       fail(`${at}.verify must be a list of commands`);
     }
@@ -164,6 +177,11 @@ export function hasE2e(project) {
   return apps(project).some(([, app]) => (app.verify ?? []).some((command) => /(?<![a-z0-9])(e2e|playwright)(?![a-z0-9])/i.test(command)));
 }
 
+/** Whether any app declares the service in its `services` list. */
+export function hasService(project, service) {
+  return apps(project).some(([, app]) => (app.services ?? []).includes(service));
+}
+
 /** The app whose directory holds `relativePath`, or null. The deepest path wins. */
 export function appFor(project, relativePath) {
   const path = relativePath.replace(/\\/g, '/');
@@ -210,11 +228,12 @@ export function verifiedPaths(project) {
 export function cli([command, ...args], project = loadProject()) {
   if (command === 'apps') return apps(project, args[0]).map(([, app]) => app.path);
   // One `<toolchain>=<true|false>` line per toolchain, whether any app uses it,
-  // then `e2e=<true|false>`: whether any app's verify runs an e2e command.
+  // then `e2e=<true|false>`: whether any app's verify runs an e2e command, then
+  // `postgres=<true|false>`: whether any app declares the postgres service.
   // Appended as-is to $GITHUB_OUTPUT, they are what verify.yml's later steps
   // gate on, so a product with no browser tests never installs a browser.
   if (command === 'toolchains') {
-    return [...[...TOOLCHAINS].sort().map((t) => `${t}=${apps(project, t).length > 0}`), `e2e=${hasE2e(project)}`];
+    return [...[...TOOLCHAINS].sort().map((t) => `${t}=${apps(project, t).length > 0}`), `e2e=${hasE2e(project)}`, `postgres=${hasService(project, 'postgres')}`];
   }
   throw new Error('usage: project.mjs apps [toolchain] | toolchains | --has-deploy');
 }
