@@ -66,8 +66,8 @@ API for an anonymous reader, and nothing else of a story does:
   Unpublish and Republish show on the next load. Nothing public is cached except the web
   versions of images (immutable, by id). Caching the pages with invalidation on publish (spec
   section 8) is a later optimisation, not built.
-- **Until #34** the Postgres story methods raise `StorageUnavailableError`, so on production
-  the public reads answer 501 and the home page says "No application here yet.".
+- **Unreachable storage** (the Postgres connection fails, or its migration does) answers
+  503 on the public reads too, not an empty page and not a stack trace.
 
 **The renderer rule is a control, and it is enforced and tested.** A published body is MDX
 text, but the public renderer (`apps/web/src/render.ts`, drawn by `PublicSite.tsx`) never
@@ -83,27 +83,22 @@ holds.
 
 ## Where it is stored
 
-- **Today: in memory only.** Stories and sessions live in the API process's memory
-  (`InMemoryStoryRepository`, `InMemorySessionStore`) and are lost when it restarts.
-  This is the adapter local runs and previews use.
-- **Production: Postgres, once the follow-up lands.** Production selects the Postgres
-  adapter by default (`STORY_REPOSITORY`), but its story methods are not built: they
-  raise `NotImplementedError`, and the API answers the owner story endpoints with
-  501. That is deliberate and safe for now: **nobody can sign in on production yet**
-  (sign-in is not configured there), so no story exists to lose or to leak. It must be
-  built before the owner is given access. The follow-up needs the stories table and
-  migrations, a persistent session store, and the shared repository contract suite
-  un-skipped for Postgres.
-- **Sessions on a serverless host** held in memory are per instance. Lookups fail
-  closed: an instance that has no record for a cookie refuses it, so the owner may be
-  signed out after a restart or when another instance answers. **Revocation does not
-  fail closed across instances**: sign-out or revoke-all deletes the record only on the
-  instance that handled it, and another instance that still holds the record keeps
-  honouring the cookie until the record expires (12 hours, the cookie's own lifetime).
-  Revocation is reliable on a single instance only, until the persistent session store
-  of #34 lands. **Sign-in on production must not be enabled (#27) before #34**, or the
-  owner accepts per-instance revocation for up to 12 hours. Rotating `SESSION_SECRET`
-  remains the remedy that works across every instance.
+- **Production: Postgres.** Production selects the Postgres adapter by default
+  (`STORY_REPOSITORY`), for stories and for sessions (`PostgresStoryRepository`,
+  `PostgresSessionStore`, tables `story`, `session`, `session_epoch`; every story query
+  filters on `organisation_id`). Local runs and previews use the in-memory adapters
+  (`InMemoryStoryRepository`, `InMemorySessionStore`), which lose everything on restart.
+- **Migrations** (yoyo-migrations, SQL files in `apps/api/src/api/migrations/`) run inside
+  the API process, once per process, before its first query (not at import, so an
+  unreachable database still lets `/health` answer 503). They run under a Postgres advisory
+  lock, so concurrent cold starts do not race, and are idempotent. If one fails, nothing is
+  queried: owner and public routes answer 503, the failure is logged by exception type only
+  (never the connection string), and the next request tries again.
+- **Sessions are shared across serverless instances.** Sign-out deletes the row and
+  revoke-all bumps the user's epoch and deletes their rows in one transaction, so every
+  instance refuses the old cookie on its next request. An instance that cannot reach the
+  database fails closed (503 / no session). Rotating `SESSION_SECRET` remains the remedy if
+  the secret leaks.
 - Records expire after the session max age (12 hours), and revoke-all deletes the
   user's records as well as bumping the epoch.
 

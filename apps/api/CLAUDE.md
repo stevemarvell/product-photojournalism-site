@@ -54,8 +54,13 @@ implementations; `composition.py` picks them from environment variables, and
 `/stories` (owner only): create, list, read, `PUT /{id}/draft` (409 when the sent
 `updated_at` is stale) and `POST /{id}/publish` (422 with `reasons`), and `POST /{id}/unpublish|republish|revert` (422 with `reasons` when the story's state does not allow it and nothing changes; 409 only when a save landed in between; revert bumps `updated_at`, unpublish and republish do not). `PUT` also refuses (422) a body outside the allowed subset (`domain/content.py`: prose, bold, italic and well-formed `<Photo>` tags only; no other tag, raw HTML, `{expressions}` or `import`/`export`). The rules live in
 `domain/story.py`, use cases in `application/stories.py`, and every repository call
-takes the signed-in user's `organisation_id`. Storage is in-memory only: the Postgres
-story methods raise `NotImplementedError` (the API answers 501) until its follow-up.
+takes the signed-in user's `organisation_id`. Storage is
+in-memory or Postgres (`adapters/postgres.py`: stories, sessions; `replace` is one conditional
+`UPDATE`). Migrations are yoyo SQL files in `src/api/migrations/`, run by `adapters/migrate.py`
+under an advisory lock before the process's first query; add a new numbered file, never edit an
+applied one. `StorageUnavailableError` (503) means the database could not be reached or migrated.
+The Postgres tests need `TEST_DATABASE_URL` (a throwaway database; its tables are dropped) and
+skip with a stated reason without it; CI has no Postgres service yet.
 
 ## Public site
 

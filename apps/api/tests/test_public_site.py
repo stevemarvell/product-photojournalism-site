@@ -429,15 +429,15 @@ def test_stored_import_export_and_entity_text_is_served_as_inert_text(world) -> 
     assert r.json()["content"] == content  # data, byte for byte; the renderer decides what it is
 
 
-# --- Storage that is not built (Postgres, until #34) -----------------------------------------
+# --- Storage that cannot be reached (Postgres) -----------------------------------------
 
 
-def test_the_public_reads_answer_501_where_storage_is_not_built() -> None:
+def test_the_public_reads_answer_503_where_the_database_is_unreachable() -> None:
     env = {"STORY_REPOSITORY": "postgres", "DATABASE_URL": "postgresql://u:p@127.0.0.1:1/db"}
     client = TestClient(create_app(env=env, environment="production"))
     for path in ("/public/pieces", "/public/pieces/anything"):
         r = client.get(path)
-        assert r.status_code == 501, path
+        assert r.status_code == 503, path
         assert r.headers["cache-control"] == "no-store"
 
 

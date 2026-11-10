@@ -1,10 +1,9 @@
 """One contract every StoryRepository adapter must meet, run against each adapter.
 
-The Postgres parametrisation is skipped, with its reason stated, until the Postgres story
-adapter exists: it must never pass silently by not running.
+The Postgres parametrisation runs against TEST_DATABASE_URL and is skipped, with its reason
+stated, only when that is unset (CI has no Postgres service yet): never silently.
 """
 
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,29 +13,26 @@ from api.adapters.postgres import PostgresStoryRepository
 from api.application import StoryRepository
 from api.domain import (
     DraftFields,
-    StorageUnavailableError,
     StoryConflictError,
     StoryNotFoundError,
     new_story,
     with_draft,
 )
+from conftest import needs_postgres  # noqa: E402
 
 T0 = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
 
 ADAPTERS = [
-    pytest.param(InMemoryStoryRepository, id="memory"),
-    pytest.param(
-        None,
-        id="postgres",
-        marks=pytest.mark.skip(reason="Postgres story adapter: follow-up issue"),
-    ),
+    pytest.param("memory", id="memory"),
+    pytest.param("postgres", id="postgres", marks=needs_postgres),
 ]
 
 
 @pytest.fixture(params=ADAPTERS)
 def repo(request: pytest.FixtureRequest) -> StoryRepository:
-    make: Callable[[], StoryRepository] = request.param
-    return make()
+    if request.param == "memory":
+        return InMemoryStoryRepository()
+    return PostgresStoryRepository(request.getfixturevalue("pg_url"))
 
 
 def test_a_created_story_is_read_back_unchanged(repo: StoryRepository) -> None:
@@ -108,19 +104,6 @@ def test_replace_of_a_missing_story_or_another_organisations_is_not_found(
     with pytest.raises(StoryNotFoundError):
         repo.replace("org-a", new_story("ghost", "org-a", T0), expected_updated_at=T0)
     assert repo.get("org-a", "s1") == story
-
-
-def test_the_postgres_adapter_does_not_pretend_to_store_stories_yet() -> None:
-    # Not skipped: until the follow-up lands, a deployed default must fail loudly, not quietly.
-    postgres = PostgresStoryRepository("postgresql://x:y@127.0.0.1:1/z")
-    with pytest.raises(StorageUnavailableError, match="Postgres story adapter: follow-up issue"):
-        postgres.list("org-a")
-    with pytest.raises(StorageUnavailableError):
-        postgres.get("org-a", "s1")
-    with pytest.raises(StorageUnavailableError):
-        postgres.create(new_story("s1", "org-a", T0))
-    with pytest.raises(StorageUnavailableError):
-        postgres.replace("org-a", new_story("s1", "org-a", T0), expected_updated_at=T0)
 
 
 def test_the_same_client_may_supersede_its_own_last_save_from_the_same_base(

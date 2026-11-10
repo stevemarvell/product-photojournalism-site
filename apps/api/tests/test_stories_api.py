@@ -304,15 +304,15 @@ def test_an_unrelated_not_implemented_error_is_a_500_not_a_501() -> None:
     assert client.get("/stories").status_code == 500
 
 
-def test_an_adapter_that_cannot_store_stories_yet_answers_501_not_a_crash() -> None:
+def test_an_unreachable_database_answers_503_not_a_crash() -> None:
     from api.adapters.postgres import PostgresStoryRepository
 
     container = replace(
         make_container(), stories=PostgresStoryRepository("postgresql://x@127.0.0.1:1/y")
     )
     client = signed_in_client(container)
-    assert client.get("/stories").status_code == 501
-    assert client.post("/stories").status_code == 501
+    assert client.get("/stories").status_code == 503
+    assert client.post("/stories").status_code == 503
 
 
 def test_a_signed_in_user_who_is_not_the_owner_cannot_use_story_endpoints() -> None:
