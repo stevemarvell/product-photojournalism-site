@@ -38,8 +38,8 @@ DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
 
 
 # The cookie lasts api.application.SESSION_MAX_AGE and also names a server-side session
-# record (api.guard.current_user). On one instance, signing out or revoking all refuses a
-# copied cookie at once; across instances that waits for the persistent store (#34).
+# record (api.guard.current_user). With STORY_REPOSITORY=postgres the record lives in the
+# database, so signing out or revoking all refuses a copied cookie on every instance.
 
 # How long /health reuses a database ping.
 HEALTH_CACHE_TTL = timedelta(seconds=10)

@@ -4,8 +4,11 @@ STORY_REPOSITORY   memory | postgres (needs DATABASE_URL, or POSTGRES_URL, which
                    Vercel/Neon integration injects). The default is postgres only where
                    VERCEL_ENV=production, so a deployment never silently runs on memory
                    and a preview never gets the database unless it is asked for.
-SESSIONS / image rows: in-memory for now (a persistent session store and a Postgres
-                   image repository are follow-ups); not configurable.
+SESSIONS           follow STORY_REPOSITORY: postgres uses the same database (so sign-out and
+                   revoke-all hold across serverless instances), memory is per process.
+                   The schema is migrated (yoyo, under an advisory lock) before the first
+                   query of the process, not at import, so an unreachable database still
+                   lets /health answer 503. Image rows are in-memory for now (#40).
 IMAGE_STORE        filesystem (default); IMAGE_DIR sets where (default .data/images,
                    /tmp/images where VERCEL_ENV is set: the bundle is read-only there)
 IMAGE_UPLOADS      local | off. local: originals are uploaded to this API's owner-only
@@ -52,7 +55,7 @@ from api.adapters.pillow_images import (
     InProcessImageProcessor,
     PillowImageRenderer,
 )
-from api.adapters.postgres import PostgresStoryRepository
+from api.adapters.postgres import PostgresDatabase, PostgresSessionStore, PostgresStoryRepository
 from api.adapters.stub_identity import StubIdentityProvider
 from api.adapters.vercel_identity import VercelIdentityProvider
 from api.application import (
@@ -148,13 +151,17 @@ def build_container(env: Mapping[str, str]) -> Container:
     production = env.get("VERCEL_ENV") == "production"
     repo_name = env.get("STORY_REPOSITORY", "postgres" if production else "memory")
     stories: StoryRepository
+    sessions: SessionStore
     if repo_name == "memory":
         stories = InMemoryStoryRepository()
+        sessions = InMemorySessionStore()
     elif repo_name == "postgres":
         url = env.get("DATABASE_URL") or env.get("POSTGRES_URL")
         if not url:
             raise ConfigError("STORY_REPOSITORY=postgres needs DATABASE_URL (or POSTGRES_URL)")
-        stories = PostgresStoryRepository(url)
+        database = PostgresDatabase(url)
+        stories = PostgresStoryRepository(database)
+        sessions = PostgresSessionStore(database)
     else:
         raise ConfigError(f"unknown STORY_REPOSITORY {repo_name!r}")
 
@@ -221,7 +228,7 @@ def build_container(env: Mapping[str, str]) -> Container:
         image_service=image_service,
         image_status=image_service,
         local_uploads=local_uploads,
-        sessions=InMemorySessionStore(),
+        sessions=sessions,
         identity=identity,
         identity_name=identity_name,
         clock=clock,

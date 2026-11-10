@@ -189,6 +189,7 @@ def _found(read: Any) -> Story:
 
 
 def storage_unavailable_handler(request: Request, exc: Exception) -> JSONResponse:
-    """An adapter that does not store stories yet (Postgres, until its follow-up lands).
-    Only StorageUnavailableError maps here; any other exception is an ordinary 500."""
-    return JSONResponse(status_code=501, content={"detail": "story storage is not available"})
+    """The database could not be reached or migrated: 503, not the 501 it was while the
+    adapter was unbuilt. Only StorageUnavailableError maps here; any other exception is an
+    ordinary 500."""
+    return JSONResponse(status_code=503, content={"detail": "story storage is not available"})

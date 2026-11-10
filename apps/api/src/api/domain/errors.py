@@ -10,7 +10,7 @@ class StoryConflictError(Exception):
 
 
 class StorageUnavailableError(Exception):
-    """This adapter does not store the data yet (the Postgres story adapter, until built)."""
+    """The store could not be reached (or its schema not prepared): a real outage, not a bug."""
 
 
 class PublishRefusedError(Exception):

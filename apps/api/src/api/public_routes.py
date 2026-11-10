@@ -30,7 +30,7 @@ router = APIRouter(prefix=PREFIX)
 
 class NoStorePublic:
     """`Cache-Control: no-store` on every /public/pieces response, whatever produced it
-    (a page, a 404, the 501 of storage that is not built yet, and an unhandled error: the
+    (a page, a 404, the 503 of unreachable storage, and an unhandled error: the
     500 is made here, inside the outer error handler, so that it carries the header too)."""
 
     def __init__(self, app: ASGIApp) -> None:
