@@ -85,6 +85,7 @@ describe('verify.yml', () => {
   const sync = () => named(/uv sync/);
   const playwright = () => named(/playwright install/);
   const report = () => named(/upload-artifact/);
+  const postgres = () => named(/docker run -d/);
 
   it('always runs checkout, setup-node, npm ci and verify, whatever the product holds', () => {
     for (const what of [/actions\/checkout/, /actions\/setup-node/, /run: npm ci/, /run: npm run verify/]) {
@@ -108,7 +109,7 @@ describe('verify.yml', () => {
   it("keeps every step in the base itself, which has a node and a python app and runs e2e", () => {
     const outputs = outputsFor(loadProject());
     // In the base, everything is required; in a product, hold it to what it has.
-    if (IN_BASE) expect(outputs).toEqual({ node: 'true', python: 'true', e2e: 'true' });
+    if (IN_BASE) expect(outputs).toEqual({ node: 'true', python: 'true', e2e: 'true', postgres: 'false' });
     else if (!hasAll()) {
       // A product with less skips the steps for what it lacks.
       expect(runs(uv(), outputs, false)).toBe(outputs.python === 'true');
@@ -117,13 +118,15 @@ describe('verify.yml', () => {
       return;
     }
     // Every step but the failure-only report runs on a green build.
-    for (const step of steps().filter((s) => s.text !== report().text)) expect(runs(step, outputs, false), step.text).toBe(true);
+    // The postgres step is opt-in: no app of the base declares it, so it is skipped here.
+    expect(runs(postgres(), outputs, false)).toBe(outputs.postgres === 'true');
+    for (const step of steps().filter((s) => s.text !== report().text && s.text !== postgres().text)) expect(runs(step, outputs, false), step.text).toBe(true);
     expect(runs(report(), outputs, true)).toBe(true);
   });
 
   it('skips uv, the Python sync, Playwright and its report in an engine-only product', () => {
     const outputs = outputsFor(engineOnly());
-    expect(outputs).toEqual({ node: 'false', python: 'false', e2e: 'false' });
+    expect(outputs).toEqual({ node: 'false', python: 'false', e2e: 'false', postgres: 'false' });
     for (const step of [uv(), sync(), playwright()]) expect(runs(step, outputs, false), step.text).toBe(false);
     expect(runs(report(), outputs, true)).toBe(false);
     for (const step of [named(/actions\/checkout/), named(/actions\/setup-node/), named(/run: npm ci/), named(/run: npm run verify/)]) {
@@ -133,7 +136,7 @@ describe('verify.yml', () => {
 
   it('skips Playwright and its report, but nothing else, for a node app whose verify has no e2e command', () => {
     const outputs = outputsFor(nodeWithoutE2e());
-    expect(outputs).toEqual({ node: 'true', python: 'false', e2e: 'false' });
+    expect(outputs).toEqual({ node: 'true', python: 'false', e2e: 'false', postgres: 'false' });
     expect([playwright(), uv(), sync()].map((s) => runs(s, outputs, false))).toEqual([false, false, false]);
     expect(runs(report(), outputs, true)).toBe(false);
     for (const step of [named(/actions\/checkout/), named(/actions\/setup-node/), named(/run: npm ci/), named(/run: npm run verify/)]) {
@@ -156,6 +159,22 @@ describe('verify.yml', () => {
     expect(runs(report(), nodeOnly, true)).toBe(nodeOnly.e2e === 'true');
   });
 
+  it('starts Postgres only for a product with an app that declares it, ahead of verify, from a digest-pinned image', () => {
+    const declares = loadProject();
+    const [first] = Object.keys(declares.apps);
+    declares.apps[first!] = { ...declares.apps[first!]!, services: ['postgres'] };
+    expect(runs(postgres(), outputsFor(declares), false)).toBe(true);
+    expect(runs(postgres(), outputsFor(engineOnly()), false)).toBe(false);
+    expect(postgres().condition).toBe("steps.toolchains.outputs.postgres == 'true'");
+    const all = steps();
+    expect(all.findIndex((s) => s.text === postgres().text)).toBeLessThan(all.findIndex((s) => /run: npm run verify/.test(s.text)));
+    expect(postgres().text).toMatch(/postgres@sha256:[0-9a-f]{64} # 16\.\d+/);
+    // Probe over TCP: the image's temporary init server listens on the socket only.
+    expect(postgres().text).toMatch(/pg_isready -h 127\.0\.0\.1 -p 5432 /);
+    expect(postgres().text).toContain('TEST_DATABASE_URL=');
+    expect(postgres().text).toContain('exit 1');
+  });
+
   it('uploads the report only on failure, as before', () => {
     expect(report().condition).toContain('failure()');
     expect(runs(report(), { node: 'true', python: 'true', e2e: 'true' }, false)).toBe(false);
@@ -170,8 +189,8 @@ describe('verify.yml', () => {
       const result = spawnSync('bash', ['-ec', run], { cwd: REPO_ROOT, env: { ...process.env, GITHUB_OUTPUT: out }, encoding: 'utf8' });
       expect(result.status, result.stderr).toBe(0);
       const o = own();
-      expect(readFileSync(out, 'utf8')).toBe(`node=${o.node}\npython=${o.python}\ne2e=${o.e2e}\n`);
-      if (IN_BASE) expect(o).toEqual({ node: 'true', python: 'true', e2e: 'true' });
+      expect(readFileSync(out, 'utf8')).toBe(`node=${o.node}\npython=${o.python}\ne2e=${o.e2e}\npostgres=${o.postgres}\n`);
+      if (IN_BASE) expect(o).toEqual({ node: 'true', python: 'true', e2e: 'true', postgres: 'false' });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

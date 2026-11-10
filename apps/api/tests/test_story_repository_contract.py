@@ -1,7 +1,7 @@
 """One contract every StoryRepository adapter must meet, run against each adapter.
 
 The Postgres parametrisation runs against TEST_DATABASE_URL and is skipped, with its reason
-stated, only when that is unset (CI has no Postgres service yet): never silently.
+stated, only when that is unset and CI is not (in CI it fails): never silently.
 """
 
 from datetime import UTC, datetime, timedelta
