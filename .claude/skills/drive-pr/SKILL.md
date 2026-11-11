@@ -175,7 +175,7 @@ One round is: read every open finding from step 2, then for each one:
   repos/{owner}/{repo}/issues -f title=… -F body=@<file> -f 'labels[]=<rank>'
   -f 'labels[]=human' -f 'labels[]=do not automate' -f 'assignees[]=<login>'`),
   rank it, label it `human` + `do not automate`, assign it, and link it in
-  the reply to the finding. Write the body in the sections of `.github/ISSUE_TEMPLATE/story.md` (persona, story, Given/When/Then with unhappy paths, tech notes, testing notes, references), with any `Depends on #<n>` lines last. Write the body with a quoted heredoc, as for
+  the reply to the finding. Write the body in the sections of `.github/ISSUE_TEMPLATE/story.md` (persona, story, Given/When/Then with unhappy paths, each **Then** stated positively, details to complete (for a `human` issue its instructions: numbered steps, exact values, what to comment back), tech notes, testing notes, references), with any `Depends on #<n>` lines last. Write the body with a quoted heredoc, as for
   replies below: it quotes the implementer's report. A reply alone is not enough to clear
   step 4's merge gate.
 - **Reply to every finding, fixed or not**, with what was done or why not:
@@ -417,6 +417,9 @@ As a maintainer, I want the smoke failure after merging #<n> fixed, so that the 
 - **Given** the smoke workflow still fails
 - **When** the failing step is read
 - **Then** this issue stays open with the new log
+
+## Details to complete
+None. The failing step's log tail is under Tech notes.
 
 ## Tech notes
 Failing step's log tail:" \

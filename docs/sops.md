@@ -135,6 +135,15 @@ ours to make — the issue carries **both** labels:
 
 and is assigned to the person who will do it.
 
+The issue's **Details to complete** section (`.github/ISSUE_TEMPLATE/story.md`)
+is its instructions, written so the person can do the work without asking
+anything: numbered steps in order, where to click or what to run, the exact
+values, each command in its own fenced block, what to comment back when done,
+and, where a step needs a secret, that the person enters it themselves and it
+never goes in the repository, an issue or a chat. A `human` issue is not ready
+to hand over until it has them. Its acceptance criteria follow the same rule as
+every issue's: each **Then** states what is true afterwards, in positive terms.
+
 Both labels, not one. `do not automate` alone says *stop*; `human` alone says
 *someone should*. Together they say who, and that the stopping is deliberate
 rather than an oversight.

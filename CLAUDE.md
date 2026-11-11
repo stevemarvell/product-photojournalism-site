@@ -85,8 +85,13 @@ sync. Repository-specific facts go in the sections outside this block. -->
 - **Issues are user stories.** Every issue, filed by a person or an agent,
   uses the sections of `.github/ISSUE_TEMPLATE/story.md` (GitHub's
   "New issue" button offers it): persona, story,
-  Given/When/Then acceptance criteria (unhappy paths included), tech notes,
-  testing notes, references, then its `Depends on #<n>` lines. The issue
+  Given/When/Then acceptance criteria (unhappy paths included), details to
+  complete, tech notes, testing notes, references, then its `Depends on #<n>`
+  lines. Each **Then** states what is true afterwards, in positive terms with
+  an observable result ("the API answers 401"), never what stops being true;
+  an unhappy path is stated as the outcome that happens instead. **Details to
+  complete** holds what the assignee needs so nothing is looked up or guessed
+  (for a `human` issue, its instructions; "None" if nothing is needed). The issue
   labelled `template` is the blank copy: nobody fills that one in, and triage
   never picks it.
 

@@ -50,7 +50,8 @@ An implementer starts cold. The brief must carry:
    `Closes #<n>` from it.
 2. **The done-when**, copied from the issue rather than paraphrased: when the
    issue follows the story template, its Given/When/Then scenarios are the
-   done-when, one test per scenario.
+   done-when, one test per scenario, and its **Details to complete** are the
+   inputs and decisions already made.
 3. **The files it owns.** It is told to stay inside them, so a missing file
    becomes a report instead of a change. Two parallel agents never own the same
    file.

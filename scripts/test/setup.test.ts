@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -500,6 +500,103 @@ describe('runCheck', () => {
     expect(createCall).toContain(`body=${expectedBody}`);
     expect(expectedBody.startsWith('## Persona')).toBe(true);
     expect(existsSync(join(ROOT, 'scripts/setup/story-template.md'))).toBe(false);
+  });
+
+  it('story.md has its sections in order and the positive-phrasing instruction', () => {
+    const raw = readFileSync(join(ROOT, '.github/ISSUE_TEMPLATE/story.md'), 'utf8');
+    const headings = [...raw.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+    expect(headings).toEqual([
+      'Persona',
+      'Story',
+      'Acceptance criteria',
+      'Details to complete',
+      'Tech notes',
+      'Testing notes',
+      'References',
+      'Images',
+    ]);
+    const criteria = raw.slice(raw.indexOf('## Acceptance criteria'), raw.indexOf('## Details to complete'));
+    expect(criteria).toContain('what is true afterwards, in positive terms');
+    expect(criteria).toContain('"not", "no longer", "stops", "never" and "without"');
+    const details = raw.slice(raw.indexOf('## Details to complete'), raw.indexOf('## Tech notes'));
+    expect(details).toContain('so nothing has to be looked up or guessed');
+    expect(details).toContain('Write "None" if nothing is needed.');
+  });
+
+  // The only quoted or negative wording allowed in a Given/When/Then line: the
+  // repository's own log lines and one Dependabot distinction, copied exactly.
+  const ALLOWED_NEGATIVE_WORDING = [
+    'TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set on this repository.',
+    'Code review has no credential',
+    "a pull request that is not Dependabot's",
+  ];
+  const NEGATIVE = /\b(not|no longer|stops|never|without)\b/i;
+  function negativeIn(line: string): boolean {
+    let rest = line;
+    for (const ok of ALLOWED_NEGATIVE_WORDING) rest = rest.split(ok).join('');
+    return NEGATIVE.test(rest);
+  }
+
+  it('every owner issue body follows the template: Details to complete present, numbered, and Given/When/Then free of negatives', () => {
+    for (const issue of OWNER_ISSUES) {
+      const text = issue.body('o/n');
+      const headings = [...text.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+      expect(headings, issue.title).toEqual([
+        'Persona',
+        'Story',
+        'Acceptance criteria',
+        'Details to complete',
+        'Tech notes',
+        'Testing notes',
+        'References',
+      ]);
+      const details = text.slice(text.indexOf('## Details to complete'), text.indexOf('## Tech notes'));
+      expect(details, issue.title).toMatch(/^1\. /m);
+      const gwt = text.split('\n').filter((l) => /^- \*\*(Given|When|Then)\*\*/.test(l));
+      expect(gwt.length, issue.title).toBeGreaterThan(0);
+      for (const line of gwt) expect(negativeIn(line), `${issue.title}: ${line}`).toBe(false);
+    }
+  });
+
+  it("story.md's sample Then line is free of negatives, and the check does catch them", () => {
+    const raw = readFileSync(join(ROOT, '.github/ISSUE_TEMPLATE/story.md'), 'utf8');
+    const thens = raw.split('\n').filter((l) => l.startsWith('- **Then**'));
+    expect(thens.length).toBeGreaterThan(0);
+    for (const line of thens) expect(negativeIn(line), line).toBe(false);
+    expect(negativeIn('- **Then** the session is no longer shown')).toBe(true);
+    expect(negativeIn('- **Then** "is not set" appears')).toBe(true);
+  });
+
+  it('owner issue bodies carry the secrets the workflows read, and the Grafana body uses telemetry/README.md terms', () => {
+    const dir = join(ROOT, '.github/workflows');
+    const used = new Set<string>();
+    for (const f of readdirSync(dir)) {
+      for (const m of readFileSync(join(dir, f), 'utf8').matchAll(/secrets\.([A-Z_]+)/g)) used.add(m[1]!);
+    }
+    const all = OWNER_ISSUES.map((i) => i.body('o/n')).join('\n');
+    for (const name of [
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'TELEGRAM_BOT_TOKEN',
+      'TELEGRAM_CHAT_ID',
+      'GRAFANA_CLOUD_OTLP_ENDPOINT',
+      'GRAFANA_CLOUD_OTLP_AUTH',
+    ]) {
+      expect(used.has(name), `${name} read by a workflow`).toBe(true);
+      expect(all, name).toContain(name);
+    }
+    const readme = readFileSync(join(ROOT, 'telemetry/README.md'), 'utf8');
+    const grafana = OWNER_ISSUES.find((i) => i.title.includes('Grafana'))!.body('o/n');
+    for (const term of ['OpenTelemetry', 'Configure', 'OTEL_EXPORTER_OTLP_HEADERS', '/otlp']) {
+      expect(readme, `README has ${term}`).toContain(term);
+      expect(grafana, `body has ${term}`).toContain(term);
+    }
+  });
+
+  it('check refuses a --repo value that is not owner/name, with the value quoted back', () => {
+    expect(parseCheckArgs(['--repo', 'octo/proj.x-y_z']).repo).toBe('octo/proj.x-y_z');
+    for (const bad of ['octo/proj`id`', 'octo/proj\nx', 'octo', 'a/b/c', '$(x)/y']) {
+      expect(() => parseCheckArgs(['--repo', bad]), JSON.stringify(bad)).toThrow(/--repo must look like owner\/name/);
+    }
   });
 
   it('keeps the whole of `about` when the front matter is read the way YAML reads it (an unquoted " #" starts a comment)', () => {

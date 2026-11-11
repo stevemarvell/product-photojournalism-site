@@ -207,6 +207,9 @@ export function parseCheckArgs(argv) {
     } else if (flag === '--repo') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) throw new Error('usage: --repo needs a value');
+      if (!/^[\w.-]+\/[\w.-]+$/.test(value)) {
+        throw new Error(`usage: --repo must look like owner/name (letters, digits, "_", "." and "-" only), got ${JSON.stringify(value)}`);
+      }
       opts.repo = value;
       i++;
     } else {
@@ -294,6 +297,23 @@ export function branchProtectionDecision({ isPrivate }) {
   };
 }
 
+/** An owner issue body in the sections of .github/ISSUE_TEMPLATE/story.md.
+ * Every owner issue is `human`, so Details to complete holds the instructions. */
+function ownerBody({ story, scenarios, details }) {
+  const blocks = scenarios
+    .map(([name, given, when, then]) => `**Scenario: ${name}**\n- **Given** ${given}\n- **When** ${when}\n- **Then** ${then}`)
+    .join('\n\n');
+  return (
+    '## Persona\n\nOwner of this repository.\n\n' +
+    `## Story\n\n${story}\n\n` +
+    `## Acceptance criteria\n\n${blocks}\n\n` +
+    `## Details to complete\n\n${details}\n\n` +
+    '## Tech notes\n\nNone. This is a task for the owner, not for an agent.\n\n' +
+    '## Testing notes\n\nThe checks under Acceptance criteria are the proof.\n\n' +
+    '## References\n\n- `docs/sops.md` SOP 2\n'
+  );
+}
+
 // The owner issues `check` files, each matched by exact title so a re-run
 // never duplicates one. Every one carries `human` + `do not automate`
 // (docs/sops.md SOP 2) plus its own rank.
@@ -302,38 +322,101 @@ export const OWNER_ISSUES = [
     title: 'Add CLAUDE_CODE_OAUTH_TOKEN',
     rank: 'critical',
     body: (repo) =>
-      `Run \`claude setup-token\`, then \`gh secret set CLAUDE_CODE_OAUTH_TOKEN -R ${repo}\` with the value it prints. ` +
-      'Without this secret, both the code and security reviews error on every pull request — do this before the first one.',
+      ownerBody({
+        story:
+          'As the **owner**, I want the `CLAUDE_CODE_OAUTH_TOKEN` secret set on the repository, so that the code and security reviews post real verdicts on every pull request.',
+        scenarios: [
+          ['the secret is set', 'the token is saved as a repository secret', 'the next pull request is opened', 'both reviews post a verdict on it'],
+          ['the secret is missing', 'the secret is absent', 'a pull request that is not Dependabot\'s is opened', 'the review job logs the warning "Code review has no credential" and its assertion step fails'],
+        ],
+        details:
+          '1. In a terminal where you are logged in to Claude, generate a token. The command prints it; copy it from the terminal yourself.\n\n' +
+          '```bash\nclaude setup-token\n```\n\n' +
+          '2. Save it as the repository secret. The command prompts for the value: paste the token there yourself. It never goes in the repository, an issue or a chat.\n\n' +
+          `\`\`\`bash\ngh secret set CLAUDE_CODE_OAUTH_TOKEN -R ${repo}\n\`\`\`\n\n` +
+          '3. Check the name is listed (values are never shown).\n\n' +
+          `\`\`\`bash\ngh secret list -R ${repo}\n\`\`\`\n\n` +
+          '4. Comment on this issue "done" and close it. Do this before the first pull request.',
+      }),
   },
   {
     title: 'Optional: Telegram notifications',
     rank: 'medium',
-    body: () =>
-      'Set the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets to get a message when a pull request merges. ' +
-      'Skip this and merges are silent; nothing else here depends on it.',
+    body: (repo) =>
+      ownerBody({
+        story:
+          'As the **owner**, I want a Telegram message when a pull request merges, so that I see merges as they happen. Optional: skip it and merges are silent.',
+        scenarios: [
+          ['notifications are on', 'both secrets are set', 'a pull request merges', 'a Telegram message about that merge arrives in the chat'],
+          ['notifications are skipped', 'neither secret is set', 'a pull request merges', 'the job\'s log says "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set on this repository."'],
+        ],
+        details:
+          "1. These two steps happen in Telegram and are described in Telegram's own documentation, which this repository does not copy: https://core.telegram.org/bots. You need to come back with two values: the bot token and the chat id. The merge workflow (`.github/workflows/telegram-notify.yml`) posts to `https://api.telegram.org/bot<token>/sendMessage` with that `chat_id`.\n" +
+          '2. Save the bot token. The command prompts for the value: paste it yourself. It never goes in the repository, an issue or a chat.\n\n' +
+          `\`\`\`bash\ngh secret set TELEGRAM_BOT_TOKEN -R ${repo}\n\`\`\`\n\n` +
+          '3. Save the chat id the same way.\n\n' +
+          `\`\`\`bash\ngh secret set TELEGRAM_CHAT_ID -R ${repo}\n\`\`\`\n\n` +
+          '4. Comment on this issue "done" (or "skipped") and close it.',
+      }),
   },
   {
     title: 'Optional: Grafana CI telemetry',
     rank: 'medium',
-    body: () =>
-      'Set the `GRAFANA_CLOUD_OTLP_ENDPOINT` and `GRAFANA_CLOUD_OTLP_AUTH` repository secrets to send Claude Code '
-      + "CI usage to Grafana Cloud (telemetry/README.md). Skip this and CI telemetry goes nowhere; local sessions are unaffected.",
+    body: (repo) =>
+      ownerBody({
+        story:
+          'As the **owner**, I want Claude Code CI usage sent to Grafana Cloud (`telemetry/README.md`), so that I can see what CI spends. Optional: skip it and CI telemetry goes nowhere; local sessions are unaffected.',
+        scenarios: [
+          ['telemetry is on', 'both secrets are set', 'a CI job that runs Claude Code finishes', 'its usage appears in Grafana Cloud'],
+          ['telemetry is skipped', 'neither secret is set', 'a CI job finishes', 'both workflows run with telemetry off'],
+        ],
+        details:
+          '1. In the Grafana Cloud Portal, open your stack, then the **OpenTelemetry** tile, then Configure. Generate a token; it prints the `OTEL_*` variables ready-made.\n' +
+          '2. Install the **Claude Code** integration from Connections.\n' +
+          '3. Save the endpoint (the `OTEL_EXPORTER_OTLP_ENDPOINT` value, ending `/otlp`). The command prompts for the value: paste it yourself.\n\n' +
+          `\`\`\`bash\ngh secret set GRAFANA_CLOUD_OTLP_ENDPOINT -R ${repo}\n\`\`\`\n\n` +
+          '4. Save the whole `OTEL_EXPORTER_OTLP_HEADERS` value, `Authorization=Basic <base64>`, at the prompt. The token never goes in the repository, an issue or a chat.\n\n' +
+          `\`\`\`bash\ngh secret set GRAFANA_CLOUD_OTLP_AUTH -R ${repo}\n\`\`\`\n\n` +
+          '5. Comment on this issue "done". The next CI run\'s review job log shows telemetry enabled, as `telemetry/README.md` ("Checking it actually arrives") describes. Comment "skipped" instead to leave it off.',
+      }),
   },
   {
     title: "Merge Dependabot's first PR",
     rank: 'high',
-    body: () =>
-      "Dependabot opens its first pull request once there is a dependency to bump. Review and merge it so the " +
-      'dependency-update loop is proven to work end to end, not just configured.',
+    body: (repo) =>
+      ownerBody({
+        story:
+          "As the **owner**, I want Dependabot's first pull request reviewed and merged, so that the dependency-update loop is proven to work end to end, not just configured.",
+        scenarios: [
+          ['the first update merges', "Dependabot's pull request has a green `verify`", 'you merge it', 'the dependency version on `develop` is the bumped one'],
+          ['there is no pull request yet', 'there is no open Dependabot pull request', 'you list the open pull requests by Dependabot', 'the list is empty'],
+        ],
+        details:
+          '1. List the open pull requests Dependabot has made.\n\n' +
+          `\`\`\`bash\ngh pr list -R ${repo} --author "app/dependabot"\n\`\`\`\n\n` +
+          '2. Open the first one, read the changelog link in its body, and wait for the `verify` check to go green.\n' +
+          '3. Merge it into `develop` from the pull request page (Merge pull request).\n' +
+          '4. Comment on this issue with the pull request number and close it.',
+      }),
   },
   {
     title: 'Rewrite README and CLAUDE.md around the product',
     rank: 'high',
-    body: () =>
-      "`setup create` writes a CLAUDE.md and README.md that carry the shared rules and a stub paragraph. The intro " +
-      'and the Layout still describe the starters it was assembled from, not the product. Rewrite them once this ' +
-      'repository has a real application; see CLAUDE.md\'s own rule that a shared file never names the ' +
-      'repository it sits in.',
+    body: (repo) =>
+      ownerBody({
+        story:
+          `As the **owner**, I want the README and CLAUDE.md of ${repo} to describe the product, so that the intro and the Layout match the application that is really here.`,
+        scenarios: [
+          ['the files describe the product', 'the application exists', 'a reader opens README.md and CLAUDE.md', 'the intro says what the product is for and the Layout lists its real directories'],
+          ['the stub is gone', 'the rewrite is merged', 'you search both files for the stub paragraph', 'the search output is empty'],
+        ],
+        details:
+          '1. Open `CLAUDE.md` and replace the stub paragraph at the top with what the product is for. Keep the shared rules block as it is: it is synced, and a shared file never names the repository it sits in.\n' +
+          '2. Rewrite the Layout table in `CLAUDE.md` and the intro in `README.md` so they list the real application directories rather than the starters this repository was assembled from.\n' +
+          '3. Check the stub is gone.\n\n' +
+          '```bash\ngrep -n "Replace this paragraph" CLAUDE.md README.md\n```\n\n' +
+          '4. Open a pull request against `develop`, comment its number here, and close this issue once it merges.',
+      }),
   },
 ];
 

@@ -57,7 +57,8 @@ counterpart to `drive-pr`, which runs a known recipe.
    the issue and the files the agent owns, and tells it to:
    - make the change with a test (`CLAUDE.md`'s rules) and run
      `npm run verify`;
-   - check its work against the issue's Given/When/Then scenarios, one test
+   - take the issue's **Details to complete** as given, and check its work
+     against the issue's Given/When/Then scenarios, one test
      per scenario;
    - open a pull request against `develop` whose body puts `Closes #<n>`,
      or `Refs #<n>` where the done-when is confirmed outside the repository,
