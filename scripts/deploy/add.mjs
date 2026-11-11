@@ -52,15 +52,21 @@ const TEMPLATE_DIRS = { vercel: join(HERE, 'vercel/template') };
 
 // The uptime-check trigger smoke.yml gains once something is deployed. The
 // cadence is a deliberate cost decision against the account's shared Actions
-// minutes: every 6 hours, offset from the hour so it doesn't pile onto :00.
+// minutes: every SMOKE_EVERY_HOURS hours, offset from the hour so it doesn't
+// pile onto :00. The cron string and the message deploy:add prints both read
+// this constant, so the wording cannot drift from the cadence.
+export const SMOKE_EVERY_HOURS = 6;
 export const SMOKE_SCHEDULE = `  schedule:
-    # Every 6 hours, offset from the hour so it doesn't pile onto :00 with
+    # Every ${SMOKE_EVERY_HOURS} hours, offset from the hour so it doesn't pile onto :00 with
     # everyone else's crons. Added by \`npm run deploy:add\`: the engine ships
     # without it, so nothing here costs a runner minute until an app deploys.
-    - cron: '17 */6 * * *'
+    - cron: '17 */${SMOKE_EVERY_HOURS} * * *'
 `;
 
 const SMOKE_WORKFLOW = '.github/workflows/smoke.yml';
+
+/** The line deploy:add prints after inserting the schedule. */
+export const smokeScheduleMessage = () => `Added the every-${SMOKE_EVERY_HOURS}-hours schedule to ${SMOKE_WORKFLOW}.`;
 const WORKFLOW_DISPATCH = /^ {2}workflow_dispatch:/m;
 
 /** The part of a workflow that holds its triggers: everything before the first top-level `jobs:`. */
@@ -278,7 +284,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         console.log(`  (The ${names[kind]} differs from the template only by your customisation.)`);
       }
     }
-    if (smoke === 'scheduled') console.log(`Added the every-3-hours schedule to ${SMOKE_WORKFLOW}.`);
+    if (smoke === 'scheduled') console.log(smokeScheduleMessage());
     if (smoke === 'absent') console.log(`No ${SMOKE_WORKFLOW} here, so no scheduled smoke run was added.`);
     console.log('\nOwner steps:');
     for (const step of ownerSteps({ app: opts.app, ...values })) console.log(`- ${step}`);
