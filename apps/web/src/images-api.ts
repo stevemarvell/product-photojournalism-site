@@ -24,6 +24,8 @@ interface UploadTarget {
   upload_url: string;
   original_url: string;
   method: string;
+  /** What the target needs sent with the file (Blob: the client token). Absent for the local target. */
+  headers?: Record<string, string>;
   max_bytes: number;
 }
 
@@ -74,6 +76,8 @@ function sendFile(target: UploadTarget, file: File, onProgress: (percent: number
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open(target.method, resolveUrl(target.upload_url));
+    for (const [name, value] of Object.entries(target.headers ?? {})) xhr.setRequestHeader(name, value);
+    if (target.headers && file.type) xhr.setRequestHeader('x-content-type', file.type);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && e.total > 0) onProgress(Math.round((e.loaded / e.total) * 100));
     };

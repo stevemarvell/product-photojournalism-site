@@ -8,14 +8,23 @@ SESSIONS           follow STORY_REPOSITORY: postgres uses the same database (so 
                    revoke-all hold across serverless instances), memory is per process.
                    The schema is migrated (yoyo, under an advisory lock) before the first
                    query of the process, not at import, so an unreachable database still
-                   lets /health answer 503. Image rows are in-memory for now (#40).
-IMAGE_STORE        filesystem (default); IMAGE_DIR sets where (default .data/images,
-                   /tmp/images where VERCEL_ENV is set: the bundle is read-only there)
-IMAGE_UPLOADS      local | off. local: originals are uploaded to this API's owner-only
-                   PUT /images/uploads/{token} and kept in the image store. The default is
-                   local only with API_ENVIRONMENT=development and no VERCEL_ENV, else off
-                   (no upload target: uploads answer 503 until Vercel Blob is provisioned).
-                   local with VERCEL_ENV set is refused at startup.
+                   lets /health answer 503. Image rows, upload bindings and claims follow
+                   STORY_REPOSITORY too (postgres: they survive a restart).
+BLOB_READ_WRITE_TOKEN  the Vercel Blob store's token (set by Vercel). Never logged.
+IMAGE_STORE        filesystem | blob. Default blob only where VERCEL_ENV=production and
+                   BLOB_READ_WRITE_TOKEN is set, else filesystem; IMAGE_DIR sets where
+                   (default .data/images, /tmp/images where VERCEL_ENV is set: the bundle is
+                   read-only there). blob needs the token.
+IMAGE_UPLOADS      local | blob | off. local: originals are uploaded to this API's owner-only
+                   PUT /images/uploads/{token} and kept in the image store. blob: the browser
+                   uploads straight to Blob with a client token (needs the token). The default
+                   is blob where VERCEL_ENV=production and the token is set, local only with
+                   API_ENVIRONMENT=development and no VERCEL_ENV, else off (uploads answer
+                   503). local with VERCEL_ENV set is refused at startup. A preview never
+                   writes to the Blob store unless it is asked to.
+IMAGE_PROCESSING   thread | inline. inline runs the work inside POST /images (a serverless
+                   function may be frozen once it has responded): the default where
+                   VERCEL_ENV is set; thread otherwise.
 IMAGE_MAX_BYTES    largest original accepted (default 26214400, 25 MB)
 IMAGE_MAX_PIXELS   most pixels an original may declare (default 64000000); more fails it
 IMAGE_PROCESSING_TIMEOUT_SECONDS  an image still processing after this is failed when next
@@ -33,11 +42,14 @@ CORS_ALLOWED_ORIGINS  comma-separated origins (default: the local Vite dev serve
 """
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
+import httpx
+
+from api.adapters.blob import BlobImageStore, BlobOriginalUploads, BlobStore
 from api.adapters.clock import SystemClock
 from api.adapters.filesystem import (
     FilesystemImageStore,
@@ -52,15 +64,19 @@ from api.adapters.memory import (
 from api.adapters.no_identity import NoIdentityProvider
 from api.adapters.pillow_images import (
     DEFAULT_MAX_PIXELS,
+    InlineImageProcessor,
     InProcessImageProcessor,
     PillowImageRenderer,
 )
 from api.adapters.postgres import PostgresDatabase, PostgresSessionStore, PostgresStoryRepository
+from api.adapters.postgres_images import PostgresImageRepository
 from api.adapters.stub_identity import StubIdentityProvider
 from api.adapters.vercel_identity import VercelIdentityProvider
 from api.application import (
     Clock,
     IdentityProvider,
+    ImageProcessor,
+    ImageRepository,
     ImageService,
     ImageStatusLookup,
     ImageStore,
@@ -95,6 +111,9 @@ class Container:
     image_service: ImageService
     # The publish rule's lookup: the image service itself, unless a test swaps it.
     image_status: ImageStatusLookup
+    # Set only when web versions are kept on the local filesystem: the one case where this
+    # API serves them (GET /public/images/{key}). With Blob they are served from Blob.
+    local_images: FilesystemImageStore | None
     # Set only when the local upload endpoint is enabled (never where VERCEL_ENV is set).
     local_uploads: LocalOriginalUploads | None
     sessions: SessionStore
@@ -109,7 +128,10 @@ class Container:
     session_secret: str | None
 
 
-def build_container(env: Mapping[str, str]) -> Container:
+def build_container(
+    env: Mapping[str, str], *, blob_http: Callable[[], httpx.Client] | None = None
+) -> Container:
+    """`blob_http` replaces the HTTP client the Blob adapters use: a test's fake Blob."""
     identity_name = env.get("IDENTITY_PROVIDER") or ("vercel" if env.get("VERCEL_ENV") else "none")
     identity: IdentityProvider
     session_secret: str | None = None
@@ -152,9 +174,11 @@ def build_container(env: Mapping[str, str]) -> Container:
     repo_name = env.get("STORY_REPOSITORY", "postgres" if production else "memory")
     stories: StoryRepository
     sessions: SessionStore
+    image_repository: ImageRepository
     if repo_name == "memory":
         stories = InMemoryStoryRepository()
         sessions = InMemorySessionStore()
+        image_repository = InMemoryImageRepository()
     elif repo_name == "postgres":
         url = env.get("DATABASE_URL") or env.get("POSTGRES_URL")
         if not url:
@@ -162,19 +186,46 @@ def build_container(env: Mapping[str, str]) -> Container:
         database = PostgresDatabase(url)
         stories = PostgresStoryRepository(database)
         sessions = PostgresSessionStore(database)
+        image_repository = PostgresImageRepository(database)
     else:
         raise ConfigError(f"unknown STORY_REPOSITORY {repo_name!r}")
 
-    image_name = env.get("IMAGE_STORE", "filesystem")
-    if image_name != "filesystem":
+    blob_token = (env.get("BLOB_READ_WRITE_TOKEN") or "").strip()
+    blob_by_default = production and bool(blob_token)
+    blob: BlobStore | None = None
+
+    def blob_store() -> BlobStore:
+        nonlocal blob
+        if blob is None:
+            if not blob_token:
+                raise ConfigError("Vercel Blob needs BLOB_READ_WRITE_TOKEN")
+            try:
+                blob = BlobStore(blob_token, http_client_factory=blob_http)
+            except ValueError as e:
+                raise ConfigError(str(e)) from None
+        return blob
+
+    image_name = env.get("IMAGE_STORE") or ("blob" if blob_by_default else "filesystem")
+    local_images: FilesystemImageStore | None = None
+    images: ImageStore
+    if image_name == "filesystem":
+        local_images = FilesystemImageStore(
+            Path(env.get("IMAGE_DIR", "/tmp/images" if deployed else ".data/images"))
+        )
+        images = local_images
+    elif image_name == "blob":
+        images = BlobImageStore(blob_store())
+    else:
         raise ConfigError(f"unknown IMAGE_STORE {image_name!r}")
-    images = FilesystemImageStore(
-        Path(env.get("IMAGE_DIR", "/tmp/images" if deployed else ".data/images"))
-    )
 
     uploads_name = env.get("IMAGE_UPLOADS") or (
-        "local" if env.get("API_ENVIRONMENT") == "development" and not deployed else "off"
+        "blob"
+        if blob_by_default
+        else "local"
+        if env.get("API_ENVIRONMENT") == "development" and not deployed
+        else "off"
     )
+    max_bytes = _positive_int(env, "IMAGE_MAX_BYTES", DEFAULT_IMAGE_MAX_BYTES)
     local_uploads: LocalOriginalUploads | None = None
     uploads: OriginalUploads
     if uploads_name == "local":
@@ -182,28 +233,40 @@ def build_container(env: Mapping[str, str]) -> Container:
         # real target is Blob, so it is refused rather than quietly mounted.
         if deployed:
             raise ConfigError("IMAGE_UPLOADS=local is not allowed when VERCEL_ENV is set")
-        local_uploads = LocalOriginalUploads(images)
+        if local_images is None:
+            raise ConfigError("IMAGE_UPLOADS=local needs IMAGE_STORE=filesystem")
+        local_uploads = LocalOriginalUploads(local_images)
         uploads = local_uploads
+    elif uploads_name == "blob":
+        uploads = BlobOriginalUploads(blob_store(), max_bytes)
     elif uploads_name == "off":
         uploads = UnconfiguredOriginalUploads()
     else:
         raise ConfigError(f"unknown IMAGE_UPLOADS {uploads_name!r}")
-    image_repository = InMemoryImageRepository()
     clock = SystemClock()
     renderer = PillowImageRenderer(
         max_pixels=_positive_int(env, "IMAGE_MAX_PIXELS", DEFAULT_MAX_PIXELS)
     )
-    processor = InProcessImageProcessor(
-        lambda org, image_id: process_image(
+    processing_name = env.get("IMAGE_PROCESSING") or ("inline" if deployed else "thread")
+
+    def work(org: str, image_id: str) -> None:
+        process_image(
             org, image_id, images=image_repository, uploads=uploads, store=images, renderer=renderer
         )
-    )
+
+    processor: ImageProcessor
+    if processing_name == "inline":
+        processor = InlineImageProcessor(work)
+    elif processing_name == "thread":
+        processor = InProcessImageProcessor(work)
+    else:
+        raise ConfigError(f"unknown IMAGE_PROCESSING {processing_name!r}")
     image_service = ImageService(
         image_repository,
         uploads,
         processor,
         clock,
-        max_bytes=_positive_int(env, "IMAGE_MAX_BYTES", DEFAULT_IMAGE_MAX_BYTES),
+        max_bytes=max_bytes,
         timeout=timedelta(
             seconds=_positive_int(
                 env, "IMAGE_PROCESSING_TIMEOUT_SECONDS", DEFAULT_IMAGE_TIMEOUT_SECONDS
@@ -227,6 +290,7 @@ def build_container(env: Mapping[str, str]) -> Container:
         images=images,
         image_service=image_service,
         image_status=image_service,
+        local_images=local_images,
         local_uploads=local_uploads,
         sessions=sessions,
         identity=identity,
