@@ -301,11 +301,10 @@ describe('appFor', () => {
 });
 
 describe('buildPathspecs', () => {
-  it("is the app's reads, the manifest and its provider's ignore script, minus its ignores", () => {
+  it("is the app's reads, project.mjs and its provider's ignore script, minus its ignores", () => {
     expect(buildPathspecs(minimal(), 'ui')).toEqual([
       'apps/ui',
       'docs',
-      'project.json',
       'scripts/project.mjs',
       'scripts/deploy/vercel/vercel-ignore.mjs',
       ':(exclude)apps/ui/e2e',
@@ -314,7 +313,11 @@ describe('buildPathspecs', () => {
   });
 
   it('excludes the ignore script for an app with no deploy block: there is no ignore step to be wrong about', () => {
-    expect(buildPathspecs(minimal(), 'svc')).toEqual(['apps/svc', 'project.json', 'scripts/project.mjs']);
+    expect(buildPathspecs(minimal(), 'svc')).toEqual(['apps/svc', 'scripts/project.mjs']);
+  });
+
+  it('does not watch project.json as a path: buildInputsChanged compares its app entry instead', () => {
+    expect(buildPathspecs(minimal(), 'ui')).not.toContain('project.json');
   });
 
   it('is null for an app that is not declared', () => {

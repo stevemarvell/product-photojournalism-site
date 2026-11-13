@@ -195,11 +195,13 @@ export function appFor(project, relativePath) {
 }
 
 /**
- * Git pathspecs for what a build of `name` reads. The manifest and this
- * module are always included: a change to either can change what a build
- * decides, so it rebuilds everything rather than guess. A deployed app's own
- * provider ignore script is included too — not for an undeployed app, which
- * has no ignore step to be wrong about.
+ * Git pathspecs for what a build of `name` reads. This module is always
+ * included: a change to it can change what a build decides, so it rebuilds
+ * everything rather than guess. A deployed app's own provider ignore script is
+ * included too — not for an undeployed app, which has no ignore step to be
+ * wrong about. `project.json` is deliberately NOT a pathspec: every engine sync
+ * bumps `engine.commit` in it, and a plain pathspec would rebuild every app for
+ * that. It is compared by `buildInputsChanged` below, minus the `engine` block and other apps' entries.
  */
 export function buildPathspecs(project, name) {
   const app = project.apps[name];
@@ -207,11 +209,69 @@ export function buildPathspecs(project, name) {
   const ignoreScript = app.deploy ? PROVIDER_IGNORE_SCRIPTS[app.deploy.provider] : undefined;
   return [
     ...app.reads,
-    'project.json',
     'scripts/project.mjs',
     ...(ignoreScript ? [ignoreScript] : []),
     ...(app.ignores ?? []).map((path) => (path.includes('*') ? `:(exclude,glob)${path}` : `:(exclude)${path}`)),
   ];
+}
+
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => Object.hasOwn(b, key) && deepEqual(a[key], b[key]));
+}
+
+/**
+ * project.json as of `rev`, reduced to what can change `name`'s build: the
+ * parsed manifest without its `engine` block and `$comment`, and with every
+ * other app's entry dropped. Anything else — the top-level `name`, a key added
+ * later, this app's own entry — stays, so an unknown key fails closed. Returns
+ * undefined when it cannot be read or parsed or `name` is not in it.
+ */
+function relevantManifest(git, rev, name) {
+  const shown = git(['show', '--end-of-options', `${rev}:project.json`]);
+  if (shown.status !== 0) return undefined;
+  try {
+    const { engine: _engine, $comment: _comment, apps, ...rest } = JSON.parse(shown.stdout);
+    if (!apps || typeof apps !== 'object' || apps[name] === undefined) return undefined;
+    return { ...rest, apps: { [name]: apps[name] } };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The one question both the Vercel ignore step and the post-merge smoke
+ * freshness gate ask: did anything build `name` reads change between `base` and
+ * `head`? `git` runs a git command in the repository root and returns
+ * `{ status, stdout }`; `stdout` is required, since the manifest comparison
+ * reads `git show`. Answers `'unchanged'`, `'changed'` or `'failed'` (git
+ * itself errored); callers build on anything but `'unchanged'`. `base` and
+ * `head` follow `--end-of-options`, so a value that looks like a flag is a
+ * revision, never an option.
+ *
+ * Two parts. The app's pathspecs (`buildPathspecs`) are diffed as they are.
+ * `project.json` is diffed only when it differs at all, and then the manifest
+ * is compared with exactly two things removed: the `engine` block (every sync
+ * bumps its commit) and the other apps' entries. Every other difference
+ * builds. If either side cannot be read or parsed, it builds — fail open.
+ */
+export function buildInputsChanged({ git, project, name, base, head }) {
+  const pathspecs = buildPathspecs(project, name);
+  if (!pathspecs) return 'changed';
+  const paths = git(['diff', '--quiet', '--end-of-options', base, head, '--', ...pathspecs]);
+  if (paths.status === 1) return 'changed';
+  if (paths.status !== 0) return 'failed';
+  const manifest = git(['diff', '--quiet', '--end-of-options', base, head, '--', 'project.json']);
+  if (manifest.status === 0) return 'unchanged';
+  if (manifest.status !== 1) return 'failed';
+  const before = relevantManifest(git, base, name);
+  const after = relevantManifest(git, head, name);
+  if (before === undefined || after === undefined) return 'changed';
+  return deepEqual(before, after) ? 'unchanged' : 'changed';
 }
 
 /** Every path `verify` covers: each app's inputs and the AI layer's own code. */
