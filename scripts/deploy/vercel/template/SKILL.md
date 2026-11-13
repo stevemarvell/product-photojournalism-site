@@ -27,14 +27,18 @@ Load-bearing and non-obvious settings:
   `scripts/deploy/vercel/vercel-ignore.mjs`, which diffs
   `VERCEL_GIT_PREVIOUS_SHA` (the last *successful* deployment, so never a
   skipped one) against `HEAD` over the paths this app reads (`project.json`'s
-  `reads`/`ignores` for `<app>`), and skips when nothing changed. A branch's
+  `reads`/`ignores` for `<app>`), and skips when nothing changed.
+  `project.json` itself is not a watched path (an engine sync bumps
+  `engine.commit` in it): when it differs, base and `HEAD` are compared
+  with only the `engine` block and the other apps' entries removed, and the
+  build runs for any other difference or if the manifest cannot be read. A branch's
   first push has no previous SHA, and Vercel's clone cannot fetch `develop`
   (no credentials), so it compares with the nearest squash-merge ancestor
   instead (`forkPoint`). Exit 0 means *skip*; every failure path exits 1 and
   builds.
 - Smoke's freshness gate (`scripts/smoke.mjs`) accepts a deployed app
   reporting the merged commit, or an older one whose build inputs are
-  identical, asked of git with the ignore step's own pathspecs — so a skipped
+  identical, asked through the ignore step's own function (`buildInputsChanged`) — so a skipped
   build is not a stale one and the two cannot disagree. `project.json`'s
   `deploy.commitEndpoint` for `<app>` must report `VERCEL_GIT_COMMIT_SHA` as
   `commit` in its JSON body.

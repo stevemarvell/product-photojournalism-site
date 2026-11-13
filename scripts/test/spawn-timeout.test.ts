@@ -104,6 +104,12 @@ const COLLECTION_TIME: { file: string; name: string; count: number; reason: stri
     count: 1,
     reason: 'the same beforeEach: its helper wraps `git add` and `git commit`',
   },
+  {
+    file: 'scripts/test/vercel-ignore.test.ts',
+    name: 'commitFiles',
+    count: 1,
+    reason: 'the manifest describe\'s beforeEach builds its temporary repository through this helper (`git add`, `git commit`)',
+  },
 ];
 
 /** The spawning APIs a piece of code uses, minus any it declares itself. */

@@ -1,2 +1,3 @@
-export type Git = (args: string[]) => { status: number };
-export declare function buildIsEquivalent(options: { git: Git; pathspecs: string[]; deployedSha: string; sha: string }): boolean;
+import type { Project } from '../../project.mjs';
+export type Git = (args: string[]) => { status: number; stdout: string };
+export declare function buildIsEquivalent(options: { git: Git; project: Project; name: string; deployedSha: string; sha: string }): boolean;
