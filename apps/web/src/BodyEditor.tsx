@@ -35,8 +35,8 @@ function PhotoButton({ onPick }: { onPick: PickPhotos }) {
   const input = useRef<HTMLInputElement>(null);
   return (
     <>
-      <Button data-testid="photo-button" title="Insert photos" onClick={() => input.current?.click()}>
-        Photo
+      <Button data-testid="photo-button" className="add-photo" title="Insert photos" onClick={() => input.current?.click()}>
+        + Add photo
       </Button>
       <input
         ref={input}

@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 import { parsePhoto, photoTags, publishBlockers } from './content';
 import { DraftPreview } from './Preview';
@@ -21,6 +22,12 @@ function failureText(result: { kind: 'refused'; reasons: string[] } | { kind: 'c
   if (result.kind === 'refused') return result.reasons.length ? result.reasons : ['That action is not available now. Reload.'];
   if (result.kind === 'conflict') return ['Changed elsewhere, reload'];
   return ['That did not work. Try again.'];
+}
+
+/** Renders into the design bar's slot (App.tsx) when there is one, else in place. */
+function InBar({ slot, children }: { slot: string; children: ReactNode }) {
+  const target = document.getElementById(slot);
+  return target ? createPortal(children, target) : <>{children}</>;
 }
 
 /** The drafting screen at /editor/:id. */
@@ -221,12 +228,52 @@ export function Drafting({
     }
   };
 
+  const bodyCol = (
+    <main className="ed-main">
+      <label className="ed-field ed-title">
+        Title
+        <input data-testid="field-title" value={draft.title} onChange={(e) => edit({ title: e.target.value })} />
+      </label>
+      <label className="ed-field ed-description">
+        Description
+        <textarea
+          rows={2}
+          data-testid="field-description"
+          value={draft.description}
+          onChange={(e) => edit({ description: e.target.value })}
+        />
+      </label>
+      <div className="ed-meta">
+        <label className="ed-field">
+          Location
+          <input data-testid="field-location" value={draft.location} onChange={(e) => edit({ location: e.target.value })} />
+        </label>
+        <label className="ed-field">
+          Date
+          <input
+            data-testid="field-date"
+            type="date"
+            value={draft.date ?? ''}
+            onChange={(e) => edit({ date: e.target.value || null })}
+          />
+        </label>
+      </div>
+      <section className="ed-body">
+        <h2>Story</h2>
+        <Suspense fallback={<p role="status">Loading editor…</p>}>
+          <BodyEditor key={editorKey} initial={initialContent} onChange={editContent} />
+        </Suspense>
+      </section>
+    </main>
+  );
+
   return (
     <ImageStatusContext.Provider value={imageStates}>
     <div data-testid="drafting" className="drafting">
-      <p>
+      <InBar slot="editor-bar-left">
         <a
           href="/editor"
+          className="ed-bar-link"
           data-testid="all-stories"
           onClick={(e) => {
             // Save any edit still inside the pause before leaving the page.
@@ -239,130 +286,120 @@ export function Drafting({
             });
           }}
         >
-          All stories
-        </a>{' '}
-        · {live ? 'Live' : 'Not live'}
-      </p>
-      <label>
-        Title
-        <input data-testid="field-title" value={draft.title} onChange={(e) => edit({ title: e.target.value })} />
-      </label>
-      <label>
-        Description
-        <textarea
-          data-testid="field-description"
-          value={draft.description}
-          onChange={(e) => edit({ description: e.target.value })}
-        />
-      </label>
-      <label>
-        Date
-        <input
-          data-testid="field-date"
-          type="date"
-          value={draft.date ?? ''}
-          onChange={(e) => edit({ date: e.target.value || null })}
-        />
-      </label>
-      <label>
-        Location
-        <input data-testid="field-location" value={draft.location} onChange={(e) => edit({ location: e.target.value })} />
-      </label>
-
-      <Suspense fallback={<p role="status">Loading editor…</p>}>
-        <BodyEditor key={editorKey} initial={initialContent} onChange={editContent} />
-      </Suspense>
-
-      <DraftPreview draft={draft} imageIds={imageIds} />
-
-      <p data-testid="save-indicator" role="status" aria-live="polite">
-        {STATUS_TEXT[autosave.status]}
-      </p>
-      {autosave.status === 'invalid' && (
-        <div data-testid="save-refused" role="alert">
-          <p>The server refused this text:</p>
-          <ul>
-            {autosave.reasons.map((r) => (
-              <li key={r}>{r}</li>
-            ))}
-          </ul>
+          ← Stories
+        </a>
+      </InBar>
+      <InBar slot="editor-bar-right">
+        <span data-testid="save-indicator" role="status" aria-live="polite" className="ed-save">
+          {STATUS_TEXT[autosave.status]}
+        </span>
+      </InBar>
+      <div className="ed-layout">
+      {bodyCol}
+      <aside className="ed-panel" data-testid="status-panel">
+        <div className={`ed-status ed-status-big ${live ? 'is-live' : 'is-off'}`} data-testid="status-text">
+          <span className="ed-dot" aria-hidden="true" />
+          {live ? 'Live' : 'Not live'}
         </div>
-      )}
-      {leaveBlocked && (
-        <p data-testid="leave-blocked" role="alert">
-          The latest changes are not saved.{' '}
-          <button
-            type="button"
-            data-testid="leave-anyway"
-            onClick={() => {
-              autosave.allowLeave();
-              navigate('/editor');
-            }}
-          >
-            Leave anyway (unsaved changes will be lost)
-          </button>
+        <p className="ed-help" data-testid="status-help">
+          {live
+            ? 'Readers see the published text. Draft changes stay private until you publish again.'
+            : 'Only you can see this story. Publish to put it on the public site.'}
         </p>
-      )}
-      {conflict && (
-        <p data-testid="conflict" role="alert">
-          Changed elsewhere, reload
-        </p>
-      )}
-
-      <button
-        type="button"
-        data-testid="publish"
-        disabled={busy || conflict || blockers.length > 0 || question !== null}
-        onClick={() => void publish()}
-      >
-        Publish
-      </button>
-      {live && (
-        <button type="button" data-testid="unpublish" disabled={busy || conflict} onClick={() => void toggleLive('unpublish')}>
-          Unpublish
-        </button>
-      )}
-      {!live && published !== null && (
-        <button type="button" data-testid="republish" disabled={busy || conflict} onClick={() => void toggleLive('republish')}>
-          Republish
-        </button>
-      )}
-      {published !== null && (
         <button
           type="button"
-          data-testid="revert"
-          disabled={busy || conflict || !differs || question !== null}
-          onClick={() => void revert()}
+          className="ed-btn ed-btn-solid"
+          data-testid="publish"
+          disabled={busy || conflict || blockers.length > 0 || question !== null}
+          onClick={() => void publish()}
         >
-          Revert
+          {live ? 'Publish changes' : 'Publish'}
         </button>
-      )}
-      {live && differs && (
-        <p data-testid="update-live-note" role="status">
-          Publish will update the live version.
-        </p>
-      )}
-      {question && (
-        <div data-testid="confirm" role="alertdialog" aria-modal="false" aria-label="Confirm" onKeyDown={(e) => e.key === 'Escape' && answer(false)}>
-          <p>{question.text}</p>
-          <button type="button" data-testid="confirm-ok" onClick={() => answer(true)}>
-            {question.ok}
-          </button>{' '}
-          <button type="button" data-testid="confirm-cancel" autoFocus onClick={() => answer(false)}>
-            Cancel
+        <DraftPreview draft={draft} imageIds={imageIds} />
+        {live && (
+          <button type="button" className="ed-btn" data-testid="unpublish" disabled={busy || conflict} onClick={() => void toggleLive('unpublish')}>
+            Unpublish
           </button>
-        </div>
-      )}
-      {blockers.length > 0 && (
-        <span data-testid="publish-reason"> Cannot publish yet: {blockers.join('; ')}.</span>
-      )}
-      {message.length > 0 && (
-        <ul data-testid="publish-message" role="status">
-          {message.map((m) => (
-            <li key={m}>{m}</li>
-          ))}
-        </ul>
-      )}
+        )}
+        {!live && published !== null && (
+          <button type="button" className="ed-btn" data-testid="republish" disabled={busy || conflict} onClick={() => void toggleLive('republish')}>
+            Republish
+          </button>
+        )}
+        {published !== null && (
+          <button
+            type="button"
+            className="ed-btn"
+            data-testid="revert"
+            disabled={busy || conflict || !differs || question !== null}
+            onClick={() => void revert()}
+          >
+            Revert draft to published
+          </button>
+        )}
+        {live && differs && (
+          <p data-testid="update-live-note" role="status" className="ed-help">
+            Publish will update the live version.
+          </p>
+        )}
+        {question && (
+          <div data-testid="confirm" role="alertdialog" aria-modal="false" aria-label="Confirm" className="ed-confirm" onKeyDown={(e) => e.key === 'Escape' && answer(false)}>
+            <p>{question.text}</p>
+            <div className="ed-confirm-actions">
+              <button type="button" className="ed-btn ed-btn-solid" data-testid="confirm-ok" onClick={() => answer(true)}>
+                {question.ok}
+              </button>
+              <button type="button" className="ed-btn" data-testid="confirm-cancel" autoFocus onClick={() => answer(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+        {blockers.length > 0 && (
+          <p data-testid="publish-reason" className="ed-help">
+            Cannot publish yet: {blockers.join('; ')}.
+          </p>
+        )}
+        {message.length > 0 && (
+          <ul data-testid="publish-message" role="status" className="ed-messages">
+            {message.map((m) => (
+              <li key={m}>{m}</li>
+            ))}
+          </ul>
+        )}
+        {autosave.status === 'invalid' && (
+          <div data-testid="save-refused" role="alert" className="ed-alert">
+            <p>The server refused this text:</p>
+            <ul>
+              {autosave.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {leaveBlocked && (
+          <p data-testid="leave-blocked" role="alert" className="ed-alert">
+            The latest changes are not saved.{' '}
+            <button
+              type="button"
+              className="ed-btn"
+              data-testid="leave-anyway"
+              onClick={() => {
+                autosave.allowLeave();
+                navigate('/editor');
+              }}
+            >
+              Leave anyway (unsaved changes will be lost)
+            </button>
+          </p>
+        )}
+        {conflict && (
+          <p data-testid="conflict" role="alert" className="ed-alert">
+            Changed elsewhere, reload
+          </p>
+        )}
+      </aside>
+      </div>
     </div>
     </ImageStatusContext.Provider>
   );

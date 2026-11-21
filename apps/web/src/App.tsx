@@ -1,9 +1,6 @@
 import {
   IonApp,
   IonContent,
-  IonHeader,
-  IonTitle,
-  IonToolbar,
   setupIonicReact,
 } from '@ionic/react';
 
@@ -22,13 +19,28 @@ export function App() {
   if (/^\/editor(\/|$)/.test(path)) {
     return (
       <IonApp>
-        <IonHeader>
-          <IonToolbar>
-            <IonTitle>{__APP_NAME__}</IonTitle>
-          </IonToolbar>
-        </IonHeader>
+        <header className="ed-bar">
+          <div className="ed-bar-inner">
+            {/\/editor\/[^/]/.test(path) ? (
+              <>
+                <span id="editor-bar-left" />
+                <span id="editor-bar-right" />
+              </>
+            ) : (
+              <>
+                <span className="ed-bar-name">
+                  {__APP_NAME__}
+                  <span className="ed-bar-tag">Editor</span>
+                </span>
+                <a href="/" className="ed-bar-link">
+                  View site
+                </a>
+              </>
+            )}
+          </div>
+        </header>
         <IonContent>
-          <div className="centred">
+          <div className="ed-root">
             <Editor />
           </div>
         </IonContent>

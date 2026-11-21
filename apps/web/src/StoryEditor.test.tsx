@@ -474,17 +474,46 @@ describe('lifecycle actions (issue #17)', () => {
 
 describe('the story list', () => {
   const stories = [
-    { id: 'a', live: false, title: '', description: '', first_published_at: null },
-    { id: 'b', live: true, title: 'Harbour', description: 'd', first_published_at: '2026-11-01T00:00:00Z' },
+    { id: 'a', live: false, title: '', description: '', first_published_at: null, updated_at: '2026-11-02T09:30:00Z' },
+    { id: 'b', live: true, title: 'Harbour', description: 'd', first_published_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-05T14:45:00Z' },
   ];
 
   it('shows every story in the API order with its live flag, and filters by live', async () => {
     stubFetch(() => json(stories));
     render(<StoryList />);
     await waitFor(() => expect(screen.getAllByTestId('story-row')).toHaveLength(2));
-    expect(screen.getAllByTestId('story-row').map((r) => r.textContent)).toEqual(['Untitled Not live', 'Harbour Live']);
+    const rows = () => screen.getAllByTestId('story-row').map((r) => r.querySelector('a')!.textContent);
+    expect(rows()).toEqual(['Untitled', 'Harbour']);
+    expect(screen.getAllByTestId('live-flag').map((r) => r.textContent)).toEqual(['Not live', 'Live']);
     fireEvent.click(screen.getByTestId('filter-live'));
-    expect(screen.getAllByTestId('story-row').map((r) => r.textContent)).toEqual(['Harbour Live']);
+    expect(rows()).toEqual(['Harbour']);
+  });
+
+  it('links each title to its story, colours the status and shows the last-saved date', async () => {
+    stubFetch(() => json(stories));
+    render(<StoryList />);
+    await waitFor(() => expect(screen.getAllByTestId('story-row')).toHaveLength(2));
+    expect(screen.getByText('Harbour').getAttribute('href')).toBe('/editor/b');
+    expect(screen.getByText('Untitled').getAttribute('href')).toBe('/editor/a');
+    const [off, on] = screen.getAllByTestId('live-flag');
+    expect(on!.className).toContain('is-live');
+    expect(off!.className).toContain('is-off');
+    expect(screen.getAllByTestId('last-saved')[1]!.textContent).toContain('2026');
+    expect(screen.getAllByTestId('last-saved')[1]!.textContent).toContain('5');
+    expect(screen.getByRole('heading', { name: 'Stories' })).toBeTruthy();
+  });
+
+  it('says "No stories to show." when none exist, and when Live only hides them all', async () => {
+    stubFetch(() => json([stories[0]]));
+    render(<StoryList />);
+    await waitFor(() => expect(screen.getAllByTestId('story-row')).toHaveLength(1));
+    expect(screen.queryByText('No stories to show.')).toBeNull();
+    fireEvent.click(screen.getByTestId('filter-live'));
+    expect(screen.getByText('No stories to show.')).toBeTruthy();
+    cleanup();
+    stubFetch(() => json([]));
+    render(<StoryList />);
+    await waitFor(() => expect(screen.getByText('No stories to show.')).toBeTruthy());
   });
 
   it('creates a story and opens it', async () => {
@@ -500,5 +529,35 @@ describe('the story list', () => {
     stubFetch(() => new Response('x', { status: 500 }));
     render(<StoryList />);
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('could not be loaded'));
+  });
+});
+
+describe('the drafting screen panel', () => {
+  const PRIVATE = 'Only you can see this story. Publish to put it on the public site.';
+  const LIVE = 'Readers see the published text. Draft changes stay private until you publish again.';
+
+  it('a story that is not live says so, with its help line and a Publish button', () => {
+    render(<Drafting story={story()} />);
+    expect(screen.getByTestId('status-text').textContent).toBe('Not live');
+    expect(screen.getByTestId('status-text').className).toContain('is-off');
+    expect(screen.getByTestId('status-help').textContent).toBe(PRIVATE);
+    expect(screen.getByTestId('publish').textContent).toBe('Publish');
+    expect(screen.getByTestId('preview-button').textContent).toBe('Preview');
+  });
+
+  it('a live story says so, with its help line and a Publish changes button', () => {
+    render(<Drafting story={{ ...story(), live: true, published: story().draft }} />);
+    expect(screen.getByTestId('status-text').textContent).toBe('Live');
+    expect(screen.getByTestId('status-text').className).toContain('is-live');
+    expect(screen.getByTestId('status-help').textContent).toBe(LIVE);
+    expect(screen.getByTestId('publish').textContent).toBe('Publish changes');
+    expect(screen.getByTestId('unpublish')).toBeTruthy();
+  });
+
+  it('shows the back link to /editor and the save status', () => {
+    render(<Drafting story={story()} />);
+    expect(screen.getByTestId('all-stories').textContent).toBe('← Stories');
+    expect(screen.getByTestId('all-stories').getAttribute('href')).toBe('/editor');
+    expect(screen.getByTestId('save-indicator')).toBeTruthy();
   });
 });
