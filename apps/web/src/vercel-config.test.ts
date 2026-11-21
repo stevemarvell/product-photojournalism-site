@@ -74,3 +74,53 @@ describe('vercel.json security headers', () => {
     expect(preview.split(E2E_API_ORIGIN)).toHaveLength(3);
   });
 });
+
+// The hosts the policy allows must be the hosts the Blob adapter produces (issue #68). The
+// adapter's source is read, not copied, so a change on either side fails here.
+describe('the policy matches the Blob adapter', () => {
+  const adapter = readFileSync(join(process.cwd(), '..', 'api', 'src', 'api', 'adapters', 'blob.py'), 'utf8');
+  const apiUrl = /^API_URL = "([^"]+)"/m.exec(adapter)?.[1] ?? '';
+  const hostSuffix = /self\.host = f"\{[^}]+\}(\.[^"]+)"/.exec(adapter)?.[1] ?? '';
+  const uploadUrlPath = /upload_url=f"\{self\._api_url\}(\/\?pathname=)/.exec(adapter)?.[1] ?? '';
+  const csp = SECURITY_HEADERS['Content-Security-Policy'] ?? '';
+  const sources = (name: string): string[] =>
+    (csp.split('; ').find((d) => d.startsWith(`${name} `)) ?? '').split(' ').slice(1);
+
+  // The CSP source-matching rules this policy uses: `https://*.host` wildcard host, and a
+  // path source that ends in `/` matches by prefix.
+  const allows = (name: string, url: string): boolean => {
+    const u = new URL(url);
+    return sources(name).some((s) => {
+      if (!s.startsWith('https://')) return false;
+      const rest = s.slice('https://'.length);
+      const slash = rest.indexOf('/');
+      const host = slash < 0 ? rest : rest.slice(0, slash);
+      const path = slash < 0 ? '' : rest.slice(slash);
+      const hostOk = host.startsWith('*.') ? u.hostname.endsWith(host.slice(1)) && u.hostname.length > host.length - 1 : u.hostname === host;
+      return hostOk && (path === '' || (path.endsWith('/') ? u.pathname.startsWith(path) : u.pathname === path));
+    });
+  };
+
+  it('finds what it reads in the adapter source', () => {
+    expect(apiUrl).toBe('https://vercel.com/api/blob');
+    expect(hostSuffix).toBe('.public.blob.vercel-storage.com');
+    expect(uploadUrlPath).toBe('/?pathname=');
+  });
+  it('allows the photo host for img-src and connect-src, for any store id', () => {
+    for (const id of ['abc123', 'Zq9XyW8vU7tS6rQ5']) {
+      const photo = `https://${id.toLowerCase()}${hostSuffix}/web/photo-1.jpg`;
+      expect(allows('img-src', photo)).toBe(true);
+      expect(allows('connect-src', photo)).toBe(true);
+    }
+  });
+  it('allows the upload URL the adapter issues in connect-src only', () => {
+    const upload = `${apiUrl}${uploadUrlPath}originals%2Fabc`;
+    expect(allows('connect-src', upload)).toBe(true);
+    expect(allows('img-src', upload)).toBe(false);
+  });
+  it('does not allow other hosts under Blob or Vercel', () => {
+    expect(allows('img-src', `https://abc${hostSuffix.replace('.public', '.private')}/x.jpg`)).toBe(false);
+    expect(allows('connect-src', 'https://vercel.com/api/other')).toBe(false);
+    expect(allows('connect-src', 'https://vercel.com/')).toBe(false);
+  });
+});
