@@ -42,6 +42,7 @@
         "npm run lint",
         "npm run test",
         "npm run build",
+        "npm run size",
         "npm run e2e"
       ],
       "smoke": "apps/web/smoke-deployed.sh",
@@ -56,6 +57,7 @@
         "apps/web/smoke.sh",
         "apps/web/smoke-deployed.sh",
         "apps/web/smoke-headers.sh",
+        "apps/web/smoke-site.sh",
         "apps/web/e2e",
         "**/*.test.ts",
         "**/*.test.tsx"
