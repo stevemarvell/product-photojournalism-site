@@ -46,7 +46,7 @@ so a loop under its attempt ceiling can still run long.
 | Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Issues worked in one `work-backlog` run | No count. The maximum is the usage window: the run re-triages after each merge and continues until triage lists nothing, or usage reaches its limit, then records what is in flight and schedules one resume after the reset | `.claude/skills/work-backlog/SKILL.md`, `.claude/skills/delegate/SKILL.md` ("On a usage limit") |
-| Times one issue is picked in a `work-backlog` run without a pull request resulting | 2, then it is labelled `human` and `do not automate`, commented, and not picked again | `.claude/skills/work-backlog/SKILL.md` (step 2) |
+| Times one issue is picked in a `work-backlog` run without a pull request resulting | 2, then it is labelled `human` and `do not automate`, commented, and not picked again. Discipline: the tally is the session's memory and a resumed run starts it at zero (#395 moves it onto the issue) | `.claude/skills/work-backlog/SKILL.md` (step 3) |
 | Paging Vercel deployments in `preview-prune` | 20 pages × 100 per project | `scripts/deploy/vercel/vercel-prune.mjs`, `MAX_PAGES` |
 
 Smoke is the model the rest of this follows. Every wait in an app's smoke
