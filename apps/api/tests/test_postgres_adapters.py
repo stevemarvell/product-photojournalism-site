@@ -41,11 +41,11 @@ def _applied(url: str) -> list[str]:
 
 @needs_postgres
 def test_migrations_create_the_tables_and_a_second_run_changes_nothing(pg_url: str) -> None:
-    assert {"story", "session", "session_epoch"} <= _tables(pg_url)
+    assert {"story", "session", "session_epoch", "image", "image_upload"} <= _tables(pg_url)
     before = (_tables(pg_url), _applied(pg_url))
     migrate(pg_url)
     assert (_tables(pg_url), _applied(pg_url)) == before
-    assert len(before[1]) == 1
+    assert len(before[1]) == 2
 
 
 @needs_postgres
@@ -53,7 +53,7 @@ def test_migrations_converge_on_a_database_that_has_the_tables_but_no_record(pg_
     with psycopg.connect(pg_url, autocommit=True) as conn:
         conn.execute("drop table _yoyo_migration, _yoyo_log, _yoyo_version cascade")
     migrate(pg_url)  # the if-not-exists statements make the re-run harmless
-    assert len(_applied(pg_url)) == 1
+    assert len(_applied(pg_url)) == 2
 
 
 @needs_postgres
@@ -75,7 +75,7 @@ def test_concurrent_cold_starts_migrate_once_under_the_lock(pg_url: str) -> None
     for t in threads:
         t.join()
     assert errors == []
-    assert len(_applied(pg_url)) == 1
+    assert len(_applied(pg_url)) == 2
 
 
 @needs_postgres

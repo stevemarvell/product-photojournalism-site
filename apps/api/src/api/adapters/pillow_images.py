@@ -89,3 +89,21 @@ class InProcessImageProcessor:
 
     def enqueue(self, organisation_id: str, image_id: str) -> None:
         self._pool.submit(self._work, organisation_id, image_id)
+
+
+class InlineImageProcessor:
+    """Runs `work(organisation_id, image_id)` to completion before `enqueue` returns.
+
+    Production's processor. A serverless function may be frozen the moment its response is
+    sent, so a thread started by `POST /images` could stop half way and leave the image
+    processing until the timeout fails it. Doing the work inside the request cannot be cut
+    off that way. Measured before choosing (a 24.5 MB, 48 MP original, 4 CPUs): about
+    4.4 s and 740 MB to render all four widths, against the 120 s timeout and the 2 GB a
+    Hobby function has, so the browser's wait is seconds, not minutes.
+    """
+
+    def __init__(self, work: Callable[[str, str], None]) -> None:
+        self._work = work
+
+    def enqueue(self, organisation_id: str, image_id: str) -> None:
+        self._work(organisation_id, image_id)

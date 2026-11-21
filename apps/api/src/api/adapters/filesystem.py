@@ -42,6 +42,9 @@ class FilesystemImageStore:
         path = self._path(key)
         return path.read_bytes() if path.is_file() else None
 
+    def delete(self, key: str) -> None:
+        self._path(key).unlink(missing_ok=True)
+
 
 class LocalOriginalUploads:
     """Stands in for Vercel Blob client uploads on a developer's machine.
@@ -49,20 +52,18 @@ class LocalOriginalUploads:
     `issue` mints an unguessable token and names the owner-only endpoint the browser PUTs
     the file to (`accept` is what that endpoint calls). The original's URL is
     `local:orig-<token>`: it is not a path the API serves, so it is reachable by nothing
-    public, and only a token this process issued can be registered.
+    public. Which organisation a token was issued to, and whether it is registered, is the
+    image repository's to keep; this only knows which tokens still await their file.
     """
 
     def __init__(self, store: FilesystemImageStore) -> None:
         self._store = store
-        self._issued: dict[str, str] = {}  # token -> the organisation it was issued to
         self._pending: set[str] = set()  # issued, nothing uploaded yet
-        self._claimed: set[str] = set()  # registered as an image row
         self._lock = threading.Lock()
 
     def issue(self, organisation_id: str) -> UploadTarget:
         token = secrets.token_urlsafe(24).replace("_", "x").replace("-", "y")
         with self._lock:
-            self._issued[token] = organisation_id
             self._pending.add(token)
         return UploadTarget(upload_url=f"{UPLOAD_PATH}{token}", original_url=_url(token))
 
@@ -85,29 +86,14 @@ class LocalOriginalUploads:
         key = self._key(original_url)
         return self._store.get(key) if key else None
 
-    def _token(self, original_url: str) -> str | None:
-        key = self._key(original_url)
-        return key[len(ORIGINAL_PREFIX) :] if key else None
-
-    def size(self, organisation_id: str, original_url: str) -> int | None:
-        token = self._token(original_url)
-        with self._lock:
-            if token is None or self._issued.get(token) != organisation_id:
-                return None
-            if token in self._pending:
-                return None  # issued, but nothing uploaded yet
-        data = self.read(original_url)
+    def size(self, original_url: str) -> int | None:
+        data = self.read(original_url)  # None while pending: nothing is stored yet
         return None if data is None else len(data)
 
-    def claim(self, organisation_id: str, original_url: str) -> bool:
-        token = self._token(original_url)
-        with self._lock:
-            if token is None or self._issued.get(token) != organisation_id:
-                return False
-            if token in self._claimed:
-                return False
-            self._claimed.add(token)
-            return True
+    def discard(self, original_url: str) -> None:
+        key = self._key(original_url)
+        if key:
+            self._store.delete(key)
 
 
 def _url(token: str) -> str:
@@ -121,11 +107,11 @@ class UnconfiguredOriginalUploads:
     def issue(self, organisation_id: str) -> UploadTarget:
         raise ImageUploadsUnavailableError("no image upload target is configured")
 
-    def size(self, organisation_id: str, original_url: str) -> int | None:
+    def size(self, original_url: str) -> int | None:
         return None
 
-    def claim(self, organisation_id: str, original_url: str) -> bool:
-        return False
-
     def read(self, original_url: str) -> bytes | None:
+        return None
+
+    def discard(self, original_url: str) -> None:
         return None

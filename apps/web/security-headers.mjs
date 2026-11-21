@@ -3,6 +3,8 @@
 // runs under the same policy, and src/vercel-config.test.ts asserts the two agree.
 
 const BLOB = 'https://*.public.blob.vercel-storage.com';
+// Where the browser PUTs an original (the upload target's upload_url, see api adapters/blob.py).
+const BLOB_UPLOAD = 'https://vercel.com/api/blob/';
 
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -11,7 +13,7 @@ export const CONTENT_SECURITY_POLICY = [
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${BLOB}`,
   "font-src 'self' data:",
-  `connect-src 'self' ${BLOB}`,
+  `connect-src 'self' ${BLOB} ${BLOB_UPLOAD}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

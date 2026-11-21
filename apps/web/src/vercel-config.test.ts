@@ -59,6 +59,11 @@ describe('vercel.json security headers', () => {
     expect(sent['Content-Security-Policy']).toContain("font-src 'self' data:");
     expect(Object.keys(sent)).toHaveLength(5);
   });
+  it('lets the browser PUT an original to the Blob API, and to the store, and nowhere else', () => {
+    const csp = sent['Content-Security-Policy'] ?? '';
+    const connect = csp.split('; ').find((d) => d.startsWith('connect-src ')) ?? '';
+    expect(connect).toBe("connect-src 'self' https://*.public.blob.vercel-storage.com https://vercel.com/api/blob/");
+  });
   it('agrees with the constant vite preview serves', () => {
     expect(sent).toEqual(SECURITY_HEADERS);
   });

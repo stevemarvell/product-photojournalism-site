@@ -5,7 +5,7 @@ slices that use them.
 """
 
 from collections.abc import Mapping, MutableMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
@@ -91,6 +91,21 @@ class ImageRepository(Protocol):
 
     def get(self, organisation_id: str, image_id: str) -> ImageRecord | None: ...
 
+    def bind_upload(self, organisation_id: str, original_url: str) -> None:
+        """Record that `original_url` was issued as an upload target to this organisation.
+        Durable: a binding made before a restart is still there after it."""
+        ...
+
+    def upload_issued_to(self, organisation_id: str, original_url: str) -> bool:
+        """True only for a URL bound to this organisation (not another's, not unknown)."""
+        ...
+
+    def create_claiming(self, image: ImageRecord) -> bool:
+        """Claim `image.original_url` and store the image, as one step: both happen or neither
+        does. False, and nothing stored, when the URL is not bound to the image's organisation
+        or is already claimed (an upload backs exactly one image row)."""
+        ...
+
     def replace_if_status(
         self, organisation_id: str, image: ImageRecord, expected: ImageStatus
     ) -> bool:
@@ -118,30 +133,31 @@ class UploadTarget:
     upload_url: str
     original_url: str
     method: str = "PUT"
+    # Headers the browser must send with the upload (Blob: the client token). Empty locally.
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 class OriginalUploads(Protocol):
     """Where originals are uploaded to and read back from. Never public.
 
-    Locally the filesystem; in production Vercel Blob (a follow-up): `issue` becomes a
-    client-upload token, `size` a HEAD request and `read` a download, without the
-    browser's flow changing.
+    Locally the filesystem; in production Vercel Blob (`issue` is a client-upload token, `size`
+    a HEAD request, `read` a download). Who a target was issued to, and whether it is already
+    registered, is not kept here: it is durable, so the `ImageRepository` holds it.
     """
 
     def issue(self, organisation_id: str) -> UploadTarget: ...
 
-    def size(self, organisation_id: str, original_url: str) -> int | None:
-        """Bytes stored at a URL this adapter issued **to this organisation**; None for
-        anything else (not issued, issued to another organisation, or not uploaded yet)."""
-        ...
-
-    def claim(self, organisation_id: str, original_url: str) -> bool:
-        """Mark the upload as registered, atomically. False when it already was: an upload
-        backs exactly one image row."""
+    def size(self, original_url: str) -> int | None:
+        """Bytes stored at a URL this adapter issued; None for any other URL or one nothing has
+        been uploaded to yet."""
         ...
 
     def read(self, original_url: str) -> bytes | None:
         """The original's bytes; None when it is not one this adapter issued."""
+        ...
+
+    def discard(self, original_url: str) -> None:
+        """Delete a stored original (one registration refused); a no-op for any other URL."""
         ...
 
 

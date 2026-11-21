@@ -9,27 +9,36 @@ same pull request.
 | Data | Holds | Who can read it |
 | --- | --- | --- |
 | **Stories** | Per story, a **draft** (title, description, location, date, markdown content) and **published** text (the same fields, copied from the draft at publish), plus whether it is live and its publish and edit times. The content can name images by id (`<Photo image="…" alt="…" />`) but holds no image data. | **Drafts: the owner only**, through the owner endpoints. **Published text: public by design**, served anonymously by `GET /public/pieces` and `GET /public/pieces/{id}` and drawn by the public site, and only while the story is live. |
-| **Images** | Per image: an id, its status (processing, ready or failed), the **original** (the file as the owner uploaded it, still carrying its GPS and other EXIF; only JPEG, PNG, WebP and TIFF are processed, and any other format ends `failed`), the **web versions** (JPEGs at 480, 960, 1600 and 2400 px wide where the original is at least that wide, never enlarged), and the width, height and byte size. | **Web versions: public by design**, served by key at `/public/images/<image id>-<width>.jpg` as soon as the image is ready, whether or not any story using it is published (the image id is a random UUID, so the URL is unguessable but not secret), with **all EXIF, GPS, ICC and comment data removed** (they are re-encoded from the decoded pixels). **Originals: nobody but the API's own processing code.** No response of any endpoint, owner or public, contains an original's URL; the owner's `GET /images/{id}` returns the status and web versions only. |
+| **Images** | Per image: an id, its status (processing, ready or failed), the **original** (the file as the owner uploaded it, still carrying its GPS and other EXIF; only JPEG, PNG, WebP and TIFF are processed, and any other format ends `failed`), the **web versions** (JPEGs at 480, 960, 1600 and 2400 px wide where the original is at least that wide, never enlarged), and the width, height and byte size. | **Web versions: public by design**, served by key at `/public/images/<image id>-<width>.jpg` as soon as the image is ready, whether or not any story using it is published (the image id is a random UUID, so the URL is unguessable but not secret), with **all EXIF, GPS, ICC and comment data removed** (they are re-encoded from the decoded pixels). **Originals: nobody but the API's own processing code.** The one response that contains an original's URL is the owner-only `POST /images/upload-target`, which hands the owner the address their own browser uploads to; no other response, owner or public, contains it, and the owner's `GET /images/{id}` returns the status and web versions only. |
 | **Sessions** | A server-side record per sign-in: a random session id, the owner's user id and the session epoch. No secret, no password, no personal data beyond the id. | Nobody; it is only checked, never served. |
 | **The session cookie** | The signed cookie carries the session id, its epoch and the owner's Vercel id (to compare with `OWNER_VERCEL_ID`), or, mid-sign-in, an encrypted single-use PKCE record. | The visitor's own browser. |
 
 Nothing else about visitors is stored. No passwords are handled; the owner signs in
 with Vercel.
 
-**Images are stored locally for now.** Originals and web versions sit on the API
-host's disk (`IMAGE_DIR`, `.data/images` by default, `/tmp/images` where `VERCEL_ENV` is
-set) and the image rows in memory, both lost with the host. Vercel Blob is not provisioned
-(it needs the owner's approval), so **on a deployment there is no upload target: asking for
-one answers 503 and nothing can be registered.** The browser's flow is already the Blob
-client-upload shape (ask for an upload target, send the file there, register its URL), so
-Blob replaces the local adapter without changing it; that is a follow-up. Locally the
-file goes to the owner-only `PUT /images/uploads/{token}`, which exists **only** when
+**Images: Vercel Blob and Postgres in production, the local disk otherwise.** In
+production (`VERCEL_ENV=production` with `BLOB_READ_WRITE_TOKEN` set) one **public** Blob
+store holds everything, the image rows, the upload targets and their claims are in
+Postgres, and the originals are processed inside the `POST /images` request (a serverless
+thread may be frozen after the response). The browser uploads an original **straight to
+Blob** with a client token the API signs: valid for one hour, for one pathname
+(`originals/<24 random bytes>`), capped at `IMAGE_MAX_BYTES`, never overwriting; the API
+receives only the stored URL, reads its size by HEAD and its bytes by download, and accepts
+only URLs on the store's own host under `originals/` that it issued to the caller's
+organisation (kept in Postgres, so that and the single-use claim survive a restart). The
+read-write token never leaves the API and is in no response or log. Web versions are written
+to `web/<image id>-<width>.jpg` in the same store and served from Blob's own URLs; the API's
+`/public/images/` route exists only on the local store. A **preview** keeps in-memory rows and
+no upload target (503) unless `IMAGE_UPLOADS=blob` is set on it, so a branch's code does not
+write to the production store by default. Locally the file goes to the owner-only
+`PUT /images/uploads/{token}`, which exists **only** when
 `API_ENVIRONMENT=development` (or `IMAGE_UPLOADS=local`) and **never** where `VERCEL_ENV` is
-set: asking for it there stops the app starting. Until Blob, "originals stay private" is
-true because an original's key (`orig-<random token>`) is not a name the public image route
-accepts (it serves only `<uuid>-<width>.jpg`) and no API response repeats it. Once Blob holds
-originals, MVP originals sit at unguessable URLs (owner answer, 2026-11-08), so **the
-original URL itself is the only protection, and must stay out of every response.**
+set: asking for it there stops the app starting. Originals are **public Blob objects at
+unguessable URLs** (owner answer, 2026-11-08; Blob serves them to anyone who has the URL), so
+**the original URL itself is the only protection, and must stay out of every response**
+(`apps/api/tests/test_blob_images.py` sweeps the public and owner answers for it). An
+upload that is never registered stays in the store; nothing sweeps it yet. On the Hobby plan
+Blob includes 1 GB, and at the limit it stops for 30 days rather than billing.
 
 The largest accepted file (`IMAGE_MAX_BYTES`, 25 MB) is checked when the target is asked
 for, again as the bytes arrive, and again at registration from the stored size. An image
@@ -150,7 +159,7 @@ load-bearing controls, and the verdict below holds only while all of them do:
   constant in `apps/web/security-headers.mjs`) are on every page except `/api/*`, which
   keeps the API's own: a `Content-Security-Policy` that loads scripts only from the site
   itself (`script-src 'self'`; styles also inline because Ionic injects them; images and
-  connections also to Vercel Blob's `*.public.blob.vercel-storage.com`; fonts same-origin
+  connections also to Vercel Blob's `*.public.blob.vercel-storage.com`, and to `https://vercel.com/api/blob/` (where the browser PUTs an original); fonts same-origin
   or `data:`), `frame-ancestors 'none'` with `X-Frame-Options: DENY`, `nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, and a `Permissions-Policy` denying
   camera, microphone and geolocation. A test asserts `vercel.json` and the constant agree,
@@ -161,14 +170,14 @@ load-bearing controls, and the verdict below holds only while all of them do:
 - **The image rules**: the local upload endpoint is mounted only in development and never
   with `VERCEL_ENV` set (`apps/api/tests/test_local_uploads.py`); it and every other owner
   image route are probed by the owner-guard audit; the public image route serves only
-  web-version keys (`apps/api/tests/test_images.py`); web versions are rebuilt from pixels
+  web-version keys (`apps/api/tests/test_images.py`) and is not mounted at all on Blob; web versions are rebuilt from pixels
   with no metadata (the same file, with a GPS-bearing fixture).
 
 **What voids this verdict:** the session store being absent or bypassed (a route that
 reads the cookie without `current_user`), a public route that returns draft text, a
 second person given owner access, or the public renderer (`apps/web/src/render.ts`) doing anything but
 parsing only the subset `content_problems` allows: it must never evaluate MDX or build HTML from a body, and
-`content_problems` must keep running on save and on publish. Images are covered above; before Blob or the Postgres image adapter ships, revisit this page.
+`content_problems` must keep running on save and on publish. Images, Blob and the Postgres image adapter are covered above; before the Postgres story adapter ships, revisit this page. A second Blob store, a private one, or processing moved out of the request would change the image paragraph above: revisit it then.
 
 ## What CI holds, and what voids that
 

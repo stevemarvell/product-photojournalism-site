@@ -80,6 +80,7 @@ def upload_target(body: TargetBody, user: Owner, service: Service) -> dict[str, 
         "upload_url": target.upload_url,
         "original_url": target.original_url,
         "method": target.method,
+        "headers": target.headers,
         "max_bytes": service.max_bytes,
     }
 
@@ -132,7 +133,8 @@ def web_version(key: str, request: Request) -> Response:
     key (and anything else) is a plain 404."""
     if not WEB_KEY.fullmatch(key):
         raise HTTPException(status_code=404, detail="not found")
-    data = container_of(request).images.get(key)
+    local = container_of(request).local_images
+    data = local.get(key) if local is not None else None
     if data is None:
         raise HTTPException(status_code=404, detail="not found")
     return Response(

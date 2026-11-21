@@ -44,7 +44,10 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         pytest.skip(SKIP_REASON)
 
 
-OUR_TABLES = "story, session, session_epoch, _yoyo_migration, _yoyo_log, _yoyo_version, yoyo_lock"
+OUR_TABLES = (
+    "image, image_upload, story, session, session_epoch, "
+    "_yoyo_migration, _yoyo_log, _yoyo_version, yoyo_lock"
+)
 
 
 def reset_database(url: str) -> None:

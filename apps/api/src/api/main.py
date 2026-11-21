@@ -72,7 +72,8 @@ def create_app(
     app.include_router(auth_owner_router)
     app.include_router(story_router)
     app.include_router(image_router)
-    app.include_router(public_image_router)
+    if container.local_images is not None:
+        app.include_router(public_image_router)
     app.include_router(public_router)
     if container.local_uploads is not None:
         app.include_router(local_upload_router)
