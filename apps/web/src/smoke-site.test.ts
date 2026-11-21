@@ -2,8 +2,10 @@
 import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { HOME_MARKER } from './PublicSite';
 
 // apps/web/smoke-site.sh run for real against a local server standing in for the deployment.
 type Opts = { list?: [number, string]; bundle?: string; me?: [number, string] };
@@ -17,7 +19,7 @@ async function serve(o: Opts): Promise<string> {
     const path = (req.url ?? '/').split('?')[0];
     const send = (status: number, type: string, body: string) => (res.writeHead(status, { 'content-type': type }), res.end(body));
     if (path === '/') return send(200, 'text/html', '<script type="module" src="/assets/index-abc.js"></script>');
-    if (path === '/assets/index-abc.js') return send(200, 'text/javascript', o.bundle ?? 'a "public-home-body" b');
+    if (path === '/assets/index-abc.js') return send(200, 'text/javascript', o.bundle ?? 'a "' + HOME_MARKER + '" b');
     const list = o.list ?? [200, '[]'];
     const me = o.me ?? [200, '{"signedIn":false}'];
     if (path === '/api/public/pieces') return send(list[0], 'application/json', list[1]);
@@ -37,6 +39,10 @@ const run = (web: string) =>
   });
 
 describe('smoke-site.sh', () => {
+  it("looks for the marker PublicSite.tsx exports, so renaming the class fails here and not in the next smoke", () => {
+    const script = readFileSync(join(process.cwd(), 'smoke-site.sh'), 'utf8');
+    expect(script).toContain(`MARKER='${HOME_MARKER}'`);
+  });
   it('passes when the list answers through /api, the bundle is the product\'s and sign-in is reachable', async () => {
     const r = await run(await serve({}));
     expect(r.output).toContain('public list answered through /api');

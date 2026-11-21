@@ -2,6 +2,7 @@ import '@ionic/react/css/core.css';
 import '@ionic/react/css/normalize.css';
 import '@ionic/react/css/structure.css';
 import '@ionic/react/css/typography.css';
+import './editor.css';
 import { IonApp, IonContent, setupIonicReact } from '@ionic/react';
 
 import { Editor } from './Editor';

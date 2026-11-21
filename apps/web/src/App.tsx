@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 
+import { EditorBoundary } from './EditorBoundary';
 import { PublicSite } from './PublicSite';
 
 // The editor and Ionic load only on /editor: the public pages carry neither.
@@ -14,9 +15,11 @@ export function App() {
   const path = window.location.pathname;
   if (/^\/editor(\/|$)/.test(path)) {
     return (
-      <Suspense fallback={<p>Loading…</p>}>
-        <EditorShell path={path} />
-      </Suspense>
+      <EditorBoundary>
+        <Suspense fallback={<p>Loading…</p>}>
+          <EditorShell path={path} />
+        </Suspense>
+      </EditorBoundary>
     );
   }
   return <PublicSite path={path} />;
