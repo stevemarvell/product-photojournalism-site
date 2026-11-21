@@ -16,7 +16,11 @@ describe('the body editor toolbar', () => {
     );
     expect(labels.some((l) => l.includes('bold'))).toBe(true);
     expect(labels.some((l) => l.includes('italic'))).toBe(true);
-    expect(labels.some((l) => l.includes('photo'))).toBe(true);
+    // The photo button is drawn below the text, outside the toolbar, as the design has it.
+    expect(labels.some((l) => l.includes('photo'))).toBe(false);
+    const add = screen.getByTestId('photo-button');
+    expect(add.textContent).toBe('+ Add photo');
+    expect(add.closest('[role="toolbar"]')).toBeNull();
     for (const banned of ['underline', 'link', 'heading', 'list', 'quote', 'block type', 'table', 'code', 'image']) {
       expect(labels.filter((l) => l.includes(banned)), banned).toEqual([]);
     }

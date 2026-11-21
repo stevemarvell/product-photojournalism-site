@@ -90,6 +90,15 @@ def test_creating_without_signing_in_is_401_and_creates_nothing() -> None:
     assert container.stories.list(OWNER.organisation_id) == []
 
 
+def test_the_list_carries_each_storys_updated_at_for_the_editors_last_saved_column() -> None:
+    client = signed_in_client()
+    story = create(client)
+    saved = save(client, story).json()
+    (row,) = client.get("/stories").json()
+    assert row["updated_at"] == saved["updated_at"]
+    assert row["updated_at"] != story["updated_at"]
+
+
 # --- Scenario: autosave the draft ----------------------------------------------
 
 

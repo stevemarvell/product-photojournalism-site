@@ -53,8 +53,8 @@ async function mockApi(page: Page, o: Options = {}): Promise<Mock> {
     if (path === '/auth/me') return json(route, 200, { signedIn: true, user: { name: 'Owner', isOwner: true } });
     if (path === '/stories' && req.method() === 'GET')
       return json(route, 200, [
-        { id: 'n1', live: false, title: '', description: '', first_published_at: null },
-        { id: 'l1', live: true, title: 'Harbour', description: 'd', first_published_at: '2026-11-01T00:00:00Z' },
+        { id: 'n1', live: false, title: '', description: '', first_published_at: null, updated_at: '2026-11-02T09:30:00Z' },
+        { id: 'l1', live: true, title: 'Harbour', description: 'd', first_published_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-05T14:45:00Z' },
       ]);
     if (path === '/stories' && req.method() === 'POST') return json(route, 201, { ...detail(), id: 'created1' });
     if (path === '/stories/s1' || path === '/stories/created1') return json(route, 200, detail());
@@ -81,9 +81,10 @@ test.describe('the owner story list', () => {
   test('lists every story with its live flag, filters by live, and opens a new story', async ({ page }) => {
     await mockApi(page);
     await page.goto('/editor');
-    await expect(page.getByTestId('story-row')).toHaveText(['Untitled Not live', 'Harbour Live']);
+    await expect(page.getByTestId('story-row').locator('a')).toHaveText(['Untitled', 'Harbour']);
+    await expect(page.getByTestId('live-flag')).toHaveText(['Not live', 'Live']);
     await page.getByTestId('filter-live').check();
-    await expect(page.getByTestId('story-row')).toHaveText(['Harbour Live']);
+    await expect(page.getByTestId('story-row').locator('a')).toHaveText(['Harbour']);
     await page.getByTestId('new-story').click();
     await expect(page).toHaveURL(/\/editor\/created1$/);
     await expect(page.getByTestId('drafting')).toBeVisible();
@@ -243,3 +244,51 @@ test.describe('the drafting screen', () => {
     await expect(page.getByTestId('publish-message')).toContainText('image a is not ready');
   });
 });
+
+for (const size of [
+  { name: '1280px', width: 1280, height: 900 },
+  { name: '390px', width: 390, height: 800 },
+]) {
+  test.describe(`the editor screens at ${size.name}`, () => {
+    test.use({ viewport: { width: size.width, height: size.height } });
+    /** At 1280px the bar's first item starts where the page column starts. */
+    const expectBarAligned = async (page: Page, column: string) => {
+      if (size.width < 1000) return;
+      const first = await page.locator('.ed-bar-inner > *:visible').first().boundingBox();
+      const col = await page.locator(column).first().boundingBox();
+      // The column is inset by its own 24px padding; the bar's item by the bar's.
+      const pad = await page.locator(column).first().evaluate((el) => parseFloat(getComputedStyle(el).paddingLeft));
+      expect(Math.round(first!.x)).toBe(Math.round(col!.x + pad));
+    };
+    const noSideScroll = (page: Page) =>
+      page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    test('the list has its bar and table and no horizontal scroll', async ({ page }) => {
+      await mockApi(page);
+      await page.goto('/editor');
+      await expect(page.getByTestId('story-row')).toHaveCount(2);
+      await expect(page.getByRole('link', { name: 'View site' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Stories' })).toBeVisible();
+      expect(await noSideScroll(page)).toBe(true);
+      await expectBarAligned(page, '.ed-list');
+    });
+
+    test('the drafting screen puts the panel beside the text, or below it on a phone, with no horizontal scroll', async ({ page }) => {
+      await mockApi(page, { title: 'Dawn', content: photo('a') });
+      await page.goto('/editor/s1');
+      await expect(page.getByTestId('photo-block')).toBeVisible();
+      await expect(page.getByTestId('save-indicator')).toBeAttached();
+      await expect(page.getByRole('link', { name: '← Stories' })).toBeVisible();
+      const main = await page.locator('.ed-main').boundingBox();
+      const panel = await page.getByTestId('status-panel').boundingBox();
+      await expectBarAligned(page, '.ed-layout');
+      const add = await page.getByTestId('photo-button').boundingBox();
+      const editor = await body(page).boundingBox();
+      expect(add!.y).toBeGreaterThan(editor!.y + 40); // below the text, not in the toolbar
+      await expect(page.getByTestId('photo-button')).toHaveCSS('border-top-style', 'dashed');
+      if (size.width >= 1000) expect(panel!.x).toBeGreaterThan(main!.x + main!.width - 1);
+      else expect(panel!.y).toBeGreaterThan(main!.y + main!.height - 1);
+      expect(await noSideScroll(page)).toBe(true);
+    });
+  });
+}

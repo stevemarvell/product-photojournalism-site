@@ -1,9 +1,6 @@
 import {
   IonApp,
   IonContent,
-  IonHeader,
-  IonTitle,
-  IonToolbar,
   setupIonicReact,
 } from '@ionic/react';
 
@@ -20,15 +17,36 @@ setupIonicReact();
 export function App() {
   const path = window.location.pathname;
   if (/^\/editor(\/|$)/.test(path)) {
+    const onStory = /\/editor\/[^/]/.test(path);
     return (
       <IonApp>
-        <IonHeader>
-          <IonToolbar>
-            <IonTitle>{__APP_NAME__}</IonTitle>
-          </IonToolbar>
-        </IonHeader>
+        <header className="ed-bar">
+          <div className={`ed-bar-inner ${onStory ? 'ed-wide' : 'ed-narrow'}`}>
+            {onStory ? (
+              <>
+                <span id="editor-bar-left">
+                  {/* Shown until the drafting screen mounts and brings its own (which saves first). */}
+                  <a href="/editor" className="ed-bar-link ed-bar-default" data-testid="bar-stories">
+                    ← Stories
+                  </a>
+                </span>
+                <span id="editor-bar-right" />
+              </>
+            ) : (
+              <>
+                <span className="ed-bar-name">
+                  {__APP_NAME__}
+                  <span className="ed-bar-tag">Editor</span>
+                </span>
+                <a href="/" className="ed-bar-link">
+                  View site
+                </a>
+              </>
+            )}
+          </div>
+        </header>
         <IonContent>
-          <div className="centred">
+          <div className="ed-root">
             <Editor />
           </div>
         </IonContent>
