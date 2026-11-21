@@ -135,9 +135,9 @@ load-bearing controls, and the verdict below holds only while all of them do:
   12 hours. Every `/auth/*` response is `Cache-Control: no-store`.
 - **Server-side sessions.** Every sign-in creates a record in the `SessionStore`, and
   every owner request must present a cookie whose session id is in the store at the
-  stored epoch (`api.guard.current_user`). **Signing out deletes the record**, so a
-  copy of the cookie stops working at once on that instance (see the caveat above on
-  other instances). **`POST /auth/revoke-all`** bumps the
+  stored epoch (`api.guard.current_user`). **Signing out deletes the record** (in
+  production, the row in the shared database), so a copy of the cookie is refused on
+  every instance. **`POST /auth/revoke-all`** bumps the
   epoch: every session, the caller's included, is refused on its next request.
   Rotating `SESSION_SECRET` still invalidates everything, and is the remedy if the
   secret itself leaks.
@@ -164,8 +164,7 @@ load-bearing controls, and the verdict below holds only while all of them do:
 reads the cookie without `current_user`), a public route that returns draft text, a
 second person given owner access, or the public renderer (`apps/web/src/render.ts`) doing anything but
 parsing only the subset `content_problems` allows: it must never evaluate MDX or build HTML from a body, and
-`content_problems` must keep running on save and on publish. Before the Postgres story adapter ships, revisit
-this page; images are now covered above; before Blob or the Postgres image adapter ships, revisit this page.
+`content_problems` must keep running on save and on publish. Images are covered above; before Blob or the Postgres image adapter ships, revisit this page.
 
 ## What CI holds, and what voids that
 
