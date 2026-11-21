@@ -567,3 +567,33 @@ def test_the_pixel_limit_is_a_config_value_and_a_bomb_ends_as_failed(tmp_path: P
         time.sleep(0.05)
         body = client.get(f"/images/{sent['id']}").json()
     assert body["status"] == "failed"
+
+
+def _encoded(fmt: str, mode: str = "RGB") -> bytes:
+    buf = io.BytesIO()
+    Image.new(mode, (64, 48), "red").save(buf, fmt)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("fmt", ["JPEG", "PNG", "WEBP", "TIFF"])
+def test_photograph_formats_are_rendered(fmt: str) -> None:
+    rendered = PillowImageRenderer().render(_encoded(fmt))
+    assert (rendered.width, rendered.height) == (64, 48)
+    assert rendered.versions
+
+
+@pytest.mark.parametrize(
+    ("fmt", "mode"), [("GIF", "P"), ("BMP", "RGB"), ("ICO", "RGBA"), ("EPS", "RGB")]
+)
+def test_other_formats_are_refused(fmt: str, mode: str) -> None:
+    from api.domain import ImageProcessingError
+
+    data = _encoded(fmt, mode)
+    with pytest.raises(ImageProcessingError):
+        PillowImageRenderer().render(data)
+
+
+def test_an_image_in_a_refused_format_ends_as_failed(tmp_path: Path) -> None:
+    client = signed_in(wired(tmp_path)[0])
+    body = client.get(f"/images/{upload(client, _encoded('GIF', 'P'))['id']}").json()
+    assert body["status"] == "failed"
