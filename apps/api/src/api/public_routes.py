@@ -10,6 +10,7 @@ browser from a fresh fetch, so Publish, Unpublish and Republish show on the next
 """
 
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -94,10 +95,45 @@ def _summary(s: PublicSummary) -> dict[str, Any]:
     }
 
 
+class ListCache:
+    """Per process, per organisation: the last successful list and when it was made. A failure
+    is never stored (the exception leaves before `put`), so an outage is not remembered."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[datetime, list[dict[str, Any]]]] = {}
+
+    def get(
+        self, organisation_id: str, now: datetime, ttl: timedelta
+    ) -> list[dict[str, Any]] | None:
+        entry = self._entries.get(organisation_id)
+        if entry is not None and now - entry[0] < ttl:
+            return entry[1]
+        return None
+
+    def put(self, organisation_id: str, now: datetime, rows: list[dict[str, Any]]) -> None:
+        self._entries[organisation_id] = (now, rows)
+
+
+def _cache_of(request: Request) -> ListCache:
+    state = request.app.state
+    if not hasattr(state, "public_list_cache"):
+        state.public_list_cache = ListCache()
+    cache: ListCache = state.public_list_cache
+    return cache
+
+
 @router.get("")
 def list_pieces(request: Request) -> list[dict[str, Any]]:
     # Anonymous, so no user to take an organisation from: the one the MVP has.
-    return [_summary(s) for s in site_of(request).list_live(MVP_ORGANISATION_ID)]
+    container = container_of(request)
+    cache = _cache_of(request)
+    now = container.clock.now()
+    cached = cache.get(MVP_ORGANISATION_ID, now, container.public_list_ttl)
+    if cached is not None:
+        return cached
+    rows = [_summary(s) for s in site_of(request).list_live(MVP_ORGANISATION_ID)]
+    cache.put(MVP_ORGANISATION_ID, now, rows)
+    return rows
 
 
 @router.get("/{piece_id}")

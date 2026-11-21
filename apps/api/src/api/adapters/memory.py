@@ -12,6 +12,7 @@ from api.application.sessions import SESSION_MAX_AGE
 from api.domain import (
     ImageRecord,
     ImageStatus,
+    PublicStory,
     SessionRecord,
     Story,
     StoryConflictError,
@@ -37,6 +38,16 @@ class InMemoryStoryRepository:
 
     def get(self, organisation_id: str, story_id: str) -> Story | None:
         return self._stories.get((organisation_id, story_id))
+
+    def list_live(self, organisation_id: str) -> list[PublicStory]:
+        with self._lock:
+            live = [
+                s
+                for (org, _), s in self._stories.items()
+                if org == organisation_id and s.live and s.first_published_at is not None
+            ]
+        live.sort(key=lambda s: (s.first_published_at, s.id), reverse=True)  # type: ignore[arg-type,return-value]
+        return [s.public for s in live]
 
     def list(self, organisation_id: str) -> list[Story]:
         with self._lock:

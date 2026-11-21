@@ -12,11 +12,10 @@ from api.application.ports import StoryRepository
 from api.domain import (
     ImageNotFoundError,
     ImageStatus,
-    Story,
+    PublicStory,
     StoryNotFoundError,
     WebVersion,
     parse_photo_blocks,
-    public_order,
     unescape_attr,
 )
 
@@ -59,10 +58,7 @@ class PublicSite:
         self._images = images
 
     def list_live(self, organisation_id: str) -> list[PublicSummary]:
-        return [
-            self._summary(organisation_id, s)
-            for s in public_order(self._stories.list(organisation_id))
-        ]
+        return [self._summary(organisation_id, s) for s in self._stories.list_live(organisation_id)]
 
     def get_live(self, organisation_id: str, story_id: str) -> PublicPiece:
         """Raises StoryNotFoundError for an id that does not exist, is another organisation's,
@@ -70,15 +66,16 @@ class PublicSite:
         story = self._stories.get(organisation_id, story_id)
         if story is None or not story.live or story.first_published_at is None:
             raise StoryNotFoundError(story_id)
-        photos = self._photos(organisation_id, story)
+        public = story.public
+        photos = self._photos(organisation_id, public)
         return PublicPiece(
-            summary=self._summary(organisation_id, story, photos),
+            summary=self._summary(organisation_id, public, photos),
             content=story.published_content,
             photos={p.image_id: p for p in photos},
         )
 
     def _photos(
-        self, organisation_id: str, story: Story, *, first_only: bool = False
+        self, organisation_id: str, story: PublicStory, *, first_only: bool = False
     ) -> list[PublicPhoto]:
         """The story's Photo blocks that resolve, in order. With `first_only` it stops at the
         first one that does: the home list needs only the hero."""
@@ -107,7 +104,7 @@ class PublicSite:
         return found
 
     def _summary(
-        self, organisation_id: str, story: Story, photos: list[PublicPhoto] | None = None
+        self, organisation_id: str, story: PublicStory, photos: list[PublicPhoto] | None = None
     ) -> PublicSummary:
         if photos is None:
             photos = self._photos(organisation_id, story, first_only=True)

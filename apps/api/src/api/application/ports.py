@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
-from api.domain import ImageRecord, ImageStatus, SessionRecord, Story, User
+from api.domain import ImageRecord, ImageStatus, PublicStory, SessionRecord, Story, User
 
 
 class StoryRepository(Protocol):
@@ -25,6 +25,11 @@ class StoryRepository(Protocol):
         ...
 
     def get(self, organisation_id: str, story_id: str) -> Story | None: ...
+
+    def list_live(self, organisation_id: str) -> list[PublicStory]:
+        """The organisation's live stories, public columns only (no draft field is read),
+        newest `first_published_at` first, ties broken by id descending."""
+        ...
 
     def list(self, organisation_id: str) -> list[Story]:
         """Every story of the organisation, in no particular order."""

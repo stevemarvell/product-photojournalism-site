@@ -20,6 +20,7 @@ from api.domain import (
     MVP_ORGANISATION_ID,
     ImageRecord,
     ImageStatus,
+    StorageUnavailableError,
     WebVersion,
     new_story,
     unescape_attr,
@@ -529,3 +530,90 @@ def test_each_lifecycle_action_shows_on_the_next_public_read(world) -> None:  # 
     r = anon.get(f"/public/pieces/{pid}")
     assert r.json()["title"] == "Dusk"
     assert r.headers["cache-control"] == "no-store"
+
+
+# --- Scenarios of #52: the list is read narrowly and answered from a short cache ---------
+
+
+class ManualClock:
+    def __init__(self) -> None:
+        self.t = T0
+
+    def now(self) -> datetime:
+        return self.t
+
+
+class CountingStories:
+    """Delegates to a real repository and counts `list_live`; can be told to fail."""
+
+    def __init__(self, inner) -> None:  # noqa: ANN001
+        self.inner = inner
+        self.live_calls = 0
+        self.down = False
+
+    def list_live(self, organisation_id: str):  # noqa: ANN201
+        self.live_calls += 1
+        if self.down:
+            raise StorageUnavailableError()
+        return self.inner.list_live(organisation_id)
+
+    def __getattr__(self, name: str):  # noqa: ANN204
+        return getattr(self.inner, name)
+
+
+@pytest.fixture
+def cached_world(world):  # noqa: ANN001, ANN201
+    container, images, owner, _ = world
+    clock = ManualClock()
+    counting = CountingStories(container.stories)
+    container = replace(container, stories=counting, clock=clock)
+    # The owner publishes through the original app; the public app reads the counting one.
+    return container, counting, clock, owner, TestClient(create_app(container=container))
+
+
+def test_a_burst_is_served_from_the_cache(cached_world) -> None:  # noqa: ANN001
+    _, counting, clock, owner, anon = cached_world
+    make_piece(owner)
+    first = anon.get("/public/pieces")
+    assert first.status_code == 200
+    for _ in range(20):
+        clock.t += timedelta(milliseconds=200)
+        r = anon.get("/public/pieces")
+        assert r.status_code == 200
+        assert r.json() == first.json()
+        assert r.headers["cache-control"] == "no-store"
+    assert counting.live_calls == 1
+
+
+def test_a_publish_shows_once_the_cache_has_expired(cached_world) -> None:  # noqa: ANN001
+    _, counting, clock, owner, anon = cached_world
+    assert anon.get("/public/pieces").json() == []
+    pid = make_piece(owner)
+    clock.t += timedelta(seconds=4)
+    assert anon.get("/public/pieces").json() == []  # still inside the five seconds
+    clock.t += timedelta(seconds=2)  # T + 6
+    assert [r["id"] for r in anon.get("/public/pieces").json()] == [pid]
+    assert counting.live_calls == 2
+
+
+def test_unreachable_storage_answers_503_and_is_not_cached(cached_world) -> None:  # noqa: ANN001
+    _, counting, clock, owner, anon = cached_world
+    make_piece(owner)
+    counting.down = True
+    assert anon.get("/public/pieces").status_code == 503
+    counting.down = False
+    clock.t += timedelta(milliseconds=100)
+    r = anon.get("/public/pieces")
+    assert r.status_code == 200 and len(r.json()) == 1
+    assert counting.live_calls == 2
+
+
+def test_the_ttl_comes_from_the_environment_and_zero_reads_every_time() -> None:
+    from api.composition import ConfigError
+
+    assert build_container(ENV).public_list_ttl == timedelta(seconds=5)
+    assert build_container({**ENV, "PUBLIC_LIST_TTL_SECONDS": "0"}).public_list_ttl == timedelta(0)
+    with pytest.raises(ConfigError):
+        build_container({**ENV, "PUBLIC_LIST_TTL_SECONDS": "-1"})
+    with pytest.raises(ConfigError):
+        build_container({**ENV, "PUBLIC_LIST_TTL_SECONDS": "soon"})

@@ -28,6 +28,8 @@ IDENTITY_PROVIDER  none | stub (only with API_ENVIRONMENT=development; refused w
                    provider is then "none" (owner routes 401, /auth/* 503).
 PUBLIC_WEB_ORIGIN  the origin visitors use (the OAuth redirect is <it>/api/auth/callback);
                    default the deployed web app where VERCEL_ENV is set, else localhost:5173
+PUBLIC_LIST_TTL_SECONDS  how long GET /public/pieces is answered from a per-process cache
+                   (default 5; 0 turns the cache off, as the end-to-end server does)
 CORS_ALLOWED_ORIGINS  comma-separated origins (default: the local Vite dev server;
                    where VERCEL_ENV is set, the deployed web app)
 """
@@ -76,6 +78,7 @@ MIN_SESSION_SECRET_LENGTH = 32
 DEFAULT_IMAGE_MAX_BYTES = 25 * 1024 * 1024
 DEFAULT_IMAGE_TIMEOUT_SECONDS = 120
 VERCEL_SETTINGS = ("VERCEL_OAUTH_CLIENT_ID", "VERCEL_OAUTH_CLIENT_SECRET", "OWNER_VERCEL_ID")
+DEFAULT_PUBLIC_LIST_TTL_SECONDS = 5
 DEFAULT_WEB_ORIGIN = "http://localhost:5173"
 DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 # Committed here because Vercel offers no committed place for runtime variables;
@@ -101,6 +104,8 @@ class Container:
     identity: IdentityProvider
     identity_name: str
     clock: Clock
+    # How long the public list is answered from memory; zero means every request reads.
+    public_list_ttl: timedelta
     cors_origins: tuple[str, ...]
     # Where visitors reach the site; the OAuth callback is public_origin + /api/auth/callback.
     public_origin: str
@@ -232,6 +237,11 @@ def build_container(env: Mapping[str, str]) -> Container:
         identity=identity,
         identity_name=identity_name,
         clock=clock,
+        public_list_ttl=timedelta(
+            seconds=_non_negative_int(
+                env, "PUBLIC_LIST_TTL_SECONDS", DEFAULT_PUBLIC_LIST_TTL_SECONDS
+            )
+        ),
         cors_origins=origins,
         public_origin=(env.get("PUBLIC_WEB_ORIGIN") or default_origin).rstrip("/"),
         session_secret=session_secret,
@@ -248,4 +258,17 @@ def _positive_int(env: Mapping[str, str], name: str, default: int) -> int:
         raise ConfigError(f"{name} must be a whole number, not {raw!r}") from None
     if value <= 0:
         raise ConfigError(f"{name} must be greater than zero")
+    return value
+
+
+def _non_negative_int(env: Mapping[str, str], name: str, default: int) -> int:
+    raw = env.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be a whole number, not {raw!r}") from None
+    if value < 0:
+        raise ConfigError(f"{name} must not be negative")
     return value

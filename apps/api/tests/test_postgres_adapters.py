@@ -289,3 +289,32 @@ def test_a_connection_class_error_mid_statement_is_storage_unavailable(pg_url: s
         with psycopg.connect(pg_url, autocommit=True) as admin:
             admin.execute("select pg_terminate_backend(%s)", (pid,))
         conn.execute("select 1")
+
+
+def test_list_live_sql_selects_public_columns_only_for_live_rows_in_order() -> None:
+    seen: list[tuple[str, tuple]] = []
+
+    class Conn:
+        def execute(self, sql: str, params: tuple = ()):  # noqa: ANN202
+            seen.append((" ".join(sql.split()), params))
+            return self
+
+        def fetchall(self) -> list:
+            return []
+
+    class Db:
+        def connection(self):  # noqa: ANN202
+            from contextlib import nullcontext
+
+            return nullcontext(Conn())
+
+    assert PostgresStoryRepository(Db()).list_live("org-a") == []  # type: ignore[arg-type]
+    assert seen == [
+        (
+            "select id, organisation_id, first_published_at, last_published_at, "
+            "published_title, published_description, published_location, published_date, "
+            "published_content from story where organisation_id = %s and live "
+            "order by first_published_at desc, id desc",
+            ("org-a",),
+        )
+    ]
