@@ -42,7 +42,7 @@ Never hand over an issue labelled `human`, `do not automate`, `blocked…` or
 `template`. `scripts/triage.mjs` already excludes them; a hand-picked task gets
 the same check.
 
-**Ceiling: 3 implementers at once**, matching `MAX_ISSUES_PER_RUN` (SOP 1).
+**Ceiling: 3 agents at once, unless the owner sets another number for the run** (SOP 1). The number of issues a run works has no count; its maximum is the usage window (below), and the number of agents running falls as usage nears the limit.
 This is discipline; nothing counts running agents. Within it, **run them in
 parallel only on issues whose paths do not overlap**
 (overlap only produces contention warnings, `pr checks`), and **start no more

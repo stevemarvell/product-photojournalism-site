@@ -18,11 +18,12 @@
 //    `## Acceptance criteria`, or an empty `## Details to complete`
 //    (`readiness`). It is listed as `Not ready` for the coordinator to
 //    complete (work-backlog step 1), is never also skipped, and does not
-//    count against the ceiling.
+//    count as work.
 // 5. Order the rest by the one scale (SOP 5): critical, high, medium, then
 //    unranked. Within a rank, `security` first, then oldest first.
-// 6. Take at most MAX_ISSUES_PER_RUN of them (SOP 1). The rest are reported
-//    as deferred, not dropped.
+// 6. No count limit: `work` is every workable issue. A run's declared maximum
+//    (SOP 1) is the usage window, not a number of issues: the skill keeps
+//    re-triaging until this list is empty or usage nears its limit.
 //
 // The `work-backlog` skill runs this, works what it picks, and runs it again
 // after each merge — so a merge that closes an issue, or a smoke failure that
@@ -36,9 +37,6 @@
 // Usage: node scripts/triage.mjs [--json]   (prints the plan; changes nothing)
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-
-/** Issues one run of `work-backlog` may take on. Declared in docs/sops.md. */
-export const MAX_ISSUES_PER_RUN = 3;
 
 /** Items per REST page; GitHub's maximum. */
 export const PAGE_SIZE = 100;
@@ -149,11 +147,10 @@ export function readiness(issue) {
 /**
  * @param issues        [{ number, title, labels: string[], body, user: { login }, authorAssociation }]
  * @param pullRequests  open PRs: [{ number, body }]
- * @param max           most issues to work this run
  * @param permissionOf (login) => the author's repository permission; see `trusted`
- * @returns {{ work, deferred, notReady, skip }} work is at most MAX_ISSUES_PER_RUN long
+ * @returns {{ work, notReady, skip }} work is every workable issue, in order
  */
-export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, permissionOf = undefined) {
+export function triage(issues, pullRequests, permissionOf = undefined) {
   const openNumbers = new Set(issues.map((i) => i.number));
   const claimed = claimedIssues(pullRequests);
   const eligible = [];
@@ -209,24 +206,19 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, permissio
     rank: Object.keys(RANK)[rank] ?? 'unranked',
   }));
   return {
-    work: ordered.slice(0, max),
-    deferred: ordered.slice(max),
+    work: ordered,
     notReady: notReady.sort((a, b) => a.number - b.number),
     skip: skip.sort((a, b) => a.number - b.number),
   };
 }
 
 /** The plan as text, for a person or a pull request body to read. */
-export function render({ work, deferred, notReady = [], skip }, { truncated = false } = {}) {
-  const lines = [`Work, in order (at most ${MAX_ISSUES_PER_RUN} per run):`];
+export function render({ work, notReady = [], skip }, { truncated = false } = {}) {
+  const lines = ['Work, in order (re-triage after every merge; stop when this is empty):'];
   if (work.length === 0) lines.push('  nothing an agent may take on');
   for (const w of work) lines.push(`  #${w.number} [${w.rank}] ${w.title}`);
-  if (deferred.length) {
-    lines.push('Deferred to the next run (over the ceiling):');
-    for (const d of deferred) lines.push(`  #${d.number} [${d.rank}] ${d.title}`);
-  }
   if (notReady.length) {
-    lines.push('Not ready (complete the issue before briefing; at most 3 per run):');
+    lines.push('Not ready (complete the issue before briefing):');
     for (const n of notReady) lines.push(`  #${n.number} ${n.reason}: ${n.title}`);
   }
   lines.push('Skip:');
@@ -301,7 +293,7 @@ export function permissionLookup(run = gh) {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     const { issues, pullRequests, truncated } = fetchOpen();
-    const plan = triage(issues, pullRequests, undefined, permissionLookup());
+    const plan = triage(issues, pullRequests, permissionLookup());
     process.stdout.write(
       process.argv.includes('--json') ? JSON.stringify({ ...plan, truncated }, null, 2) + '\n' : render(plan, { truncated }),
     );
