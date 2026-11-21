@@ -1,7 +1,9 @@
 """Image use cases (spec sections 9 and 11). Every call is for one organisation."""
 
+import logging
 import uuid
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from api.application.ports import (
     Clock,
@@ -26,6 +28,8 @@ from api.domain import (
     ready,
     timed_out,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def process_image(
@@ -109,7 +113,15 @@ class ImageService:
             raise ImageRefusedError("no such upload")
         if size > self._max_bytes:
             # Refused for good: do not leave the oversized original in storage.
-            self._uploads.discard(original_url)
+            try:
+                self._uploads.discard(original_url)
+            except Exception as exc:  # noqa: BLE001 - the owner must still see "too large"
+                # Class and pathname only: the message of a Blob error can carry the token.
+                logger.warning(
+                    "could not delete oversized original %s: %s",
+                    urlsplit(original_url).path,
+                    type(exc).__name__,
+                )
             raise ImageTooLargeError(self._max_bytes)
         image = new_image(str(uuid.uuid4()), organisation_id, original_url, size, self._clock.now())
         # The claim and the row are one step, so a failed create never burns the upload.

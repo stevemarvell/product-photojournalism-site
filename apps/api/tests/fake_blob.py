@@ -31,6 +31,7 @@ class FakeBlob:
         self.objects: dict[str, bytes] = {}
         self.requests: list[httpx.Request] = []
         self.down = False  # True: every call answers 503
+        self.fail_delete = False  # True: only delete calls answer 500
 
     def client(self) -> httpx.Client:
         return httpx.Client(transport=httpx.MockTransport(self.handle))
@@ -76,6 +77,8 @@ class FakeBlob:
         if request.method == "POST" and request.url.path.rstrip("/") == "/api/blob/delete":
             if token != self.rw_token:
                 return error(403, "forbidden", "Not allowed")
+            if self.fail_delete:
+                return error(500, "internal_server_error", f"delete failed for {token}")
             for url in json.loads(request.content)["urls"]:
                 self.objects.pop(url.removeprefix(f"https://{HOST}/"), None)
             return httpx.Response(200, json={})
