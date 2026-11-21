@@ -506,23 +506,29 @@ def test_an_unhandled_error_under_public_pieces_is_a_500_with_no_store(world) ->
         assert "boom" not in r.text
 
 
-# --- Lifecycle actions show on the very next public read (#17) -----------------------------
-# Public answers are `no-store` (tests above), so there is no cached copy to invalidate: each
-# action is visible on the next read.
+# --- Lifecycle actions reach the public list within the list cache (#17, #75) -------------
+# Answers are `no-store` for browsers, but the API keeps the list for PUBLIC_LIST_TTL_SECONDS
+# (5 s by default); a single piece is read fresh. The clock here moves only when told.
 
 
-def test_each_lifecycle_action_shows_on_the_next_public_read(world) -> None:  # noqa: ANN001
-    _, _, owner, anon = world
+def test_each_lifecycle_action_reaches_the_public_list_within_the_cache_ttl(
+    cached_world,  # noqa: ANN001
+) -> None:
+    _, _, clock, owner, anon = cached_world
     pid = make_piece(owner, title="Dusk")
-    assert [r["id"] for r in anon.get("/public/pieces").json()] == [pid]
+    assert [r["id"] for r in anon.get("/public/pieces").json()] == [pid]  # primes the cache
 
     assert owner.post(f"/stories/{pid}/unpublish").status_code == 200
-    assert anon.get("/public/pieces").json() == []
-    assert anon.get(f"/public/pieces/{pid}").status_code == 404
+    assert anon.get(f"/public/pieces/{pid}").status_code == 404  # a piece is read fresh
+    clock.t += timedelta(seconds=1)
+    assert [r["id"] for r in anon.get("/public/pieces").json()] == [pid]  # T+1: cached
+    clock.t += timedelta(seconds=5)
+    assert anon.get("/public/pieces").json() == []  # T+6: expired
 
     assert owner.post(f"/stories/{pid}/republish").status_code == 200
-    assert [r["id"] for r in anon.get("/public/pieces").json()] == [pid]
     assert anon.get(f"/public/pieces/{pid}").json()["title"] == "Dusk"
+    clock.t += timedelta(seconds=6)
+    assert [r["id"] for r in anon.get("/public/pieces").json()] == [pid]
 
     # Revert changes the draft only: the public text is what it was.
     edit_draft(owner, pid, title="Draft only")
@@ -617,3 +623,13 @@ def test_the_ttl_comes_from_the_environment_and_zero_reads_every_time() -> None:
         build_container({**ENV, "PUBLIC_LIST_TTL_SECONDS": "-1"})
     with pytest.raises(ConfigError):
         build_container({**ENV, "PUBLIC_LIST_TTL_SECONDS": "soon"})
+
+
+def test_the_ttl_has_a_ceiling_of_60_seconds() -> None:
+    from api.composition import ConfigError
+
+    assert build_container({**ENV, "PUBLIC_LIST_TTL_SECONDS": "60"}).public_list_ttl == timedelta(
+        seconds=60
+    )
+    with pytest.raises(ConfigError, match=r"PUBLIC_LIST_TTL_SECONDS.*60"):
+        build_container({**ENV, "PUBLIC_LIST_TTL_SECONDS": "61"})
