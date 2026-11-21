@@ -98,6 +98,23 @@ const ALLOW: Allowed[] = [
   // README.md's Quick start names it literally.
   { file: 'README.md', pattern: /gh repo clone stevemarvell\/boris/, because: 'the setup instructions clone this repository by its real path', base: true },
 
+  // The cloud setup script is saved verbatim, so it must name the directory
+  // the checkout is cloned into: a placeholder would make `[ -d ... ]` false
+  // and the script a silent no-op. A product's README gets its own name from
+  // assemble.mjs, so only this line, and only in this repository's README.
+  {
+    file: 'README.md',
+    pattern: /^ {3}if \[ -d boris \]; then \(cd boris && npm run bootstrap\); fi$/,
+    because: 'the setup script to save on this repository\'s cloud environment names its checkout directory',
+    base: true,
+  },
+  {
+    file: 'README.md',
+    pattern: /^ {3}if \[ -d boris \]; then node boris\/scripts\/user-telemetry-settings\.mjs --repo boris; fi$/,
+    because: 'the same setup script, second line: it must name the checkout directory to run',
+    base: true,
+  },
+
   // The remote name `create` gives this base in a product, fetch-only, so a
   // product can fetch upstream improvements and measure how far behind it is
   // without ever pushing to this base by accident. It is also what `check`

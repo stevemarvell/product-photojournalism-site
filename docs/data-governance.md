@@ -194,12 +194,20 @@ credentialed jobs or pass the secrets only to the action's own step, and
 rewrite this section.
 
 The `pr checks` job in `.github/workflows/pr-checks.yml` (it replaces the old
-`contention` and `test census` workflows) is the same shape with no secret in
-the table: it runs `scripts/pr-contention.mjs` and `scripts/test-census.mjs`
-from the pull request's checkout with `GITHUB_TOKEN` scoped
-`pull-requests: write`. GitHub has no comment-only permission, so that scope
-also permits merging, closing and labelling any open pull request. The same two
-bounds hold and the same trigger voids it.
+`contention` and `test census` workflows) holds no secret in the table but
+carries `GITHUB_TOKEN` scoped `pull-requests: write`. GitHub has no
+comment-only permission, so that scope also permits merging, closing and
+labelling any open pull request. So no script from the pull request's checkout
+runs in it: `scripts/pr-contention.mjs` and `scripts/test-census.mjs` execute
+from `base-scripts/`, a second checkout of the base commit (sparse to
+`scripts/`), and read the pull request's tree only through `git`. A pull
+request that edits either script is judged by the unedited copy.
+`scripts/test/pr-checks-base-scripts.test.ts` allowlists what each step may
+run. Every checkout in every workflow sets `persist-credentials: false`
+(`scripts/test/checkout-credentials.test.ts`). The workflow file itself is
+still read from the pull request's ref, so a pull request that edits it runs
+its own steps with the token: the one-writer bound holds and a second writer
+voids it.
 
 The code and security reviews run once, when a pull request is opened or marked
 ready, and again only when the `re-review` label is added. They do not re-run on

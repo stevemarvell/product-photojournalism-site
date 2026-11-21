@@ -393,3 +393,142 @@ describe('worktreeFiles sees an untracked file (#257)', () => {
     }
   });
 });
+
+describe('the census counts against the merge-base (#372)', () => {
+  const script = resolve(__dirname, '..', 'test-census.mjs');
+
+  // Real git in a temp repo: `main` and a branch, each commit adding or
+  // dropping test files. Returns helpers bound to that repo.
+  const fixture = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'census-mb-'));
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        cwd: dir,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+    const write = (name: string, body: string) => writeFileSync(join(dir, name), body);
+    const commit = (message: string) => {
+      git('add', '-A');
+      git('commit', '-q', '-m', message);
+      return git('rev-parse', 'HEAD');
+    };
+    const run = (base: string, head: string) => {
+      try {
+        const stdout = execFileSync('node', [script, base, head], {
+          cwd: dir,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, PR_BODY: '', GITHUB_STEP_SUMMARY: '' },
+        });
+        return { status: 0, out: stdout };
+      } catch (error) {
+        const e = error as { status: number; stdout: string; stderr: string };
+        return { status: e.status, out: `${e.stdout}${e.stderr}` };
+      }
+    };
+    return { dir, git, write, commit, run };
+  };
+
+  // Timeout: two to four real git commands and one node spawn (<=1 s quiet); 30 s.
+  it('passes a branch cut before develop gained 14 tests', { timeout: 30_000 }, () => {
+    const f = fixture();
+    try {
+      f.git('init', '-q', '-b', 'main');
+      f.write('a.test.ts', ts('one', 'two'));
+      f.commit('start');
+      f.git('checkout', '-q', '-b', 'feature');
+      f.write('b.test.ts', ts('feature'));
+      const head = f.commit('feature adds a test');
+      f.git('checkout', '-q', 'main');
+      f.write('c.test.ts', ts(...Array.from({ length: 14 }, (_, i) => `later${i}`)));
+      const base = f.commit('develop gains 14 tests');
+      const result = f.run(base, head);
+      expect(result.out).toContain('The test count rises from 2 to 3');
+      expect(result.status).toBe(0);
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
+  // Timeout: as above; 30 s.
+  it('fails a branch that really deletes 3 tests, naming the file', { timeout: 30_000 }, () => {
+    const f = fixture();
+    try {
+      f.git('init', '-q', '-b', 'main');
+      f.write('a.test.ts', ts('one', 'two', 'three', 'four'));
+      f.commit('start');
+      f.git('checkout', '-q', '-b', 'feature');
+      f.write('a.test.ts', ts('one'));
+      const head = f.commit('delete three');
+      f.git('checkout', '-q', 'main');
+      f.write('c.test.ts', ts('later'));
+      const base = f.commit('develop moves on');
+      const result = f.run(base, head);
+      expect(result.out).toContain('3 tests disappear');
+      expect(result.out).toContain('`a.test.ts`: 3 fewer');
+      expect(result.status).toBe(1);
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
+  // Timeout: as above; 30 s.
+  it('fails with a message naming the missing merge-base for unrelated histories', { timeout: 30_000 }, () => {
+    const f = fixture();
+    try {
+      f.git('init', '-q', '-b', 'main');
+      f.write('a.test.ts', ts('one', 'two'));
+      const base = f.commit('base');
+      f.git('checkout', '-q', '--orphan', 'other');
+      f.git('rm', '-rq', '--cached', '.');
+      f.write('b.test.ts', ts('one', 'two', 'three'));
+      const head = f.commit('unrelated');
+      const result = f.run(base, head);
+      expect(result.out).toContain('No merge-base');
+      expect(result.status).toBe(1);
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('a git failure that is not a missing merge-base says what git said (#372)', () => {
+  // Timeout: one real git init and one node spawn (<=1 s quiet); 30 s.
+  it('reports git\'s own error for an unknown ref, not a missing merge-base', { timeout: 30_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'census-bad-'));
+    try {
+      const git = (...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+          cwd: dir,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }).trim();
+      git('init', '-q', '-b', 'main');
+      writeFileSync(join(dir, 'a.test.ts'), ts('one'));
+      git('add', '-A');
+      git('commit', '-q', '-m', 'start');
+      const head = git('rev-parse', 'HEAD');
+      let out = '';
+      let status = 0;
+      try {
+        execFileSync('node', [resolve(__dirname, '..', 'test-census.mjs'), 'deadbeef', head], {
+          cwd: dir,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, PR_BODY: '', GITHUB_STEP_SUMMARY: '' },
+        });
+      } catch (error) {
+        const e = error as { status: number; stdout: string; stderr: string };
+        status = e.status;
+        out = `${e.stdout}${e.stderr}`;
+      }
+      expect(status).toBe(1);
+      expect(out).toContain('git merge-base deadbeef');
+      expect(out).toMatch(/deadbeef|Not a valid/i);
+      expect(out).not.toContain('No merge-base between');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

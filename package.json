@@ -11,6 +11,7 @@
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "verify": "npm run verify:harness && npm run verify:apps",
+    "verify:changed": "node scripts/verify-changed.mjs",
     "verify:harness": "tsc -p scripts/test && eslint --config scripts/test/eslint.config.mjs scripts/test && vitest run --root scripts/test",
     "verify:apps": "node scripts/verify-apps.mjs",
     "bootstrap": "node scripts/bootstrap.mjs",
