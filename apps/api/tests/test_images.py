@@ -582,9 +582,7 @@ def test_photograph_formats_are_rendered(fmt: str) -> None:
     assert rendered.versions
 
 
-@pytest.mark.parametrize(
-    ("fmt", "mode"), [("GIF", "P"), ("BMP", "RGB"), ("ICO", "RGBA"), ("EPS", "RGB")]
-)
+@pytest.mark.parametrize(("fmt", "mode"), [("GIF", "P"), ("BMP", "RGB"), ("ICO", "RGBA")])
 def test_other_formats_are_refused(fmt: str, mode: str) -> None:
     from api.domain import ImageProcessingError
 

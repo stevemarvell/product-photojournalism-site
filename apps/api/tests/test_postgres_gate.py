@@ -28,11 +28,7 @@ def run_gate(tmp_path: Path, **env: str) -> subprocess.CompletedProcess[str]:
     base["PYTHONPATH"] = str(SRC)
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", str(tmp_path)],
-        capture_output=True,
-        text=True,
-        env={**base, **env},
-        cwd=tmp_path,
-        check=False,
+        capture_output=True, text=True, env={**base, **env}, cwd=tmp_path, check=False,
     )
 
 
