@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -93,7 +94,7 @@ def test_the_browser_uploads_straight_to_blob_and_the_api_receives_only_the_stor
     data = jpeg(1200, 800)
 
     target = client.post("/images/upload-target", json={"size": len(data)}).json()
-    assert target["upload_url"].startswith("https://vercel.com/api/blob/?pathname=originals/")
+    assert target["upload_url"].startswith("https://vercel.com/api/blob/?pathname=originals%2F")
     assert target["original_url"].startswith(f"https://{HOST}/originals/")
     assert target["headers"]["authorization"].startswith("Bearer vercel_blob_client_")
     assert RW_TOKEN not in str(target)  # the read-write token never leaves the API
@@ -101,12 +102,12 @@ def test_the_browser_uploads_straight_to_blob_and_the_api_receives_only_the_stor
     assert fake.browser_put(target, data) == 200
     puts_before_register = [r for r in fake.requests if r.method == "PUT"]
     assert len(puts_before_register) == 1  # the browser's, with a client token
-    assert fake.objects[target["upload_url"].split("pathname=")[1]] == data
+    assert fake.objects[unquote(target["upload_url"].split("pathname=")[1])] == data
 
     registered = client.post("/images", json={"original_url": target["original_url"]})
     assert registered.status_code == 201
     # The registration carried a URL and the API never PUT the original anywhere.
-    assert fake.objects[target["upload_url"].split("pathname=")[1]] == data
+    assert fake.objects[unquote(target["upload_url"].split("pathname=")[1])] == data
     image = client.get(f"/images/{registered.json()['id']}").json()
     assert image["status"] == "ready"  # processed by the time the register call returned
     assert image["byte_size"] == len(data)  # size came from Blob (HEAD), not from the browser
@@ -150,6 +151,35 @@ def test_only_urls_this_api_issued_to_this_organisation_can_be_registered() -> N
         assert r.status_code == 422, (url, r.text)
     # Nothing was read from outside the store.
     assert all(r.url.host in (HOST, "vercel.com") for r in fake.requests)
+
+
+def test_an_original_refused_for_size_is_deleted_from_blob() -> None:
+    fake = FakeBlob()
+    _, client = world(fake, IMAGE_MAX_BYTES="1000")
+    t = client.post("/images/upload-target", json={"size": 10}).json()
+    pathname = t["original_url"].removeprefix(f"https://{HOST}/")
+    # Blob's own cap should stop this; if it ever did not, the object must not be kept.
+    fake.objects[pathname] = b"x" * 1001
+    r = client.post("/images", json={"original_url": t["original_url"]})
+    assert r.status_code == 413
+    assert pathname not in fake.objects
+
+
+def test_a_refused_registration_of_someone_elses_original_deletes_nothing() -> None:
+    fake = FakeBlob()
+    _, client = world(fake)
+    _, t = browser_upload(client, fake, jpeg(300, 200))
+    assert client.post("/images", json={"original_url": t["original_url"]}).status_code == 409
+    assert fake.objects[t["original_url"].removeprefix(f"https://{HOST}/")]
+
+
+def test_the_upload_url_encodes_the_pathname() -> None:
+    store = BlobStore(RW_TOKEN)
+    pathname = "originals/a b&c=d?e#f%g+h"
+    target = store.upload_target(pathname, 1000)
+    query = urlsplit(target.upload_url).query
+    assert parse_qs(query, strict_parsing=True) == {"pathname": [pathname]}
+    assert " " not in query and "&" not in query and "#" not in target.upload_url
 
 
 def test_an_upload_that_has_not_been_made_yet_cannot_be_registered() -> None:

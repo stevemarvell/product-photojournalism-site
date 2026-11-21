@@ -151,6 +151,10 @@ class OriginalUploads(Protocol):
         """The original's bytes; None when it is not one this adapter issued."""
         ...
 
+    def discard(self, original_url: str) -> None:
+        """Delete a stored original (one registration refused); a no-op for any other URL."""
+        ...
+
 
 @dataclass(frozen=True)
 class RenderedImage:

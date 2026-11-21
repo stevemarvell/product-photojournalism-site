@@ -366,6 +366,10 @@ def test_register_checks_the_stored_size_not_the_browsers_word(tmp_path: Path) -
         def read(self, original_url: str) -> bytes | None:
             return None
 
+        def discard(self, original_url: str) -> None:
+            discarded.append(original_url)
+
+    discarded: list[str] = []
     repo = InMemoryImageRepository()
     repo.bind_upload("owner-org", "https://blob.test/x")
     service = ImageService(
@@ -380,6 +384,7 @@ def test_register_checks_the_stored_size_not_the_browsers_word(tmp_path: Path) -
     r = client.post("/images", json={"original_url": "https://blob.test/x"})
     assert r.status_code == 413
     assert r.json()["detail"]["limit"] == 1000
+    assert discarded == ["https://blob.test/x"]
 
 
 # --- Registration is bound to the issuing organisation and single-use ---------------------------

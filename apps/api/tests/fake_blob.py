@@ -53,7 +53,8 @@ class FakeBlob:
             return error(503, "service_unavailable", "Blob is down")
         if request.url.host == HOST:
             return self._download(request)
-        if request.url.host == "vercel.com" and request.url.path.rstrip("/") == "/api/blob":
+        api_paths = ("/api/blob", "/api/blob/delete")
+        if request.url.host == "vercel.com" and request.url.path.rstrip("/") in api_paths:
             return self._api(request)
         return error(404, "not_found", f"unexpected request to {request.url}")
 
@@ -72,6 +73,12 @@ class FakeBlob:
         token = auth[len("Bearer ") :]
         if request.method == "PUT":
             return self._put(request, token)
+        if request.method == "POST" and request.url.path.rstrip("/") == "/api/blob/delete":
+            if token != self.rw_token:
+                return error(403, "forbidden", "Not allowed")
+            for url in json.loads(request.content)["urls"]:
+                self.objects.pop(url.removeprefix(f"https://{HOST}/"), None)
+            return httpx.Response(200, json={})
         if request.method == "GET" and token == self.rw_token:
             return self._head(request)
         return error(403, "forbidden", "Not allowed")

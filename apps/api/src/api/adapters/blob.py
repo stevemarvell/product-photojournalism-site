@@ -18,6 +18,7 @@ import secrets
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from vercel.api import session
@@ -25,6 +26,7 @@ from vercel.blob.sync import (
     BlobCredentials,
     BlobNotFoundError,
     SyncBlobServiceOptions,
+    delete_blob,
     get_blob,
     head_blob,
     put_blob,
@@ -112,7 +114,7 @@ class BlobStore:
             },
         )
         return UploadTarget(
-            upload_url=f"{self._api_url}/?pathname={pathname}",
+            upload_url=f"{self._api_url}/?pathname={quote(pathname, safe='')}",
             original_url=self.url_of(pathname),
             method="PUT",
             headers={
@@ -137,6 +139,10 @@ class BlobStore:
                 return head_blob(url).size
         except BlobNotFoundError:
             return None
+
+    def delete(self, url: str) -> None:
+        with self._session():
+            delete_blob(url)
 
     def read(self, url: str) -> bytes | None:
         try:
@@ -187,6 +193,11 @@ class BlobOriginalUploads:
     def read(self, original_url: str) -> bytes | None:
         url = self._original(original_url)
         return None if url is None else self._store.read(url)
+
+    def discard(self, original_url: str) -> None:
+        url = self._original(original_url)
+        if url is not None:
+            self._store.delete(url)
 
 
 class BlobImageStore:

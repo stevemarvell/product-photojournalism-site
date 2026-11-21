@@ -42,6 +42,9 @@ class FilesystemImageStore:
         path = self._path(key)
         return path.read_bytes() if path.is_file() else None
 
+    def delete(self, key: str) -> None:
+        self._path(key).unlink(missing_ok=True)
+
 
 class LocalOriginalUploads:
     """Stands in for Vercel Blob client uploads on a developer's machine.
@@ -87,6 +90,11 @@ class LocalOriginalUploads:
         data = self.read(original_url)  # None while pending: nothing is stored yet
         return None if data is None else len(data)
 
+    def discard(self, original_url: str) -> None:
+        key = self._key(original_url)
+        if key:
+            self._store.delete(key)
+
 
 def _url(token: str) -> str:
     return f"{LOCAL_SCHEME}{ORIGINAL_PREFIX}{token}"
@@ -103,4 +111,7 @@ class UnconfiguredOriginalUploads:
         return None
 
     def read(self, original_url: str) -> bytes | None:
+        return None
+
+    def discard(self, original_url: str) -> None:
         return None

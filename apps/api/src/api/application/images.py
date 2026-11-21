@@ -108,6 +108,8 @@ class ImageService:
         if size is None:
             raise ImageRefusedError("no such upload")
         if size > self._max_bytes:
+            # Refused for good: do not leave the oversized original in storage.
+            self._uploads.discard(original_url)
             raise ImageTooLargeError(self._max_bytes)
         image = new_image(str(uuid.uuid4()), organisation_id, original_url, size, self._clock.now())
         # The claim and the row are one step, so a failed create never burns the upload.
