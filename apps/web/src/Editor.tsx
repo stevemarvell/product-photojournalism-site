@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { IonButton, IonText } from '@ionic/react';
 
 import { fetchSession, loginUrl, signOut, type Session } from './api';
 import { StoryEditor } from './StoryEditor';
@@ -49,21 +48,23 @@ export function Editor({
   }
   return (
     <div data-testid="editor-content">
-      <IonText>
-        <p>Signed in as {session.name}.</p>
-      </IonText>
       {storyId ? <StoryEditor id={storyId} /> : <StoryList navigate={navigate} />}
-      <IonButton
-        data-testid="sign-out"
-        onClick={() => {
-          void signOut()
-            .then(fetchSession)
-            .then(setSession)
-            .then(() => navigate('/'));
-        }}
-      >
-        Sign out
-      </IonButton>
+      <p className={`ed-signed-in ${storyId ? 'ed-wide' : 'ed-narrow'}`}>
+        Signed in as {session.name}.{' '}
+        <button
+          type="button"
+          className="ed-link"
+          data-testid="sign-out"
+          onClick={() => {
+            void signOut()
+              .then(fetchSession)
+              .then(setSession)
+              .then(() => navigate('/'));
+          }}
+        >
+          Sign out
+        </button>
+      </p>
     </div>
   );
 }

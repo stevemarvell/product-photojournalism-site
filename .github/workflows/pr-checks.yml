@@ -68,8 +68,15 @@ jobs:
     # Contention writes one comment per pull request and edits its own
     # thereafter, but GitHub has no comment-only permission: `pull-requests:
     # write` also permits merging, closing, retitling and labelling any open
-    # pull request, and it is live while this job runs scripts from the pull
-    # request's own checkout. The census step runs under that token too now.
+    # pull request. It is live while this job runs, so no script from the pull
+    # request's own checkout may run in it (#359): both scripts are executed
+    # from `base-scripts/`, a separate checkout of the base commit. The census
+    # and contention steps compare the pull request's tree (the main checkout,
+    # which is only read through git) against that base. A pull request that
+    # edits either script is therefore judged by the unedited one, and its edit
+    # takes effect once merged. This closes script edits, not workflow edits:
+    # on pull_request this file is read from the pull request's ref, so an edit
+    # to it runs with the token (bounded by one writer; see the doc).
     # `docs/data-governance.md` records the bound and what voids it. No secrets
     # other than the token are in scope.
     permissions:
@@ -85,6 +92,22 @@ jobs:
           # histories, which parseMergeTree reads as "could not run" rather
           # than "clean" on purpose.
           fetch-depth: 0
+          # Branch code runs in this job; leave no token in .git/config (#336).
+          persist-credentials: false
+
+      # The scripts that run in this job come from here, never from the pull
+      # request's checkout above (#359). On a pull request that is its base
+      # commit; on a push to develop it is the pushed commit, which is the
+      # base. Only `scripts/` is needed, and no token is left in .git/config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: base-scripts
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Say which commit the scripts came from
+        run: echo "pr checks scripts run from base commit $(git -C base-scripts rev-parse HEAD)"
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -108,7 +131,7 @@ jobs:
         # finds, though a step that crashes (checkout, the API, git) would still
         # turn the job red, which is the same signal as any broken workflow.
         run: |
-          node scripts/test-census.mjs \
+          node base-scripts/scripts/test-census.mjs \
             "${{ github.event.pull_request.base.sha }}" \
             "${{ github.event.pull_request.head.sha }}"
 
@@ -137,14 +160,23 @@ jobs:
         if: ${{ !cancelled() && github.event.action != 'edited' }}
         env:
           OPEN_PRS: ${{ steps.open.outputs.json }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           # The script decides which heads, because MAX_PULL_REQUESTS is its
           # ceiling to declare. The triggering pull request is passed in because
           # it is reported on whether or not the ceiling would have kept it.
-          node scripts/pr-contention.mjs --refs ${{ github.event.pull_request.number || '' }} > refs.txt
+          node base-scripts/scripts/pr-contention.mjs --refs ${{ github.event.pull_request.number || '' }} > refs.txt
           if [ -s refs.txt ]; then
-            xargs -r git fetch --no-tags origin < refs.txt
+            # The checkout keeps no token in .git/config (#336), so authenticate
+            # this one fetch with a header set through git's environment, which
+            # unlike `-c` stays out of git's argv. This closes the
+            # `.git/config` route only; `pr-contention.mjs` runs from
+            # `base-scripts/`, so no branch code sees GH_TOKEN (#359).
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+              git fetch --no-tags origin $(cat refs.txt)
           fi
 
       - name: Say what collides with what
@@ -165,4 +197,4 @@ jobs:
           set -uo pipefail
           BASE_SHA="$(git rev-parse origin/develop)"
           export BASE_SHA
-          node scripts/pr-contention.mjs ${{ github.event.pull_request.number || '' }}
+          node base-scripts/scripts/pr-contention.mjs ${{ github.event.pull_request.number || '' }}

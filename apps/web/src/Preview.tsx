@@ -1,6 +1,8 @@
-import { useContext, useState, type ReactNode } from 'react';
+import { useContext, useState } from 'react';
 
-import { parsePhoto, photoTags, unescapeAttr } from './content';
+import type { PhotoAttrs } from './content';
+import { Paragraph } from './Prose';
+import { parseBody } from './render';
 import { resolveUrl, type ImageState } from './images-api';
 import { ImageStatusContext } from './useImageStatuses';
 import type { DraftText } from './stories-api';
@@ -19,58 +21,36 @@ export function previewBlocker(imageIds: readonly string[], states: ReadonlyMap<
   return null;
 }
 
-/** Bold and italic only, as the editor allows; everything else is text. */
-function inline(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/).map((part, i) => {
-    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) return <strong key={i}>{unescapeAttr(part.slice(2, -2))}</strong>;
-    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) return <em key={i}>{unescapeAttr(part.slice(1, -1))}</em>;
-    return unescapeAttr(part);
-  });
-}
-
-function Block({ source }: { source: string }) {
+function PhotoFigure({ photo }: { photo: PhotoAttrs }) {
   const states = useContext(ImageStatusContext);
-  if (/^<Photo\b/.test(source)) {
-    const photo = parsePhoto(source);
-    const state = states.get(photo.image);
-    const versions = state && 'web_versions' in state ? state.web_versions : [];
-    const largest = versions[versions.length - 1];
-    return (
-      <figure data-testid="preview-photo">
-        {largest && (
-          <img
-            src={resolveUrl(largest.url)}
-            srcSet={versions.map((v) => `${resolveUrl(v.url)} ${v.width}w`).join(', ')}
-            sizes="100vw"
-            alt={photo.alt}
-          />
-        )}
-        {photo.caption && <figcaption>{photo.caption}</figcaption>}
-        {photo.credit && <small>{photo.credit}</small>}
-      </figure>
-    );
-  }
-  return <p>{inline(source)}</p>;
+  const state = states.get(photo.image);
+  const versions = state && 'web_versions' in state ? state.web_versions : [];
+  const largest = versions[versions.length - 1];
+  return (
+    <figure data-testid="preview-photo">
+      {largest && (
+        <img
+          src={resolveUrl(largest.url)}
+          srcSet={versions.map((v) => `${resolveUrl(v.url)} ${v.width}w`).join(', ')}
+          sizes="100vw"
+          alt={photo.alt}
+        />
+      )}
+      {photo.caption && <figcaption>{photo.caption}</figcaption>}
+      {photo.credit && <small>{photo.credit}</small>}
+    </figure>
+  );
 }
 
-/** The draft laid out roughly as a reader sees it. Minimal until the public renderer (#16) exists. */
+/** The draft laid out as a reader sees it: the same parser and paragraph as the public page. */
 function PreviewBody({ draft }: { draft: DraftText }) {
-  const tags = photoTags(draft.content);
-  const pieces: string[] = [];
-  let rest = draft.content;
-  for (const tag of tags) {
-    const at = rest.indexOf(tag);
-    pieces.push(...rest.slice(0, at).split(/\n{2,}/), tag);
-    rest = rest.slice(at + tag.length);
-  }
-  pieces.push(...rest.split(/\n{2,}/));
   return (
     <article data-testid="preview" className="preview">
       <h1>{draft.title}</h1>
       {(draft.date || draft.location) && <p>{[draft.date, draft.location].filter(Boolean).join(' · ')}</p>}
-      {pieces.filter((p) => p.trim()).map((p, i) => (
-        <Block key={i} source={p.trim()} />
-      ))}
+      {parseBody(draft.content).map((block, i) =>
+        block.kind === 'photo' ? <PhotoFigure key={i} photo={block.photo} /> : <Paragraph key={i} inlines={block.inlines} />,
+      )}
     </article>
   );
 }

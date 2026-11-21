@@ -16,6 +16,9 @@ from api.domain import WEB_WIDTHS, ImageProcessingError
 # few hundred MB. Configurable as IMAGE_MAX_PIXELS.
 DEFAULT_MAX_PIXELS = 64_000_000
 JPEG_QUALITY = 82
+# Photograph formats only: Pillow raises UnidentifiedImageError for anything else, so a
+# crafted GIF, BMP, ICO or EPS never reaches those decoders.
+ALLOWED_FORMATS = ("JPEG", "PNG", "WEBP", "TIFF")
 
 
 class PillowImageRenderer:
@@ -34,7 +37,7 @@ class PillowImageRenderer:
 
     def render(self, data: bytes) -> RenderedImage:
         try:
-            with Image.open(io.BytesIO(data)) as opened:
+            with Image.open(io.BytesIO(data), formats=ALLOWED_FORMATS) as opened:
                 if opened.width * opened.height > self._max_pixels:
                     raise ImageProcessingError("image has too many pixels")
                 opened.load()
@@ -51,7 +54,9 @@ class PillowImageRenderer:
             resized = (
                 rgb
                 if target == width
-                else rgb.resize((target, max(1, round(height * target / width))), Image.LANCZOS)
+                else rgb.resize(
+                    (target, max(1, round(height * target / width))), Image.Resampling.LANCZOS
+                )
             )
             out = io.BytesIO()
             # Rebuild from the pixels: a fresh image object carries no info dict at all.

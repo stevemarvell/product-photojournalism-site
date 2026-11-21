@@ -16,6 +16,8 @@ export interface CheckArgs {
   skipVerify: boolean;
   dryRun: boolean;
   repo?: string;
+  /** Optional integrations to file issues for (`--with`). */
+  with: string[];
 }
 export interface PreflightResult {
   name: string;
@@ -33,6 +35,12 @@ export interface CheckResult {
 export interface OwnerIssue {
   title: string;
   rank: 'critical' | 'high' | 'medium';
+  /** True when only the owner can do it (a login, money or a credential): filed `human`, assigned. False is agent work: rank label only, unassigned. */
+  owner: boolean;
+  /** Filed only when asked for with `check --with <name>`. */
+  optional?: string;
+  /** A repository secret this issue asks for; the issue is not filed while that secret is set. */
+  secret?: string;
   /** The issue text for `repo` (`owner/name`), so printed commands carry `-R owner/name`. */
   body: (repo: string) => string;
 }
@@ -46,6 +54,7 @@ export declare const BASE_REMOTE: string;
 export declare const PREFLIGHT_NODE_MAJOR: number;
 export declare const MARK: { done: string; fixed: string; owner: string; info: string };
 export declare const OWNER_ISSUES: OwnerIssue[];
+export declare const OPTIONAL_NAMES: string[];
 export declare const TEMPLATE_ISSUE_TITLE: string;
 export declare const MAX_ISSUE_PAGES: number;
 
@@ -72,7 +81,7 @@ export declare function missingPreflight(results: PreflightResult[]): PreflightR
 
 export declare function renderCheck(results: CheckLine[]): CheckResult;
 export declare function branchProtectionDecision(options: { isPrivate: boolean }): CheckLine;
-export declare function missingOwnerIssues(existingTitles: string[]): OwnerIssue[];
+export declare function missingOwnerIssues(existingTitles: string[], options?: { secretNames?: Set<string>; withOptional?: string[] }): OwnerIssue[];
 export declare function needsTemplateIssue(openIssues: { labels?: string[] }[]): boolean;
 
 export declare function runCheck(options?: {
@@ -80,6 +89,7 @@ export declare function runCheck(options?: {
   root?: string;
   dryRun?: boolean;
   skipVerify?: boolean;
+  withOptional?: string[];
   run?: Run;
   fetchUrl?: typeof fetch;
   runVerify?: () => number;
@@ -95,6 +105,8 @@ export declare function create(
   options: CreateArgs,
   deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void },
 ): Promise<number>;
+export declare function mergePackageJson(current: string, wanted: string): string | undefined;
+export declare function alignPins(text: string, rootText: string | undefined): string;
 export declare function add(
   options: { starters: string[] },
   deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void },

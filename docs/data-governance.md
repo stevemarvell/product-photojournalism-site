@@ -9,7 +9,7 @@ same pull request.
 | Data | Holds | Who can read it |
 | --- | --- | --- |
 | **Stories** | Per story, a **draft** (title, description, location, date, markdown content) and **published** text (the same fields, copied from the draft at publish), plus whether it is live and its publish and edit times. The content can name images by id (`<Photo image="…" alt="…" />`) but holds no image data. | **Drafts: the owner only**, through the owner endpoints. **Published text: public by design**, served anonymously by `GET /public/pieces` and `GET /public/pieces/{id}` and drawn by the public site, and only while the story is live. |
-| **Images** | Per image: an id, its status (processing, ready or failed), the **original** (the file as the owner uploaded it, still carrying its GPS and other EXIF), the **web versions** (JPEGs at 480, 960, 1600 and 2400 px wide where the original is at least that wide, never enlarged), and the width, height and byte size. | **Web versions: public by design**, served by key at `/public/images/<image id>-<width>.jpg`, with **all EXIF, GPS, ICC and comment data removed** (they are re-encoded from the decoded pixels). **Originals: nobody but the API's own processing code.** No response of any endpoint, owner or public, contains an original's URL; the owner's `GET /images/{id}` returns the status and web versions only. |
+| **Images** | Per image: an id, its status (processing, ready or failed), the **original** (the file as the owner uploaded it, still carrying its GPS and other EXIF; only JPEG, PNG, WebP and TIFF are processed, and any other format ends `failed`), the **web versions** (JPEGs at 480, 960, 1600 and 2400 px wide where the original is at least that wide, never enlarged), and the width, height and byte size. | **Web versions: public by design**, served by key at `/public/images/<image id>-<width>.jpg` as soon as the image is ready, whether or not any story using it is published (the image id is a random UUID, so the URL is unguessable but not secret), with **all EXIF, GPS, ICC and comment data removed** (they are re-encoded from the decoded pixels). **Originals: nobody but the API's own processing code.** No response of any endpoint, owner or public, contains an original's URL; the owner's `GET /images/{id}` returns the status and web versions only. |
 | **Sessions** | A server-side record per sign-in: a random session id, the owner's user id and the session epoch. No secret, no password, no personal data beyond the id. | Nobody; it is only checked, never served. |
 | **The session cookie** | The signed cookie carries the session id, its epoch and the owner's Vercel id (to compare with `OWNER_VERCEL_ID`), or, mid-sign-in, an encrypted single-use PKCE record. | The visitor's own browser. |
 
@@ -144,12 +144,24 @@ load-bearing controls, and the verdict below holds only while all of them do:
   12 hours. Every `/auth/*` response is `Cache-Control: no-store`.
 - **Server-side sessions.** Every sign-in creates a record in the `SessionStore`, and
   every owner request must present a cookie whose session id is in the store at the
-  stored epoch (`api.guard.current_user`). **Signing out deletes the record**, so a
-  copy of the cookie stops working at once on that instance (see the caveat above on
-  other instances). **`POST /auth/revoke-all`** bumps the
+  stored epoch (`api.guard.current_user`). **Signing out deletes the record** (in
+  production, the row in the shared database), so a copy of the cookie is refused on
+  every instance. **`POST /auth/revoke-all`** bumps the
   epoch: every session, the caller's included, is refused on its next request.
   Rotating `SESSION_SECRET` still invalidates everything, and is the remedy if the
   secret itself leaks.
+
+- **The web app's security headers** (`apps/web/vercel.json` `headers`, from the one
+  constant in `apps/web/security-headers.mjs`) are on every page except `/api/*`, which
+  keeps the API's own: a `Content-Security-Policy` that loads scripts only from the site
+  itself (`script-src 'self'`; styles also inline because Ionic injects them; images and
+  connections also to Vercel Blob's `*.public.blob.vercel-storage.com`, and to `https://vercel.com/api/blob/` (where the browser PUTs an original); fonts same-origin
+  or `data:`), `frame-ancestors 'none'` with `X-Frame-Options: DENY`, `nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, and a `Permissions-Policy` denying
+  camera, microphone and geolocation. A test asserts `vercel.json` and the constant agree,
+  and `apps/web/e2e/csp.spec.ts` asserts no policy violation on the home page, a piece
+  page and the editor. Widening the policy (a new host, `'unsafe-inline'` for scripts)
+  voids this control.
 
 - **The image rules**: the local upload endpoint is mounted only in development and never
   with `VERCEL_ENV` set (`apps/api/tests/test_local_uploads.py`); it and every other owner
@@ -161,8 +173,7 @@ load-bearing controls, and the verdict below holds only while all of them do:
 reads the cookie without `current_user`), a public route that returns draft text, a
 second person given owner access, or the public renderer (`apps/web/src/render.ts`) doing anything but
 parsing only the subset `content_problems` allows: it must never evaluate MDX or build HTML from a body, and
-`content_problems` must keep running on save and on publish. Before the Postgres story adapter ships, revisit
-this page; images, Blob and the Postgres image adapter are covered above. A second Blob store, a private one, or processing moved out of the request would change the image paragraph above: revisit it then.
+`content_problems` must keep running on save and on publish. Images, Blob and the Postgres image adapter are covered above; before the Postgres story adapter ships, revisit this page. A second Blob store, a private one, or processing moved out of the request would change the image paragraph above: revisit it then.
 
 ## What CI holds, and what voids that
 
@@ -191,12 +202,20 @@ credentialed jobs or pass the secrets only to the action's own step, and
 rewrite this section.
 
 The `pr checks` job in `.github/workflows/pr-checks.yml` (it replaces the old
-`contention` and `test census` workflows) is the same shape with no secret in
-the table: it runs `scripts/pr-contention.mjs` and `scripts/test-census.mjs`
-from the pull request's checkout with `GITHUB_TOKEN` scoped
-`pull-requests: write`. GitHub has no comment-only permission, so that scope
-also permits merging, closing and labelling any open pull request. The same two
-bounds hold and the same trigger voids it.
+`contention` and `test census` workflows) holds no secret in the table but
+carries `GITHUB_TOKEN` scoped `pull-requests: write`. GitHub has no
+comment-only permission, so that scope also permits merging, closing and
+labelling any open pull request. So no script from the pull request's checkout
+runs in it: `scripts/pr-contention.mjs` and `scripts/test-census.mjs` execute
+from `base-scripts/`, a second checkout of the base commit (sparse to
+`scripts/`), and read the pull request's tree only through `git`. A pull
+request that edits either script is judged by the unedited copy.
+`scripts/test/pr-checks-base-scripts.test.ts` allowlists what each step may
+run. Every checkout in every workflow sets `persist-credentials: false`
+(`scripts/test/checkout-credentials.test.ts`). The workflow file itself is
+still read from the pull request's ref, so a pull request that edits it runs
+its own steps with the token: the one-writer bound holds and a second writer
+voids it.
 
 The code and security reviews run once, when a pull request is opened or marked
 ready, and again only when the `re-review` label is added. They do not re-run on

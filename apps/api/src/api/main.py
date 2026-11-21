@@ -1,7 +1,5 @@
-"""The API's shell: a health check behind security headers.
-
-A placeholder, serving no application data, kept live until a real
-application replaces it.
+"""Builds the app: routers for sign-in, stories, images and the public site, the
+session, CORS, security headers, `/health` and `/version`.
 """
 
 import os

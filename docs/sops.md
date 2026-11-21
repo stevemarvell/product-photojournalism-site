@@ -41,7 +41,7 @@ so a loop under its attempt ceiling can still run long.
 | `verify` → fix → `verify` | 3 attempts | `.claude/commands/ship.md`, enforced by `.claude/hooks/verify-on-stop.mjs` |
 | `verify` run and report | 1 attempt | `.claude/commands/gate.md` |
 | Sending an agent back for rework | 2 rounds | this document |
-| Implementer agents running at once | 3 | `.claude/skills/delegate/SKILL.md` |
+| Implementer agents running at once | 3, on non-overlapping paths only, and no more than the remaining usage window can finish | `.claude/skills/delegate/SKILL.md` |
 | Polling a deployment in `smoke` | 40 × 15s per app for the freshness gate; 30 × 15s per app check | `scripts/smoke.mjs` (`GATE_ATTEMPTS`); each app's `smoke` script, per loop |
 | Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
@@ -68,9 +68,15 @@ Three loops *are* mechanically bounded:
 - Smoke's waits, by `GATE_ATTEMPTS` and the `seq` bounds above.
 - The rate limiter, at 120 requests per minute — see `docs/data-governance.md`.
 - The fix-and-retry loop the stop hook drives.
-  `.claude/hooks/verify-on-stop.mjs` blocks the end of a turn while `verify`
-  is red, which is what creates that loop. It now counts consecutive blocks,
-  per session, in a file outside the checkout. At the third red in a row it
+  `.claude/hooks/verify-on-stop.mjs` runs the checks for what changed: the
+  harness's for engine code, and each affected app's for that app's paths. A
+  change to a file that drives the app checks (`project.json`,
+  `scripts/project.mjs`, `scripts/verify-apps.mjs`, `package.json`,
+  `package-lock.json`) runs every app's checks as well as the harness's. Full
+  `verify` stays the pre-PR contract. The hook blocks the end of a turn while
+  one of its checks is red, which is what creates that loop. It now counts
+  consecutive blocks, per session, in a file outside the checkout. At the third
+  red in a row it
   stops blocking, ends the turn, and reports the failure to the person. A green
   run, or a new turn from the person, resets the count. The ceiling is
   `MAX_CONSECUTIVE_BLOCKS`, and a test holds it to the three attempts
@@ -86,7 +92,7 @@ what a push or a merge starts is a spending decision and is written down here.
   just passed. The price: **nothing mechanical verifies a direct push to
   `develop`**, so "never commit or push directly to `develop`" is discipline
   alone, with no check behind it either way. It was already unenforced on a
-  free-plan private repository (no rulesets), but a bad direct push used to
+  free-plan repository (public since 2026-11-15; rulesets are tracked in #340), but a bad direct push used to
   turn the next `verify` red and now does not. A person who suspects one runs
   `verify` by hand from the Actions tab against `develop`.
 - **`pr checks`** (`pr-checks.yml`) is the census and contention in one job,
@@ -107,6 +113,14 @@ what a push or a merge starts is a spending decision and is written down here.
   label by itself, so no review loop can run unattended.
 - **`smoke` runs on every push to `develop`** and, once an app deploys, on a
   schedule every 6 hours (`SMOKE_SCHEDULE` in `scripts/deploy/add.mjs`).
+- **A deployed app rebuilds only for what it reads.** Its `reads` and
+  `ignores`, `scripts/project.mjs` and the provider's ignore script are
+  diffed as paths. `project.json` is not watched as a file, because every
+  engine sync bumps `engine.commit` in it: when it differs, base and HEAD are
+  compared with exactly two things removed, the `engine` block and the other
+  apps' entries, and any other difference (this app's entry, the top-level
+  `name`, a new key) builds. An unreadable or unparseable manifest builds. Dropping the other apps' entries assumes no build reads another app's entry (a CORS list or API base URL built from its `deploy.url`); `scripts/test/apps-read-manifest.test.ts` fails if an app reads anything from `project.json` but `name`. The ignore step and the `smoke` freshness gate
+  ask this through one function, `buildInputsChanged` in `scripts/project.mjs`.
 
 Cost, **estimated**, not metered per change. The source is the billed minutes
 per job measured over 2026-11-08 to 2026-11-10: `verify` about 2.4 on pull
@@ -221,8 +235,8 @@ whatever it spends. `.claude/hooks/filter-verbose.mjs` shrinks CI logs and
 no model.
 
 **Spawn fewer agents.** Each one carries its own context window, loads
-`CLAUDE.md`, and costs 57k–144k tokens on the evidence in
-the model-tiering trial recorded in the base repository. Parallel agents multiply that directly; the
+`CLAUDE.md`, and costs about 105k–165k tokens (observed
+per implementer run, 2026-11-15/16; the model-tiering trial in the base repository measured 57k–144k). Parallel agents multiply that directly; the
 documentation puts agent teams at roughly seven times a standard session. Three
 well-scoped agents beat seven overlapping ones, and cost less than half.
 Fewer is not none: code still goes to an `implementer`. A Sonnet agent with a
@@ -307,8 +321,9 @@ posture, what bounds it, and the trigger that voids the decision.
   The trigger is named: a second one gets it.
 - An exposed schema ranks where it does because it describes invented data.
   The trigger is the same one above.
-- `docs/data-governance.md` is defensible because the deployed apps serve no
-  real data. The trigger is real data landing.
+- `docs/data-governance.md` is defensible while it matches what the deployed
+  apps serve, which that document states. The trigger is real data landing
+  in an app (what is served changing) without that document being updated.
 
 A `medium` with no stated bound is a guess wearing a label. The bound is the
 argument; the label is only its conclusion.
@@ -340,6 +355,10 @@ arrive at it.
 
 Asking is not the cautious choice. It reads as deference, so it never draws the
 scrutiny a risky action draws, and that is what makes it expensive.
+
+No turn ends with a question or an offer of further work. What is on this side
+of the line is done and reported; what is on the other side becomes a human
+issue (SOP 2), and that thread stops there.
 
 ### The test is recoverability, not scope
 
@@ -693,7 +712,7 @@ effect of closing it.
 This is a legitimate outcome — a note records why this project deliberately
 runs without one — for the half of the gap CI cannot close. It is bounded
 the same way the rest of that gap is bounded: one person has write access,
-the deployed apps serve no data at all (`docs/data-governance.md`), and the
+what the deployed apps serve is in `docs/data-governance.md`, and the
 realistic risk on a laptop session is a prompt-injected agent rather than a
 malicious one. CI was the sharper case *because* it is the one place here
 that already reads content nobody here wrote — a laptop session reads

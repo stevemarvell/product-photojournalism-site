@@ -20,13 +20,13 @@ on to stay defensible?**
 
 ## What that document relies on
 
-Today the deployed apps serve no data at all, so there is nothing load-bearing
-to list — that is itself the control. The moment a real application replaces
-either placeholder shell, `docs/data-governance.md` gets rewritten with that
-application's own list of load-bearing controls (an auth check, a rate limit,
-a schema restriction — whatever applies), and this section should be rewritten
-to match it in the same change. A change that adds real exposure with no
-corresponding update to that document is itself a finding.
+`docs/data-governance.md` names the controls everything else leans on (in a
+product, under a heading such as "the controls everything else leans on"; in
+the base, the statement that nothing is served). Read that list. A change that
+weakens a listed control, or adds exposure with no matching update to that
+document, is a finding. If the document names no controls and the repository
+serves or stores data, that is itself a finding, ranked high. A document
+that states nothing is served or stored satisfies this rule.
 
 ## What to look for
 

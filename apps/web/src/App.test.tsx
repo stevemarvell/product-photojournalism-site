@@ -57,6 +57,41 @@ describe('App', () => {
     expect(screen.getByText('stand-in-app')).toBeTruthy();
   });
 
+  it('shows the design bar with the Editor tag and a View site link on the list', () => {
+    render(<App />);
+    expect(document.querySelector('ion-header')).toBeNull();
+    expect(screen.getByText('Editor')).toBeTruthy();
+    expect(screen.getByText('View site').getAttribute('href')).toBe('/');
+    expect(document.getElementById('editor-bar-left')).toBeNull();
+  });
+
+  it('gives the story route a bar with slots for the back link and the save status', () => {
+    window.history.pushState({}, '', '/editor/abc');
+    render(<App />);
+    expect(document.getElementById('editor-bar-left')).not.toBeNull();
+    expect(document.getElementById('editor-bar-right')).not.toBeNull();
+    expect(screen.queryByText('View site')).toBeNull();
+  });
+
+  it('keeps a back link to /editor in the bar while the story loads and when it fails', async () => {
+    window.history.pushState({}, '', '/editor/abc');
+    vi.stubEnv('VITE_API_URL', '/api');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.endsWith('/auth/me')
+            ? new Response(JSON.stringify({ signedIn: true, user: { name: 'Owner', isOwner: true } }), { status: 200 })
+            : new Response('x', { status: 500 }),
+        ),
+      ),
+    );
+    render(<App />);
+    expect(screen.getByTestId('bar-stories').getAttribute('href')).toBe('/editor');
+    await vi.waitFor(() => expect(screen.getByTestId('story-failed')).toBeTruthy());
+    expect(screen.getByTestId('bar-stories').getAttribute('href')).toBe('/editor');
+  });
+
   it('shows the public site, not the editor, anywhere but /editor', () => {
     window.history.pushState({}, '', '/');
     render(<App />);

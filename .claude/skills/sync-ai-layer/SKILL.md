@@ -92,6 +92,8 @@ on.
    Open a pull request;
    its body lists any file that is still intentionally different, and why.
 5. **Check.** After both merge, re-run step 1: only files outside the
-   catalogue's engine list may still differ. Then run
+   catalogue's engine list may still differ. Confirm the product's
+   `docs/data-governance.md` still names its load-bearing controls under a
+   heading (the security rubric reads that list). Then run
    `node scripts/setup.mjs check` downstream: its ℹ line should say "up to date with
    boris" if the copy was of boris's current `develop`.

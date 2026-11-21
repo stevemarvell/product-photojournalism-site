@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import { ApiNotConfiguredError } from './api';
 import { resolveUrl } from './images-api';
+import { Paragraph } from './Prose';
 import { fetchPiece, fetchPieces, PublicApiError, type Piece, type PieceSummary, type PublicPhoto } from './public-api';
 import { parseBody, type Block } from './render';
 
@@ -42,14 +43,35 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? '' : UTC_DATE.format(d);
 }
 
-function Page({ children }: { children: ReactNode }) {
+/** The page chrome: the masthead (with the tagline on the home page only) and the content. */
+function Page({ children, home = false }: { children: ReactNode; home?: boolean }) {
   return (
-    <div className="public" data-testid="public">
+    <div className={home ? 'public public-home' : 'public'} data-testid="public">
       <header className="public-masthead">
-        <a href="/">{__APP_NAME__}</a>
+        <div className="public-masthead-inner">
+          <a href="/" className="public-name">
+            {__APP_NAME__}
+          </a>
+          {home && <span className="public-tagline">Photojournalism</span>}
+        </div>
       </header>
-      <main className="public-column">{children}</main>
+      <main className="public-main">{children}</main>
     </div>
+  );
+}
+
+/** "Location · date": the piece's own date when set, else when it was first published; either part may be absent,
+ * and nothing is rendered when both are. The date is a machine-readable `<time>`. */
+function PlaceLine({ piece }: { piece: { location: string; date: string | null; first_published_at: string } }) {
+  const iso = piece.date || piece.first_published_at;
+  const when = formatDate(iso);
+  if (!piece.location && !when) return null;
+  return (
+    <span className="public-line">
+      {piece.location}
+      {piece.location && when && ' \u00b7 '}
+      {when && <time dateTime={iso}>{when}</time>}
+    </span>
   );
 }
 
@@ -76,37 +98,40 @@ function Photo({ photo, alt, caption, credit, first }: { photo: PublicPhoto; alt
         height={photo.height || undefined}
         loading={first ? 'eager' : 'lazy'}
       />
-      {caption && <figcaption>{caption}</figcaption>}
-      {credit && <small className="public-credit">{credit}</small>}
+      {(caption || credit) && (
+        <figcaption>
+          <span>{caption}</span>
+          {credit && <small className="public-credit">{credit}</small>}
+        </figcaption>
+      )}
     </figure>
   );
 }
 
 function Body({ blocks, photos }: { blocks: Block[]; photos: Record<string, PublicPhoto> }) {
   let seen = 0;
-  return (
-    <>
-      {blocks.map((block, i) => {
-        if (block.kind === 'paragraph') {
-          return (
-            <p key={i}>
-              {block.inlines.map((run, j) => {
-                // Text nodes only: React prints a string as text, whatever characters it holds.
-                let node: ReactNode = run.text;
-                if (run.italic) node = <em>{node}</em>;
-                if (run.bold) node = <strong>{node}</strong>;
-                return <span key={j}>{node}</span>;
-              })}
-            </p>
-          );
-        }
-        if (!Object.hasOwn(photos, block.photo.image)) return null;
-        const resolved = photos[block.photo.image];
-        if (!resolved) return null;
-        return <Photo key={i} photo={resolved} alt={block.photo.alt} caption={block.photo.caption} credit={block.photo.credit} first={seen++ === 0} />;
-      })}
-    </>
-  );
+  // Consecutive paragraphs share one reading column; a photo breaks out between columns.
+  const out: ReactNode[] = [];
+  let run: ReactNode[] = [];
+  const flush = (key: number) => {
+    if (run.length > 0) out.push(<div className="public-text" key={`t${key}`}>{run}</div>);
+    run = [];
+  };
+  blocks.forEach((block, i) => {
+    if (block.kind === 'paragraph') {
+      run.push(
+        <Paragraph key={i} inlines={block.inlines} />,
+      );
+      return;
+    }
+    if (!Object.hasOwn(photos, block.photo.image)) return;
+    const resolved = photos[block.photo.image];
+    if (!resolved) return;
+    flush(i);
+    out.push(<Photo key={i} photo={resolved} alt={block.photo.alt} caption={block.photo.caption} credit={block.photo.credit} first={seen++ === 0} />);
+  });
+  flush(blocks.length);
+  return <>{out}</>;
 }
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'missing' } | { state: 'error'; status: number | null };
@@ -132,45 +157,61 @@ export function Home() {
 
   const refused = new URLSearchParams(window.location.search).get('signin') === 'refused';
 
+  const [lead, ...more] = pieces.state === 'ready' ? pieces.value : [];
+
   return (
-    <Page>
+    <Page home>
       {refused && (
-        <p data-testid="signin-refused" role="alert">
+        <p data-testid="signin-refused" role="alert" className="public-note">
           Sign-in was refused.
         </p>
       )}
-      {pieces.state === 'loading' && <p data-testid="loading">Loading…</p>}
-      {pieces.state === 'error' && pieces.status === 501 && <p data-testid="empty">No application here yet.</p>}
+      {pieces.state === 'loading' && <p data-testid="loading" className="public-note">Loading…</p>}
+      {pieces.state === 'error' && pieces.status === 501 && <p data-testid="empty" className="public-note">No application here yet.</p>}
       {pieces.state === 'error' && pieces.status !== 501 && <ErrorNote what="The pieces" />}
-      {pieces.state === 'ready' && pieces.value.length === 0 && <p data-testid="empty">Nothing has been published yet.</p>}
-      {pieces.state === 'ready' && pieces.value.length > 0 && (
-        <ul className="public-list" data-testid="piece-list">
-          {pieces.value.map((p) => (
-            <li key={p.id}>
-              <a href={`/${p.id}`} data-testid="piece-link">
-                {p.hero && <HeroImage hero={p.hero} />}
-                <h2>{p.title}</h2>
-              </a>
-              <p>{p.description}</p>
-              <time dateTime={p.first_published_at}>{formatDate(p.first_published_at)}</time>
-            </li>
-          ))}
-        </ul>
+      {pieces.state === 'ready' && !lead && <p data-testid="empty" className="public-note">Nothing has been published yet.</p>}
+      {lead && (
+        <div data-testid="piece-list" className="public-home-body">
+          <a href={`/${lead.id}`} data-testid="piece-link" className="public-lead">
+            <Hero hero={lead.hero} sizes="(min-width: 60rem) 50vw, 100vw" />
+            <div className="public-lead-text">
+              <PlaceLine piece={lead} />
+              <h2>{lead.title}</h2>
+              <p>{lead.description}</p>
+            </div>
+          </a>
+          {more.length > 0 && (
+            <section className="public-more" data-testid="more">
+              <h2 className="public-more-heading">More</h2>
+              <div className="public-grid">
+                {more.map((p) => (
+                  <a key={p.id} href={`/${p.id}`} data-testid="piece-link" className="public-card">
+                    <Hero hero={p.hero} sizes="(min-width: 40rem) 33vw, 100vw" />
+                    <PlaceLine piece={p} />
+                    <h3>{p.title}</h3>
+                    <p>{p.description}</p>
+                  </a>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       )}
     </Page>
   );
 }
 
-function HeroImage({ hero }: { hero: NonNullable<PieceSummary['hero']> }) {
-  const sources = srcSet(hero);
-  if (!sources) return null;
-  return <img {...sources} sizes="(min-width: 40rem) 40rem, 100vw" alt={hero.alt} width={hero.width || undefined} height={hero.height || undefined} />;
+/** The photo slot of a home block: the hero at its own aspect ratio, or a neutral box where there is none. */
+function Hero({ hero, sizes }: { hero: PieceSummary['hero']; sizes: string }) {
+  const sources = hero ? srcSet(hero) : null;
+  if (!hero || !sources) return <div className="public-placeholder" data-testid="placeholder" aria-hidden="true" />;
+  return <img {...sources} sizes={sizes} alt={hero.alt} width={hero.width || undefined} height={hero.height || undefined} />;
 }
 
 /** A plain failure to load. Only the home page treats 501 (storage not built yet) specially. */
 function ErrorNote({ what }: { what: string }) {
   return (
-    <p data-testid="load-error" role="alert">
+    <p data-testid="load-error" role="alert" className="public-note">
       {what} could not be loaded.
     </p>
   );
@@ -180,11 +221,13 @@ export function NotFound() {
   useDocumentMeta('Page not found');
   return (
     <Page>
-      <h1 data-testid="not-found">Page not found</h1>
-      <p>There is nothing at this address.</p>
-      <p>
-        <a href="/">Back to the front page</a>
-      </p>
+      <div className="public-text public-notfound">
+        <h1 data-testid="not-found">Page not found</h1>
+        <p>There is nothing at this address.</p>
+        <p>
+          <a href="/" className="public-back">Back to the front page</a>
+        </p>
+      </div>
     </Page>
   );
 }
@@ -209,22 +252,29 @@ export function PiecePage({ id }: { id: string }) {
   if (!loaded) {
     return (
       <Page>
-        {piece.state === 'loading' && <p data-testid="loading">Loading…</p>}
+        {piece.state === 'loading' && <p data-testid="loading" className="public-note">Loading…</p>}
         {piece.state === 'error' && (
-          <p data-testid="load-error" role="alert">
+          <p data-testid="load-error" role="alert" className="public-note">
             This page can&rsquo;t be shown right now.
           </p>
         )}
       </Page>
     );
   }
-  const line = [loaded.date ? formatDate(loaded.date) : '', loaded.location].filter(Boolean).join(' · ');
   return (
     <Page>
-      <article data-testid="piece">
-        <h1>{loaded.title}</h1>
-        {line && <p className="public-line">{line}</p>}
+      <article data-testid="piece" className="public-piece">
+        <div className="public-head">
+          <PlaceLine piece={loaded} />
+          <h1>{loaded.title}</h1>
+          {loaded.description && <p className="public-standfirst">{loaded.description}</p>}
+        </div>
         <Body blocks={parseBody(loaded.content)} photos={loaded.photos} />
+        <div className="public-foot">
+          <a href="/" className="public-back">
+            ← All pieces
+          </a>
+        </div>
       </article>
     </Page>
   );

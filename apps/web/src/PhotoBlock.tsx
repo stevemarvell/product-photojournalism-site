@@ -95,41 +95,69 @@ function PhotoBlockEditor({ mdastNode }: JsxEditorProps) {
     });
   };
 
+  const state = states.get(attrs.image);
   return (
     <div ref={ref} data-photo-block="" data-testid="photo-block" className="photo-block" contentEditable={false}>
-      <div className="photo-block-head">
-        <strong>Photo</strong> <code data-testid="photo-image">{attrs.image}</code>
-        {index > 0 && (
-          <button type="button" data-testid="photo-up" onClick={() => ref.current && store?.move(ref.current, -1)}>
-            Move up
-          </button>
-        )}
-        {index >= 0 && index < total - 1 && (
-          <button type="button" data-testid="photo-down" onClick={() => ref.current && store?.move(ref.current, 1)}>
-            Move down
-          </button>
-        )}
+      <div className="photo-block-media">
+        <ImageNotice state={state} />
       </div>
-      <ImageNotice state={states.get(attrs.image)} />
-      <label>
-        Alt text (required to publish)
-        <input data-testid="photo-alt" value={attrs.alt} onChange={(e) => set('alt', e.target.value)} />
-      </label>
-      <label>
-        Caption
-        <input data-testid="photo-caption" value={attrs.caption} onChange={(e) => set('caption', e.target.value)} />
-      </label>
-      <label>
-        Credit
-        <input data-testid="photo-credit" value={attrs.credit} onChange={(e) => set('credit', e.target.value)} />
-      </label>
+      <div className="photo-block-fields">
+        <div className="photo-block-head">
+          <span className="photo-block-count" data-testid="photo-count">
+            {index >= 0 && total > 0 ? `Photo ${index + 1} of ${total}` : 'Photo'}
+          </span>
+          <code data-testid="photo-image" hidden>
+            {attrs.image}
+          </code>
+          <div className="photo-block-moves">
+            {index > 0 && (
+              <button
+                type="button"
+                className="icon-button"
+                data-testid="photo-up"
+                aria-label="Move photo up"
+                onClick={() => ref.current && store?.move(ref.current, -1)}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                  <path d="M4 10l4-4 4 4" />
+                </svg>
+              </button>
+            )}
+            {index >= 0 && index < total - 1 && (
+              <button
+                type="button"
+                className="icon-button"
+                data-testid="photo-down"
+                aria-label="Move photo down"
+                onClick={() => ref.current && store?.move(ref.current, 1)}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                  <path d="M4 6l4 4 4-4" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+        <label>
+          Alt text
+          <input data-testid="photo-alt" value={attrs.alt} onChange={(e) => set('alt', e.target.value)} />
+        </label>
+        <label>
+          Caption
+          <input data-testid="photo-caption" value={attrs.caption} onChange={(e) => set('caption', e.target.value)} />
+        </label>
+        <label>
+          Credit
+          <input data-testid="photo-credit" value={attrs.credit} onChange={(e) => set('credit', e.target.value)} />
+        </label>
+      </div>
     </div>
   );
 }
 
 /** What the block says about its image: still processing, failed, or a thumbnail once ready. */
 function ImageNotice({ state }: { state: ImageState | undefined }) {
-  if (!state || state.status === 'loading') return null;
+  if (!state || state.status === 'loading') return <span className="photo-placeholder">Photo</span>;
   if (state.status === 'processing') {
     return (
       <p data-testid="photo-status" className="photo-status">
@@ -153,8 +181,10 @@ function ImageNotice({ state }: { state: ImageState | undefined }) {
   }
   const small = state.web_versions[0];
   return small ? (
-    <img data-testid="photo-thumb" className="photo-thumb" src={resolveUrl(small.url)} alt="" width={160} />
-  ) : null;
+    <img data-testid="photo-thumb" className="photo-thumb" src={resolveUrl(small.url)} alt="" />
+  ) : (
+    <span className="photo-placeholder">Photo</span>
+  );
 }
 
 export const PHOTO_DESCRIPTOR: JsxComponentDescriptor = {

@@ -40,7 +40,7 @@ implementations; `composition.py` picks them from environment variables, and
 
 | Variable | Values (default first) |
 | --- | --- |
-| `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`, else `POSTGRES_URL`); default is `postgres` when `VERCEL_ENV` is set |
+| `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`, else `POSTGRES_URL`); default is `postgres` when `VERCEL_ENV` is `production`, and `memory` otherwise, previews included |
 | `BLOB_READ_WRITE_TOKEN` | the public Blob store's token (Vercel sets it); never logged or returned |
 | `IMAGE_STORE` / `IMAGE_DIR` | `filesystem` / `.data/images` (`/tmp/images` when `VERCEL_ENV` is set), or `blob`; the default is `blob` only with `VERCEL_ENV=production` and the token |
 | `IMAGE_UPLOADS` | `local` (originals PUT to this API's owner-only `/images/uploads/{token}`), `blob` (the browser uploads straight to Blob with a client token) or `off`; default `blob` in production with the token, `local` only with `API_ENVIRONMENT=development` and no `VERCEL_ENV`, else `off` (uploads answer 503); `local` with `VERCEL_ENV` set refuses to start; a preview never uses Blob unless asked |
@@ -54,7 +54,7 @@ implementations; `composition.py` picks them from environment variables, and
 ## Stories
 
 `/stories` (owner only): create, list, read, `PUT /{id}/draft` (409 when the sent
-`updated_at` is stale) and `POST /{id}/publish` (422 with `reasons`), and `POST /{id}/unpublish|republish|revert` (422 with `reasons` when the story's state does not allow it and nothing changes; 409 only when a save landed in between; revert bumps `updated_at`, unpublish and republish do not). `PUT` also refuses (422) a body outside the allowed subset (`domain/content.py`: prose, bold, italic and well-formed `<Photo>` tags only; no other tag, raw HTML, `{expressions}` or `import`/`export`). The rules live in
+`updated_at` is stale) and `POST /{id}/publish` (422 with `reasons`), and `POST /{id}/unpublish|republish|revert` (422 with `reasons` when the story's state does not allow it and nothing changes; 409 only when a save landed in between; revert bumps `updated_at`, unpublish and republish do not). `PUT` also refuses (422) a body outside the allowed subset (`domain/content.py`: prose, bold, italic and well-formed `<Photo>` tags only; another tag, raw HTML or `{expressions}`; `import`/`export` lines are stored as plain prose). The rules live in
 `domain/story.py`, use cases in `application/stories.py`, and every repository call
 takes the signed-in user's `organisation_id`. Storage is
 in-memory or Postgres (`adapters/postgres.py`: stories, sessions; `replace` is one conditional
@@ -75,6 +75,9 @@ makes every answer `Cache-Control: no-store`. `tests/test_public_site.py` is its
 including a sweep of every public answer for draft text and original URLs.
 
 ## Images
+
+Only JPEG, PNG, WebP and TIFF originals are decoded (`ALLOWED_FORMATS` in
+`adapters/pillow_images.py`); any other format fails the image. HEIC is out of scope.
 
 The browser asks `POST /images/upload-target {size}` (413 with the limit when too big,
 503 when no target is configured), PUTs the file to the returned `upload_url`, then

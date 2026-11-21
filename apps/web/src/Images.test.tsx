@@ -59,6 +59,20 @@ describe('the photo block shows its image', () => {
     expect(screen.queryByTestId('photo-status')).toBeNull();
   });
 
+  it('labels each block "Photo n of m" with labelled move buttons, and an Add photo button', async () => {
+    imageApi({ a: info('a', 'processing'), b: info('b', 'processing') });
+    render(<Drafting story={story(`${PHOTO('a')}\n\n${PHOTO('b')}`)} />);
+    await waitFor(() =>
+      expect(screen.getAllByTestId('photo-count').map((c) => c.textContent)).toEqual(['Photo 1 of 2', 'Photo 2 of 2']),
+    );
+    expect(screen.getAllByLabelText('Move photo down')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Move photo up')).toHaveLength(1);
+    expect(screen.getAllByText('Alt text')).toHaveLength(2);
+    expect(screen.getAllByText('Caption')).toHaveLength(2);
+    expect(screen.getAllByText('Credit')).toHaveLength(2);
+    expect((await screen.findByTestId('photo-button')).textContent).toBe('+ Add photo');
+  });
+
   it('shows an error on a failed image, and that the owner should remove the block', async () => {
     imageApi({ a: info('a', 'failed') });
     render(<Drafting story={story(`${PHOTO('a')}\n\n${PHOTO('b')}`)} />);

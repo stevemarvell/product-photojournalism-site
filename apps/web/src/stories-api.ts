@@ -6,6 +6,7 @@ export interface StorySummary {
   title: string;
   description: string;
   first_published_at: string | null;
+  updated_at: string;
 }
 
 export interface DraftText {

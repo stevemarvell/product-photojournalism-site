@@ -22,19 +22,27 @@
 // first push has none; that compares against where it left develop instead
 // (`forkPoint`).
 //
-// scripts/smoke.mjs asks the same question after a merge, with the same
-// pathspecs (project.mjs's buildPathspecs), so a skipped
-// API build is not mistaken for a stale one.
+// scripts/smoke.mjs asks the same question after a merge, through the same
+// function (project.mjs's buildInputsChanged), so a skipped build is not
+// mistaken for a stale one.
 import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildPathspecs, loadProject } from '../../project.mjs';
+import { isCommitSha } from '../../smoke.mjs';
+import { buildInputsChanged, buildPathspecs, loadProject } from '../../project.mjs';
 
 const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 
 // What each build reads comes from project.json: an app's `reads`
-// and `ignores`, plus the manifest and this script, which can change any
-// decision. See scripts/project.mjs's buildPathspecs. The list is what a build
+// and `ignores`, plus scripts/project.mjs and this script, which can change any
+// decision. See scripts/project.mjs's buildPathspecs. project.json itself is
+// NOT watched as a file: every engine sync bumps `engine.commit` in it, which
+// would rebuild every app for a commit that changed nothing it ships. When it
+// differs, base and HEAD are compared with exactly the `engine` block and the
+// OTHER apps' entries removed; anything else that differs (this app's entry,
+// the top-level `name`, an unknown key) builds, and so does anything
+// unreadable or unparseable. See
+// buildInputsChanged. The list is what a build
 // reads, not what it does not, so a path no app declares rebuilds nothing;
 // smoke.yml's two freshness gates are what catch a read left undeclared.
 
@@ -46,8 +54,10 @@ export function decide(project, env, git, manifest = loadProject()) {
 
   let base = env.VERCEL_GIT_PREVIOUS_SHA;
   if (base) {
+    // Untrusted input: only a full lowercase sha is ever handed to git.
+    if (!isCommitSha(base)) return { build: true, reason: 'previous deployment sha is not a commit id' };
     // Vercel's clone is shallow; the last deployed commit may be outside it.
-    if (!hasCommit(git, base) && git(['fetch', '--no-tags', '--depth=1', 'origin', base]).status !== 0) {
+    if (!hasCommit(git, base) && git(['fetch', '--no-tags', '--depth=1', '--end-of-options', 'origin', base]).status !== 0) {
       return { build: true, reason: `cannot fetch the previous deployment's commit ${base}` };
     }
   } else if (env.VERCEL_ENV === 'production') {
@@ -61,9 +71,9 @@ export function decide(project, env, git, manifest = loadProject()) {
     if (!base) return { build: true, reason: 'no previous deployment, and no merged pull request in the clone' };
   }
 
-  const diff = git(['diff', '--quiet', base, 'HEAD', '--', ...pathspecs]);
-  if (diff.status === 0) return { build: false, reason: `nothing ${project} reads changed since ${base}` };
-  if (diff.status === 1) return { build: true, reason: `${project} changed since ${base}` };
+  const answer = buildInputsChanged({ git, project: manifest, name: project, base, head: 'HEAD' });
+  if (answer === 'unchanged') return { build: false, reason: `nothing ${project} reads changed since ${base}` };
+  if (answer === 'changed') return { build: true, reason: `${project} changed since ${base}` };
   return { build: true, reason: `git diff failed against ${base}` };
 }
 
@@ -90,7 +100,7 @@ export function forkPoint(git) {
 }
 
 function hasCommit(git, sha) {
-  return git(['cat-file', '-e', `${sha}^{commit}`]).status === 0;
+  return git(['cat-file', '-e', '--end-of-options', `${sha}^{commit}`]).status === 0;
 }
 
 function runGit(args) {
