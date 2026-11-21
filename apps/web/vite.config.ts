@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vitest/config';
 import { substituteAppName } from './scripts/app-name.mjs';
 import { commitFile } from './scripts/commit-file.mjs';
+import { previewHeaders } from './security-headers.mjs';
 
 // apps/web/vite.config.ts -> the repository root, two directories up.
 const REPO_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -29,6 +30,8 @@ export default defineConfig({
   define: {
     __APP_NAME__: JSON.stringify(APP_NAME),
   },
+  // The built bundle is served with the deployment's security headers, so e2e runs under the policy.
+  preview: { headers: previewHeaders() },
   server: {
     // `npm run dev` reaches the local API same-origin, as the deployment does
     // through vercel.json's rewrite, so the session cookie is first-party.

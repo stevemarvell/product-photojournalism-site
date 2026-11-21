@@ -142,6 +142,18 @@ load-bearing controls, and the verdict below holds only while all of them do:
   Rotating `SESSION_SECRET` still invalidates everything, and is the remedy if the
   secret itself leaks.
 
+- **The web app's security headers** (`apps/web/vercel.json` `headers`, from the one
+  constant in `apps/web/security-headers.mjs`) are on every page except `/api/*`, which
+  keeps the API's own: a `Content-Security-Policy` that loads scripts only from the site
+  itself (`script-src 'self'`; styles also inline because Ionic injects them; images and
+  connections also to Vercel Blob's `*.public.blob.vercel-storage.com`; fonts same-origin
+  or `data:`), `frame-ancestors 'none'` with `X-Frame-Options: DENY`, `nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, and a `Permissions-Policy` denying
+  camera, microphone and geolocation. A test asserts `vercel.json` and the constant agree,
+  and `apps/web/e2e/csp.spec.ts` asserts no policy violation on the home page, a piece
+  page and the editor. Widening the policy (a new host, `'unsafe-inline'` for scripts)
+  voids this control.
+
 - **The image rules**: the local upload endpoint is mounted only in development and never
   with `VERCEL_ENV` set (`apps/api/tests/test_local_uploads.py`); it and every other owner
   image route are probed by the owner-guard audit; the public image route serves only
