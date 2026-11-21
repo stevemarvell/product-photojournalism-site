@@ -268,29 +268,10 @@ describe.skipIf(!existsSync(resolve(dirname(fileURLToPath(import.meta.url)), '..
   });
 
   // Serves `docs` at /docs/, and the shell bundle the first check looks for.
-  // `headers` is what the host sends on the document pages and /api/health: the web
-  // app's security headers as vercel.json sets them, with one thing wrong on request.
-  type Headers = 'ok' | 'none' | 'no-frame-options-on-editor' | 'web-csp-on-api';
-  async function serve(docs: string, omit: string[] = [], shelled: string[] = [], headers: Headers = 'ok'): Promise<string> {
-    const { SECURITY_HEADERS } = (await import(pathToFileURL(join(ROOT, 'apps/web/security-headers.mjs')).href)) as {
-      SECURITY_HEADERS: Record<string, string>;
-    };
-    const webHeaders = (path: string): Record<string, string> => {
-      if (headers === 'none') return {};
-      if (headers === 'no-frame-options-on-editor' && path === '/editor') {
-        return Object.fromEntries(Object.entries(SECURITY_HEADERS).filter(([k]) => k !== 'X-Frame-Options'));
-      }
-      return SECURITY_HEADERS;
-    };
+  async function serve(docs: string, omit: string[] = [], shelled: string[] = []): Promise<string> {
     const server = createServer((req, res) => {
       const path = (req.url ?? '/').split('?')[0]!;
-      const reply = (type: string, body: string | Buffer) => (res.writeHead(200, { 'content-type': type, ...webHeaders(path) }), res.end(body));
-      if (path === '/editor') return reply('text/html', '<div id="root"></div>');
-      if (path === '/api/health') {
-        const csp = headers === 'web-csp-on-api' ? SECURITY_HEADERS['Content-Security-Policy']! : "default-src 'none'; frame-ancestors 'none'";
-        res.writeHead(200, { 'content-type': 'application/json', 'content-security-policy': csp });
-        return res.end('{}');
-      }
+      const reply = (type: string, body: string | Buffer) => (res.writeHead(200, { 'content-type': type }), res.end(body));
       // A host that falls back to the app shell, with a 200, for a file it lacks (vite preview does; a Vercel SPA rewrite would).
       const shell = '<script src="/assets/index-abc123.js"></script>';
       if (path === '/') return reply('text/html', '<script src="/assets/index-abc123.js"></script>');
@@ -338,29 +319,7 @@ describe.skipIf(!existsSync(resolve(dirname(fileURLToPath(import.meta.url)), '..
     const docs = await built();
     const result = await run(await serve(docs));
     expect(result.output).toContain('every doc page served');
-    expect(result.output).toContain("/api/health keeps the API's own CSP");
     expect(result.code).toBe(0);
-  });
-
-  // Timeout: spawns bash on the smoke script; 15 s.
-  it('fails when the document pages carry no security headers', { timeout: 15_000 }, async () => {
-    const result = await run(await serve(await built(), [], [], 'none'));
-    expect(result.code).not.toBe(0);
-    expect(result.output).toMatch(/\/: Content-Security-Policy is '', expected/);
-  });
-
-  // Timeout: spawns bash on the smoke script; 15 s.
-  it('fails when /editor lacks one of the five headers', { timeout: 15_000 }, async () => {
-    const result = await run(await serve(await built(), [], [], 'no-frame-options-on-editor'));
-    expect(result.code).not.toBe(0);
-    expect(result.output).toMatch(/\/editor: X-Frame-Options is ''/);
-  });
-
-  // Timeout: spawns bash on the smoke script; 15 s.
-  it("fails when /api/health carries the web CSP instead of the API's", { timeout: 15_000 }, async () => {
-    const result = await run(await serve(await built(), [], [], 'web-csp-on-api'));
-    expect(result.code).not.toBe(0);
-    expect(result.output).toMatch(/api\/health CSP is .*expected the API's/);
   });
 
   // Timeout: spawns bash on the smoke script (151 ms quiet); 15 s.

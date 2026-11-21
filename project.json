@@ -44,7 +44,7 @@
         "npm run build",
         "npm run e2e"
       ],
-      "smoke": "apps/web/smoke.sh",
+      "smoke": "apps/web/smoke-deployed.sh",
       "reads": [
         "apps/web",
         "docs",
@@ -54,6 +54,8 @@
       ],
       "ignores": [
         "apps/web/smoke.sh",
+        "apps/web/smoke-deployed.sh",
+        "apps/web/smoke-headers.sh",
         "apps/web/e2e",
         "**/*.test.ts",
         "**/*.test.tsx"
