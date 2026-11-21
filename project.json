@@ -2,7 +2,7 @@
   "$comment": "The one place the AI layer (.claude/, scripts/, .github/) learns about the application. Swap the app by editing apps/ and this file. scripts/project.mjs reads and validates it; its tests pin the shape. Nothing here is deployed by default; `npm run deploy:add` adds an app's `deploy` block.",
   "name": "product-photojournalism-site",
   "engine": {
-    "commit": "8a2e4425858a1f9ed7350437be8d24b86981f2e9"
+    "commit": "cec4d1c3289aaffe71f8277532961f89b745173e"
   },
   "apps": {
     "api": {

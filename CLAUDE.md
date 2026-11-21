@@ -69,6 +69,8 @@ sync. Repository-specific facts go in the sections outside this block. -->
   third party. Everything else is decided, done, and recorded in the pull
   request body where the reviewers read it. Recoverable is established by a
   command, not by eye. `docs/sops.md` SOP 6.
+  Stopping for one of these three means opening a human issue (SOP 2) and
+  stopping that thread; no turn ends with a question or an offer of further work.
 
 - **`docs/adoption.md` preserves the source wording.** It is a rendering of the
   original document, not a rewrite. Restructure the layout freely, but do not
@@ -138,11 +140,10 @@ sync. Repository-specific facts go in the sections outside this block. -->
 ## Running it
 
 **Editing dependencies needs npm 11.** npm 10 cannot resolve `vitest` 4's
-optional peer set — its arborist crashes with *"Cannot read properties of
+optional peer set: its arborist crashes with *"Cannot read properties of
 null (reading 'edgesOut')"* on `npm install`, `npm install --workspace` and
-`npm ci` alike. The committed lockfile is lockfileVersion 3 and `npm ci`
-reads it fine under npm 10, which is what CI runs; but if you change a
-dependency, do the lock step with `npx npm@11 install`.
+`npm ci`. The lockfile is version 3 and `npm ci` reads it fine under npm 10
+(what CI runs); to change a dependency, lock with `npx npm@11 install`.
 
 ```bash
 npm run verify                     # everything, about a minute
@@ -161,6 +162,7 @@ deployment to be this commit, then runs that app's own checks
 ready, and again only when the `re-review` label is added; it does not re-run
 on a push, and it is advisory. When the driver adds `re-review` is defined in
 `drive-pr` step 4.
+Merging on a local `verify` is allowed only when CI did not run (`drive-pr` step 1).
 
 ## Agents and skills
 

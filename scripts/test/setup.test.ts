@@ -26,6 +26,7 @@ import {
   preflight,
   renderCheck,
   runCheck,
+  main,
   type Run,
 } from '../setup.mjs';
 import { ROOT } from '../project.mjs';
@@ -112,7 +113,7 @@ describe('parseCreateArgs', () => {
 
 describe('parseCheckArgs', () => {
   it('defaults everything to off', () => {
-    expect(parseCheckArgs([])).toEqual({ skipVerify: false, dryRun: false });
+    expect(parseCheckArgs([])).toEqual({ skipVerify: false, dryRun: false, with: [] });
   });
 
   it('parses --skip-verify, --dry-run and --repo', () => {
@@ -120,6 +121,7 @@ describe('parseCheckArgs', () => {
       skipVerify: true,
       dryRun: true,
       repo: 'o/n',
+      with: [],
     });
   });
 
@@ -129,6 +131,40 @@ describe('parseCheckArgs', () => {
 
   it('refuses --repo with no value', () => {
     expect(() => parseCheckArgs(['--repo'])).toThrow(/needs a value/);
+  });
+
+  it('parses --with as a comma-separated list, once per name', () => {
+    expect(parseCheckArgs(['--with', 'telegram,grafana']).with).toEqual(['telegram', 'grafana']);
+    expect(parseCheckArgs(['--with', 'telegram', '--with', 'telegram']).with).toEqual(['telegram']);
+  });
+
+  it('refuses an unknown --with name, naming the valid ones, as a usage error that exits 2', () => {
+    let caught: (Error & { exitCode?: number }) | undefined;
+    try {
+      parseCheckArgs(['--with', 'telegram,slack']);
+    } catch (e) {
+      caught = e as Error & { exitCode?: number };
+    }
+    expect(caught?.message).toMatch(/telegram, grafana/);
+    expect(caught?.message).toContain('"slack"');
+    expect(caught?.exitCode).toBe(2);
+  });
+
+  it('refuses --with with no value', () => {
+    expect(() => parseCheckArgs(['--with'])).toThrow(/needs a value/);
+  });
+
+  it('refuses an empty --with list ("" or ",") as the same exit-2 usage error', () => {
+    for (const value of ['', ',', ' , ']) {
+      let caught: (Error & { exitCode?: number }) | undefined;
+      try {
+        parseCheckArgs(['--with', value]);
+      } catch (e) {
+        caught = e as Error & { exitCode?: number };
+      }
+      expect(caught?.message, JSON.stringify(value)).toMatch(/needs a value/);
+      expect(caught?.exitCode, JSON.stringify(value)).toBe(2);
+    }
   });
 });
 
@@ -204,13 +240,30 @@ describe('branchProtectionDecision', () => {
 });
 
 describe('missingOwnerIssues', () => {
-  it('returns every owner issue when none exist yet', () => {
-    expect(missingOwnerIssues([])).toEqual(OWNER_ISSUES);
+  const asked = ['telegram', 'grafana'];
+
+  it('returns every issue when none exist yet and every optional one is asked for', () => {
+    expect(missingOwnerIssues([], { withOptional: asked })).toEqual(OWNER_ISSUES);
+  });
+
+  it('leaves out an optional issue nobody asked for, and keeps the rest', () => {
+    const titles = missingOwnerIssues([]).map((i) => i.title);
+    expect(titles).toEqual([
+      'Add CLAUDE_CODE_OAUTH_TOKEN',
+      "Merge Dependabot's first PR",
+      'Rewrite README and CLAUDE.md around the product',
+    ]);
+  });
+
+  it('adds only the optional issue that was named', () => {
+    const titles = missingOwnerIssues([], { withOptional: ['telegram'] }).map((i) => i.title);
+    expect(titles).toContain('Optional: Telegram notifications');
+    expect(titles).not.toContain('Optional: Grafana CI telemetry');
   });
 
   it('excludes an issue that already exists, by exact title', () => {
     const existing = [OWNER_ISSUES[0]!.title];
-    const missing = missingOwnerIssues(existing);
+    const missing = missingOwnerIssues(existing, { withOptional: asked });
     expect(missing).toHaveLength(OWNER_ISSUES.length - 1);
     expect(missing.some((i) => i.title === OWNER_ISSUES[0]!.title)).toBe(false);
   });
@@ -220,11 +273,11 @@ describe('missingOwnerIssues', () => {
     // runCheck fetches issue titles with --state all rather than the
     // open-only default, so a person who already closed one of these by
     // hand never gets it recreated.
-    expect(missingOwnerIssues([OWNER_ISSUES[1]!.title])).not.toContainEqual(OWNER_ISSUES[1]);
+    expect(missingOwnerIssues([OWNER_ISSUES[1]!.title], { withOptional: asked })).not.toContainEqual(OWNER_ISSUES[1]);
   });
 
   it('returns nothing once every owner issue already exists, so a re-run creates nothing new', () => {
-    expect(missingOwnerIssues(OWNER_ISSUES.map((i) => i.title))).toEqual([]);
+    expect(missingOwnerIssues(OWNER_ISSUES.map((i) => i.title), { withOptional: asked })).toEqual([]);
   });
 });
 
@@ -417,18 +470,41 @@ describe('runCheck', () => {
     expect(calls.some((c) => c.includes('delete_branch_on_merge=true'))).toBe(false);
   });
 
+  // The token issue is skipped while the secret is set (#285), so the filing
+  // tests that exercise it run with the secret missing.
+  const tokenMissing = { ...baseResponses, 'gh secret list': { status: 0, stdout: '[]', stderr: '' } };
+  const tokenIssueCalls = (calls: string[][]) =>
+    calls.filter((c) => c.includes('POST') && c.includes(`title=${OWNER_ISSUES[0]!.title}`));
+  const filingRun = (calls: string[][], responses: typeof baseResponses, existing: string[]) => async (cmd: string, args: string[]) => {
+    calls.push([cmd, ...args]);
+    if (cmd === 'gh' && args[0] === 'api' && args[1]!.includes('/issues?state=all')) {
+      return { status: 0, stdout: JSON.stringify(existing.map((t) => restIssue(t))), stderr: '' };
+    }
+    if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
+    return run(responses)(cmd, args);
+  };
+  const others = OWNER_ISSUES.slice(1).map((i) => i.title);
+
+  it('with the token secret set and no such issue, reports it set and files no token issue (#285)', async () => {
+    const calls: string[][] = [];
+    const result = await runCheck({ root: neutral, run: filingRun(calls, baseResponses, others), skipVerify: true, runIdentityTest: identityOk });
+    expect(result.lines.some((l) => l.includes('CLAUDE_CODE_OAUTH_TOKEN is set'))).toBe(true);
+    expect(tokenIssueCalls(calls)).toHaveLength(0);
+    expect(result.lines.some((l) => l.includes(OWNER_ISSUES[0]!.title))).toBe(false);
+  });
+
+  it('with the token secret set and its issue already open, files nothing and leaves it alone (#285)', async () => {
+    const calls: string[][] = [];
+    await runCheck({ root: neutral, run: filingRun(calls, baseResponses, OWNER_ISSUES.map((i) => i.title)), skipVerify: true, runIdentityTest: identityOk });
+    expect(calls.some((c) => c.includes('POST') && c[1] === 'api' && c[2]!.endsWith('/issues'))).toBe(false);
+    expect(calls.some((c) => c.includes('PATCH') || c.includes('close'))).toBe(false);
+  });
+
   it('files a missing owner issue, labelled human and do not automate, and reports it fixed', async () => {
     const calls: string[][] = [];
     const result = await runCheck({
       root: neutral,
-      run: async (cmd, args) => {
-        calls.push([cmd, ...args]);
-        if (cmd === 'gh' && args[0] === 'api' && args[1]!.includes('/issues?state=all')) {
-          return { status: 0, stdout: JSON.stringify(OWNER_ISSUES.slice(1).map((i) => restIssue(i.title))), stderr: '' };
-        }
-        if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
-        return run(baseResponses)(cmd, args);
-      },
+      run: filingRun(calls, tokenMissing, others),
       skipVerify: true,
       runIdentityTest: identityOk,
     });
@@ -461,9 +537,10 @@ describe('runCheck', () => {
           return { status: 0, stdout: JSON.stringify([]), stderr: '' };
         }
         if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
-        return run(baseResponses)(cmd, args);
+        return run(tokenMissing)(cmd, args);
       },
       skipVerify: true,
+      withOptional: ['telegram', 'grafana'],
       runIdentityTest: identityOk,
     });
     for (const issue of OWNER_ISSUES) {
@@ -474,6 +551,111 @@ describe('runCheck', () => {
       expect(body!.length, issue.title).toBeGreaterThan('body='.length);
       expect(body).not.toContain('undefined');
     }
+  });
+
+  // Scenarios from #333. Every call is recorded; nothing reaches GitHub.
+  const fileAll = async (opts: { existing?: string[]; withOptional?: string[]; dryRun?: boolean } = {}) => {
+    const calls: string[][] = [];
+    const result = await runCheck({
+      root: neutral,
+      run: filingRun(calls, tokenMissing, opts.existing ?? []),
+      skipVerify: true,
+      runIdentityTest: identityOk,
+      withOptional: opts.withOptional,
+      dryRun: opts.dryRun,
+    });
+    const posts = calls.filter((c) => c.includes('POST') && c[2]!.endsWith('/issues'));
+    const field = (c: string[], prefix: string) => c.filter((a) => a.startsWith(prefix)).map((a) => a.slice(prefix.length)).sort();
+    const filed = (title: string) => posts.find((c) => c.includes(`title=${title}`));
+    return { calls, result, posts, field, filed };
+  };
+
+  it('a new product: exactly one issue is labelled human and do not automate, and it is the token (#333)', async () => {
+    const { posts, field } = await fileAll();
+    const human = posts.filter((c) => c.includes('labels[]=human'));
+    expect(human).toHaveLength(1);
+    expect(human[0]).toContain('title=Add CLAUDE_CODE_OAUTH_TOKEN');
+    expect(field(human[0]!, 'labels[]=')).toEqual(['critical', 'do not automate', 'human']);
+    expect(field(human[0]!, 'assignees[]=')).toEqual(['octocat']);
+  });
+
+  it('agent work is filed with its rank label only, unassigned, with agent-written details (#333)', async () => {
+    const { filed, field } = await fileAll();
+    for (const title of ["Merge Dependabot's first PR", 'Rewrite README and CLAUDE.md around the product']) {
+      const call = filed(title);
+      expect(call, title).toBeDefined();
+      expect(field(call!, 'labels[]='), title).toEqual(['high']);
+      expect(field(call!, 'assignees[]='), title).toEqual([]);
+    }
+    const dependabot = filed("Merge Dependabot's first PR")!.find((a) => a.startsWith('body='))!;
+    expect(dependabot).toContain('merge_pull_request');
+    expect(dependabot).toContain('changelog');
+    expect(dependabot).toContain('Comment on this issue with the pull request number');
+    expect(dependabot).toContain('--paginate');
+    expect(dependabot).toContain('nothing to merge yet');
+    expect(dependabot).toContain('close it as completed');
+    expect(dependabot).toContain('install script');
+    expect(dependabot).toContain('manifest and its lockfile');
+    expect(dependabot).toContain('add the labels `human` and `do not automate`');
+    const readme = filed('Rewrite README and CLAUDE.md around the product')!.find((a) => a.startsWith('body='))!;
+    expect(readme).toContain('project.json');
+    expect(readme).toContain('apps/*/CLAUDE.md');
+  });
+
+  it('agent issues are reported fixed, never as the owner mark (#333)', async () => {
+    const { result } = await fileAll();
+    const agentLines = result.lines.filter((l) => l.includes('agent issue'));
+    expect(agentLines).toHaveLength(2);
+    for (const l of agentLines) expect(l.startsWith(MARK.fixed), l).toBe(true);
+  });
+
+  it('optional integrations: no Telegram or Grafana issue, and one info line each saying how to ask (#333)', async () => {
+    const { posts, result } = await fileAll();
+    expect(posts.some((c) => c.some((a) => a.includes('Optional:')))).toBe(false);
+    const info = result.lines.filter((l) => l.startsWith(MARK.info));
+    expect(info.filter((l) => l.includes('check --with telegram'))).toHaveLength(1);
+    expect(info.filter((l) => l.includes('check --with grafana'))).toHaveLength(1);
+  });
+
+  it('asked for: --with telegram files the Telegram issue as human and do not automate, assigned, and not Grafana (#333)', async () => {
+    const { filed, field, result, posts } = await fileAll({ withOptional: ['telegram'] });
+    const call = filed('Optional: Telegram notifications');
+    expect(call).toBeDefined();
+    expect(field(call!, 'labels[]=')).toEqual(['do not automate', 'human', 'medium']);
+    expect(field(call!, 'assignees[]=')).toEqual(['octocat']);
+    expect(posts.some((c) => c.some((a) => a.includes('Grafana')))).toBe(false);
+    expect(result.lines.some((l) => l.includes('check --with telegram'))).toBe(false);
+    expect(result.lines.filter((l) => l.includes('check --with grafana'))).toHaveLength(1);
+  });
+
+  it('re-run: issues filed under the old rules are not duplicated or touched, with or without --with (#333)', async () => {
+    const existing = OWNER_ISSUES.map((i) => i.title);
+    for (const withOptional of [undefined, ['telegram', 'grafana']]) {
+      const { calls, result } = await fileAll({ existing, withOptional });
+      expect(calls.some((c) => c.includes('POST') && c[2]!.endsWith('/issues')), String(withOptional)).toBe(false);
+      expect(calls.some((c) => c.includes('PATCH') || c.includes('close')), String(withOptional)).toBe(false);
+      expect(result.lines.some((l) => l.includes('check --with')), String(withOptional)).toBe(false);
+    }
+  });
+
+  it('--dry-run files nothing and calls agent issues info, not the owner mark (#333)', async () => {
+    const { posts, result } = await fileAll({ dryRun: true });
+    expect(posts).toHaveLength(0);
+    const line = result.lines.find((l) => l.includes('would file agent issue "Merge Dependabot'));
+    expect(line?.startsWith(MARK.info)).toBe(true);
+    expect(result.lines.find((l) => l.includes('would file owner issue "Add CLAUDE'))?.startsWith(MARK.owner)).toBe(true);
+  });
+
+  it('main: an unknown --with name exits 2 naming the valid ones, before any issue is created (#333)', async () => {
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (m: unknown) => void errors.push(String(m));
+    try {
+      expect(await main(['check', '--with', 'slack'])).toBe(2);
+    } finally {
+      console.error = original;
+    }
+    expect(errors.join('\n')).toMatch(/telegram, grafana/);
   });
 
   it('files the template issue from .github/ISSUE_TEMPLATE/story.md, body equal to the file minus its front matter', async () => {
@@ -620,7 +802,7 @@ describe('runCheck', () => {
             return { status: 0, stdout: JSON.stringify(OWNER_ISSUES.slice(1).map((i) => restIssue(i.title))), stderr: '' };
           }
           if (cmd === 'gh' && args[1] === 'user') return { status: 1, stdout: '', stderr: 'HTTP 403' };
-          return run(baseResponses)(cmd, args);
+          return run(tokenMissing)(cmd, args);
         },
         skipVerify: true,
         runIdentityTest: identityOk,

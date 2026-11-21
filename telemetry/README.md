@@ -67,7 +67,34 @@ A Claude Code cloud session reports to Grafana Cloud directly:
   the repository, the settings file or the session's environment.
 
 A session started above the repository (several repositories attached) loads
-no repository settings and sends nothing.
+no repository settings and sends nothing; see the next section.
+
+### Sessions with several repositories
+
+Such a session's working directory is above the checkouts, so no repository's
+`.claude/settings.json` is read, but `~/.claude/settings.json` always is. The
+environment's setup script (it runs as root after the repositories are cloned,
+before Claude starts) runs `scripts/user-telemetry-settings.mjs`, which merges
+the telemetry keys (`CLAUDE_CODE_ENABLE_TELEMETRY` and `OTEL_*`, never a
+`*_HEADERS` key) of the repository's committed settings into the user file. It
+keeps every other key already there, creates the file if absent, is idempotent,
+and on invalid JSON (or an endpoint containing `@`) exits non-zero without
+writing; a repository with no telemetry keys is a notice on stderr and exit 0, so
+the line cannot fail a session start. Only an explicit key list is copied, not
+the `OTEL_*` prefix, so the content-bearing `OTEL_LOG_*` switches never travel. Add this line to the
+environment's setup script, with `<repo>` the checkout's directory name (this
+file ships to every repository built from the base, so it names none; the
+filled-in line is in the "Cloud setup script" block of each README.md):
+
+```bash
+if [ -d <repo> ]; then node <repo>/scripts/user-telemetry-settings.mjs --repo <repo>; fi
+```
+
+The setup script runs as root, so this writes root's `~/.claude/settings.json`.
+That is the user Claude runs as in a cloud session: in this container `id -u` is
+0 and `$HOME` is `/root`, and the session itself runs here. Unverified: that a
+fresh session's Claude process reads that file (the Grafana check in #299 item 2
+is the confirmation).
 
 ## The unattended runs (CI)
 

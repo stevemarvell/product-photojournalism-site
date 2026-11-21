@@ -134,6 +134,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Work out which reviews this change needs
         id: scope
@@ -236,6 +237,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Point this session's telemetry at Grafana Cloud
         if: steps.token.outputs.available != 'false'
@@ -389,6 +391,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Point this session's telemetry at Grafana Cloud
         if: steps.token.outputs.available != 'false'
@@ -434,9 +437,9 @@ jobs:
             It is this repository's security rubric and it supersedes any
             generic checklist you would otherwise reach for. Read `CLAUDE.md`,
             `docs/sops.md` and `docs/data-governance.md` as that file
-            instructs, before forming an opinion — the deployed apps serve no
-            data at all today, and reporting "the API is unauthenticated" as
-            a finding with nothing behind it is noise.
+            instructs, before forming an opinion — that document says what is
+            exposed and which controls are load-bearing, and reporting "the API
+            is unauthenticated" as a finding with nothing behind it is noise.
 
             Get the diff with `gh pr diff ${{ github.event.pull_request.number }}`.
 

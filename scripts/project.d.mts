@@ -35,6 +35,7 @@ export declare function apps(project: Project, toolchain?: string): [string, App
 export declare function deployed(project: Project): [string, App][];
 export declare function hasDeploy(project: Project): boolean;
 export declare function hasService(project: Project, service: string): boolean;
+export declare function hasE2e(project: Project): boolean;
 export declare function appFor(project: Project, relativePath: string): [string, App] | null;
 export declare function buildPathspecs(project: Project, name: string): string[] | null;
 export declare function buildInputsChanged(options: {

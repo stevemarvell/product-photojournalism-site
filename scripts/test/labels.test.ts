@@ -35,6 +35,7 @@ describe('the committed labels.json', () => {
       'blocked: no paid plan',
       'postmortem',
       're-review',
+      'fable',
       'aia0',
       'aia1',
       'aia2',
