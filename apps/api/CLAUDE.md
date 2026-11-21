@@ -74,6 +74,9 @@ including a sweep of every public answer for draft text and original URLs.
 
 ## Images
 
+Only JPEG, PNG, WebP and TIFF originals are decoded (`ALLOWED_FORMATS` in
+`adapters/pillow_images.py`); any other format fails the image. HEIC is out of scope.
+
 The browser asks `POST /images/upload-target {size}` (413 with the limit when too big,
 503 when no target is configured), PUTs the file to the returned `upload_url`, then
 registers it with `POST /images {original_url}`; the row starts `processing` and
