@@ -6,6 +6,9 @@ import { Paragraph } from './Prose';
 import { fetchPiece, fetchPieces, PublicApiError, type Piece, type PieceSummary, type PublicPhoto } from './public-api';
 import { parseBody, type Block } from './render';
 
+/** The home page's list wrapper class: the string smoke-site.sh looks for in the shipped bundle. */
+export const HOME_MARKER = 'public-home-body';
+
 /** The public page URL is `/<uuid>` (spec section 8). */
 const PIECE_PATH = /^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i;
 
@@ -171,7 +174,7 @@ export function Home() {
       {pieces.state === 'error' && pieces.status !== 501 && <ErrorNote what="The pieces" />}
       {pieces.state === 'ready' && !lead && <p data-testid="empty" className="public-note">Nothing has been published yet.</p>}
       {lead && (
-        <div data-testid="piece-list" className="public-home-body">
+        <div data-testid="piece-list" className={HOME_MARKER}>
           <a href={`/${lead.id}`} data-testid="piece-link" className="public-lead">
             <Hero hero={lead.hero} sizes="(min-width: 60rem) 50vw, 100vw" />
             <div className="public-lead-text">

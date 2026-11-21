@@ -1,0 +1,6 @@
+/* The reset the public pages used to get from Ionic's core.css and normalize.css, now that
+   Ionic loads only with the editor (EditorShell.tsx). Kept to what the public design relies on. */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; }
+img { border: 0; }

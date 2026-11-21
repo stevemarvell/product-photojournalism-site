@@ -38,6 +38,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
+// The first import of the editor chunk transforms Ionic and MDXEditor cold.
+const COLD = { timeout: 15_000 };
+
 describe('App', () => {
   beforeEach(() => {
     // Ionic's app chrome is the editor's: the timer behaviour below is about it.
@@ -47,27 +50,38 @@ describe('App', () => {
     window.history.pushState({}, '', '/');
   });
 
-  it("titles the editor's toolbar from the project's own name, not a hardcoded one", () => {
+  // First on purpose: the chunk is imported once per file, so only the first render sees it pending.
+  it('shows Loading… while the editor chunk loads, then the editor', async () => {
+    render(<App />);
+    expect(screen.getByText('Loading…')).toBeTruthy();
+    expect(screen.queryByText('View site')).toBeNull();
+    await vi.waitFor(() => expect(screen.getByText('View site')).toBeTruthy(), COLD);
+    expect(screen.queryByText('Loading…')).toBeNull();
+  });
+
+  it("titles the editor's toolbar from the project's own name, not a hardcoded one", async () => {
     // Stubbed to a literal distinct from the real project name — asserting
     // against __APP_NAME__ itself would compare the component's value to
     // itself, which can't fail. If App.tsx ever hardcodes a string, the
     // stub has no effect on it and this fails.
     vi.stubGlobal('__APP_NAME__', 'stand-in-app');
     render(<App />);
-    expect(screen.getByText('stand-in-app')).toBeTruthy();
+    await vi.waitFor(() => expect(screen.getByText('stand-in-app')).toBeTruthy(), COLD);
   });
 
-  it('shows the design bar with the Editor tag and a View site link on the list', () => {
+  it('shows the design bar with the Editor tag and a View site link on the list', async () => {
     render(<App />);
+    await vi.waitFor(() => expect(screen.getByText('View site')).toBeTruthy(), COLD);
     expect(document.querySelector('ion-header')).toBeNull();
     expect(screen.getByText('Editor')).toBeTruthy();
     expect(screen.getByText('View site').getAttribute('href')).toBe('/');
     expect(document.getElementById('editor-bar-left')).toBeNull();
   });
 
-  it('gives the story route a bar with slots for the back link and the save status', () => {
+  it('gives the story route a bar with slots for the back link and the save status', async () => {
     window.history.pushState({}, '', '/editor/abc');
     render(<App />);
+    await vi.waitFor(() => expect(document.getElementById('editor-bar-left')).not.toBeNull(), COLD);
     expect(document.getElementById('editor-bar-left')).not.toBeNull();
     expect(document.getElementById('editor-bar-right')).not.toBeNull();
     expect(screen.queryByText('View site')).toBeNull();
@@ -87,6 +101,7 @@ describe('App', () => {
       ),
     );
     render(<App />);
+    await vi.waitFor(() => expect(screen.getByTestId('bar-stories')).toBeTruthy(), COLD);
     expect(screen.getByTestId('bar-stories').getAttribute('href')).toBe('/editor');
     await vi.waitFor(() => expect(screen.getByTestId('story-failed')).toBeTruthy());
     expect(screen.getByTestId('bar-stories').getAttribute('href')).toBe('/editor');
@@ -133,6 +148,7 @@ describe('App', () => {
     const { scheduledAfterUnmount } = spyOnSchedulingAfter(() => unmounted);
 
     const { unmount } = render(<App />);
+    await vi.waitFor(() => expect(document.querySelector('ion-app')).not.toBeNull(), COLD);
     unmount();
     unmounted = true;
     await vi.runAllTimersAsync();
@@ -145,6 +161,7 @@ describe('App', () => {
     const { scheduledAfterUnmount } = spyOnSchedulingAfter(() => unmounted);
 
     const { unmount } = render(<App />);
+    await vi.waitFor(() => expect(document.querySelector('ion-app')).not.toBeNull(), COLD);
     await settleThenUnmount(() => {
       unmount();
       unmounted = true;

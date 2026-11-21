@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "size": "node scripts/check-size.mjs",
     "e2e": "playwright test",
     "prebuild": "node scripts/build-docs.mjs"
   },
