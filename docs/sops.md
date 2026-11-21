@@ -46,7 +46,8 @@ so a loop under its attempt ceiling can still run long.
 | Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Issues worked in one `work-backlog` run | No count. The maximum is the usage window: the run re-triages after each merge and continues until triage lists nothing, or usage reaches its limit, then records what is in flight and schedules one resume after the reset | `.claude/skills/work-backlog/SKILL.md`, `.claude/skills/delegate/SKILL.md` ("On a usage limit") |
-| Times one issue is picked in a `work-backlog` run without a pull request resulting | 2, then it is labelled `human` and `do not automate`, commented, and not picked again. Discipline: the tally is the session's memory and a resumed run starts it at zero (#395 moves it onto the issue) | `.claude/skills/work-backlog/SKILL.md` (step 3) |
+| Pull requests parked at a `drive-pr` ceiling in one `work-backlog` run | No count; the run goes on to the next independent issue and reports each parked pull request | `.claude/skills/work-backlog/SKILL.md` (step 3), `scripts/parked.mjs` |
+| Failed attempts (no pull request) recorded on one issue by `work-backlog` | 2, counted from `<!-- backlog-attempt -->` comments on the issue, then it is labelled `human` and `do not automate` and triage lists it under Skip whatever its labels. Enforced in `scripts/triage.mjs` (tested), so a resumed run cannot lose the tally; writing the comment and label is the loop's discipline | `.claude/skills/work-backlog/SKILL.md` (steps 2 and 3), `scripts/triage.mjs` |
 | Paging Vercel deployments in `preview-prune` | 20 pages × 100 per project | `scripts/deploy/vercel/vercel-prune.mjs`, `MAX_PAGES` |
 
 Smoke is the model the rest of this follows. Every wait in an app's smoke
