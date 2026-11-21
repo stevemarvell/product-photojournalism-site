@@ -29,7 +29,7 @@ IDENTITY_PROVIDER  none | stub (only with API_ENVIRONMENT=development; refused w
 PUBLIC_WEB_ORIGIN  the origin visitors use (the OAuth redirect is <it>/api/auth/callback);
                    default the deployed web app where VERCEL_ENV is set, else localhost:5173
 PUBLIC_LIST_TTL_SECONDS  how long GET /public/pieces is answered from a per-process cache
-                   (default 5; 0 turns the cache off)
+                   (default 5, at most 60; 0 turns the cache off)
 CORS_ALLOWED_ORIGINS  comma-separated origins (default: the local Vite dev server;
                    where VERCEL_ENV is set, the deployed web app)
 """
@@ -79,6 +79,8 @@ DEFAULT_IMAGE_MAX_BYTES = 25 * 1024 * 1024
 DEFAULT_IMAGE_TIMEOUT_SECONDS = 120
 VERCEL_SETTINGS = ("VERCEL_OAUTH_CLIENT_ID", "VERCEL_OAUTH_CLIENT_SECRET", "OWNER_VERCEL_ID")
 DEFAULT_PUBLIC_LIST_TTL_SECONDS = 5
+# An unpublished piece must leave the anonymous list within this long.
+MAX_PUBLIC_LIST_TTL_SECONDS = 60
 DEFAULT_WEB_ORIGIN = "http://localhost:5173"
 DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 # Committed here because Vercel offers no committed place for runtime variables;
@@ -239,7 +241,10 @@ def build_container(env: Mapping[str, str]) -> Container:
         clock=clock,
         public_list_ttl=timedelta(
             seconds=_non_negative_int(
-                env, "PUBLIC_LIST_TTL_SECONDS", DEFAULT_PUBLIC_LIST_TTL_SECONDS
+                env,
+                "PUBLIC_LIST_TTL_SECONDS",
+                DEFAULT_PUBLIC_LIST_TTL_SECONDS,
+                maximum=MAX_PUBLIC_LIST_TTL_SECONDS,
             )
         ),
         cors_origins=origins,
@@ -261,7 +266,9 @@ def _positive_int(env: Mapping[str, str], name: str, default: int) -> int:
     return value
 
 
-def _non_negative_int(env: Mapping[str, str], name: str, default: int) -> int:
+def _non_negative_int(
+    env: Mapping[str, str], name: str, default: int, maximum: int | None = None
+) -> int:
     raw = env.get(name)
     if raw is None or raw == "":
         return default
@@ -271,4 +278,6 @@ def _non_negative_int(env: Mapping[str, str], name: str, default: int) -> int:
         raise ConfigError(f"{name} must be a whole number, not {raw!r}") from None
     if value < 0:
         raise ConfigError(f"{name} must not be negative")
+    if maximum is not None and value > maximum:
+        raise ConfigError(f"{name} must be at most {maximum} (the ceiling), not {value}")
     return value

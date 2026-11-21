@@ -30,8 +30,9 @@ export class PublicApiError extends Error {
 }
 
 /**
- * Always asks the server afresh (`no-store`, which the API also sends), so a Publish,
- * Unpublish or Republish shows on the next load rather than after a cache expires.
+ * Always asks the server afresh (`no-store`, which the API also sends). The list can lag a
+ * Publish, Unpublish or Republish by up to the API's list cache (5 s); a piece page is read
+ * fresh.
  */
 async function get(path: string): Promise<Response> {
   return fetch(`${base()}/public/pieces${path}`, { cache: 'no-store' });
