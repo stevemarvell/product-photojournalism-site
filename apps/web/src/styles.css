@@ -38,9 +38,9 @@
 .public a { color: #141414; text-decoration: none; }
 .public a:hover { color: #8a1c14; }
 .public a:focus-visible { outline: 2px solid #141414; outline-offset: 2px; }
-.public-masthead { border-bottom: 1px solid #141414; padding: 20px 24px; }
-.public-home .public-masthead { padding: 28px 24px 20px; }
-.public-masthead-inner { max-width: 1180px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; }
+.public-masthead { border-bottom: 1px solid #141414; padding: 20px 0; }
+.public-home .public-masthead { padding: 28px 0 20px; }
+.public-masthead-inner { max-width: 1180px; margin: 0 auto; padding: 0 24px; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; }
 .public-name { font: 600 1.75rem/1.2 Newsreader, Georgia, serif; }
 .public-home .public-name { font-size: 2.5rem; letter-spacing: -0.01em; }
 .public-tagline, .public-line { font-size: 0.8125rem; letter-spacing: 0.12em; text-transform: uppercase; }

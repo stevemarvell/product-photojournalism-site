@@ -59,10 +59,19 @@ function Page({ children, home = false }: { children: ReactNode; home?: boolean 
   );
 }
 
-/** "Location · date": the piece's own date when set, else when it was first published; either part may be absent. */
-function placeAndDate(p: { location: string; date: string | null; first_published_at: string }): string {
-  const when = formatDate(p.date || p.first_published_at);
-  return [p.location, when].filter(Boolean).join(' · ');
+/** "Location · date": the piece's own date when set, else when it was first published; either part may be absent,
+ * and nothing is rendered when both are. The date is a machine-readable `<time>`. */
+function PlaceLine({ piece }: { piece: { location: string; date: string | null; first_published_at: string } }) {
+  const iso = piece.date || piece.first_published_at;
+  const when = formatDate(iso);
+  if (!piece.location && !when) return null;
+  return (
+    <span className="public-line">
+      {piece.location}
+      {piece.location && when && ' \u00b7 '}
+      {when && <time dateTime={iso}>{when}</time>}
+    </span>
+  );
 }
 
 function srcSet(photo: PublicPhoto): { src: string; srcSet: string } | null {
@@ -173,7 +182,7 @@ export function Home() {
           <a href={`/${lead.id}`} data-testid="piece-link" className="public-lead">
             <Hero hero={lead.hero} sizes="(min-width: 60rem) 50vw, 100vw" />
             <div className="public-lead-text">
-              <span className="public-line">{placeAndDate(lead)}</span>
+              <PlaceLine piece={lead} />
               <h2>{lead.title}</h2>
               <p>{lead.description}</p>
             </div>
@@ -185,7 +194,7 @@ export function Home() {
                 {more.map((p) => (
                   <a key={p.id} href={`/${p.id}`} data-testid="piece-link" className="public-card">
                     <Hero hero={p.hero} sizes="(min-width: 40rem) 33vw, 100vw" />
-                    <span className="public-line">{placeAndDate(p)}</span>
+                    <PlaceLine piece={p} />
                     <h3>{p.title}</h3>
                     <p>{p.description}</p>
                   </a>
@@ -259,12 +268,11 @@ export function PiecePage({ id }: { id: string }) {
       </Page>
     );
   }
-  const line = placeAndDate(loaded);
   return (
     <Page>
       <article data-testid="piece" className="public-piece">
         <div className="public-head">
-          {line && <span className="public-line">{line}</span>}
+          <PlaceLine piece={loaded} />
           <h1>{loaded.title}</h1>
           {loaded.description && <p className="public-standfirst">{loaded.description}</p>}
         </div>

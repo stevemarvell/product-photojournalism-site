@@ -146,6 +146,25 @@ test.describe('the home page', () => {
   });
 });
 
+test.describe('the masthead', () => {
+  for (const [name, path] of [['home', '/'], ['a piece', `/${ID_A}`]] as const) {
+    test(`on ${name} the site name lines up with the main column at 1280px`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await mockApi(page, { list: [A], pieces: { [ID_A]: detail(A, BODY('img-a')) } });
+      await page.goto(path);
+      await expect(page.locator('.public-main')).toBeVisible();
+      await expect(page.locator('.public-name')).toBeVisible();
+      await expect(page.getByTestId('loading')).toHaveCount(0);
+      const sel = name === 'home' ? '.public-lead' : '.public-photo img';
+      const edges = await page.evaluate((q) => ({
+        name: document.querySelector('.public-name')?.getBoundingClientRect().left ?? -1,
+        col: document.querySelector(q)?.getBoundingClientRect().left ?? -2,
+      }), sel);
+      expect(edges.name).toBe(edges.col);
+    });
+  }
+});
+
 test.describe('a piece page', () => {
   test('shows title, date and location, paragraphs and full-width photos with srcset, alt, caption and credit', async ({ page }) => {
     await mockApi(page, { list: [A], pieces: { [ID_A]: detail(A, BODY('img-a')) } });

@@ -108,6 +108,28 @@ describe('the home page', () => {
     expect(links[1]?.querySelector('.public-line')?.textContent).toBe('9 November 2026');
   });
 
+  it('renders no empty location line when a piece has neither a location nor a readable date', async () => {
+    vi.stubGlobal('fetch', answer(200, [{ ...summary, location: '', date: null, first_published_at: 'not a date' }]));
+    render(<PublicSite path="/" />);
+    const link = await screen.findByTestId('piece-link');
+    expect(link.querySelector('.public-line')).toBeNull();
+    expect(link.querySelector('time')).toBeNull();
+  });
+
+  it('wraps the date in a machine-readable <time> on the home blocks and the piece page', async () => {
+    vi.stubGlobal('fetch', answer(200, [summary, { ...summary, id: 'e'.repeat(8) + '-0000-4000-8000-' + 'e'.repeat(12), date: null }]));
+    const { unmount } = render(<PublicSite path="/" />);
+    const links = await screen.findAllByTestId('piece-link');
+    expect(links[0]?.querySelector('time')?.getAttribute('datetime')).toBe('2026-10-31');
+    expect(links[0]?.querySelector('time')?.textContent).toBe('31 October 2026');
+    expect(links[1]?.querySelector('time')?.getAttribute('datetime')).toBe('2026-11-09T12:00:00Z');
+    unmount();
+    vi.stubGlobal('fetch', answer(200, piece('Words.')));
+    render(<PublicSite path={`/${ID}`} />);
+    const article = await screen.findByTestId('piece');
+    expect(article.querySelector('.public-line time')?.getAttribute('datetime')).toBe('2026-10-31');
+  });
+
   it('keeps the masthead name and the tagline without the word "story"', async () => {
     vi.stubGlobal('fetch', answer(200, [summary, { ...summary, id: 'd'.repeat(8) + '-0000-4000-8000-' + 'd'.repeat(12) }]));
     render(<PublicSite path="/" />);
