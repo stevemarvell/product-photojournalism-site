@@ -165,6 +165,24 @@ def test_an_original_refused_for_size_is_deleted_from_blob() -> None:
     assert pathname not in fake.objects
 
 
+def test_a_failed_delete_during_a_too_large_refusal_still_answers_413(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fake = FakeBlob()
+    _, client = world(fake, IMAGE_MAX_BYTES="1000")
+    t = client.post("/images/upload-target", json={"size": 10}).json()
+    pathname = t["original_url"].removeprefix(f"https://{HOST}/")
+    fake.objects[pathname] = b"x" * 1001
+    fake.fail_delete = True
+    with caplog.at_level("WARNING"):
+        r = client.post("/images", json={"original_url": t["original_url"]})
+    assert r.status_code == 413
+    assert r.json()["detail"]["limit"] == 1000
+    assert any(pathname in m for m in caplog.messages)
+    assert RW_TOKEN not in caplog.text and RW_TOKEN not in r.text
+    assert "delete failed" not in caplog.text  # the error's message is not logged, its class is
+
+
 def test_a_refused_registration_of_someone_elses_original_deletes_nothing() -> None:
     fake = FakeBlob()
     _, client = world(fake)
