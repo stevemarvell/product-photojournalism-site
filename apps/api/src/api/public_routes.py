@@ -6,7 +6,9 @@ the public site never carries the word "story" in anything a visitor can see (sp
 section 8). No answer holds a draft field or an original's URL.
 
 Every answer is `Cache-Control: no-store` (`NoStorePublic`): the pages are rendered in the
-browser from a fresh fetch, so Publish, Unpublish and Republish show on the next load.
+browser from a fresh fetch. The list is answered from a per-process cache, so a publish,
+unpublish or republish shows in it within PUBLIC_LIST_TTL_SECONDS (5 s); a single piece
+page is read every time.
 """
 
 import logging
@@ -97,7 +99,9 @@ def _summary(s: PublicSummary) -> dict[str, Any]:
 
 class ListCache:
     """Per process, per organisation: the last successful list and when it was made. A failure
-    is never stored (the exception leaves before `put`), so an outage is not remembered."""
+    is never stored (the exception leaves before `put`), so an outage is not remembered.
+    When an entry expires, concurrent requests may each read once before one stores: that
+    stampede is bounded by the threadpool and accepted."""
 
     def __init__(self) -> None:
         self._entries: dict[str, tuple[datetime, list[dict[str, Any]]]] = {}
@@ -114,19 +118,11 @@ class ListCache:
         self._entries[organisation_id] = (now, rows)
 
 
-def _cache_of(request: Request) -> ListCache:
-    state = request.app.state
-    if not hasattr(state, "public_list_cache"):
-        state.public_list_cache = ListCache()
-    cache: ListCache = state.public_list_cache
-    return cache
-
-
 @router.get("")
 def list_pieces(request: Request) -> list[dict[str, Any]]:
     # Anonymous, so no user to take an organisation from: the one the MVP has.
     container = container_of(request)
-    cache = _cache_of(request)
+    cache: ListCache = request.app.state.public_list_cache
     now = container.clock.now()
     cached = cache.get(MVP_ORGANISATION_ID, now, container.public_list_ttl)
     if cached is not None:

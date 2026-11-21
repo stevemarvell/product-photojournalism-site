@@ -29,7 +29,7 @@ IDENTITY_PROVIDER  none | stub (only with API_ENVIRONMENT=development; refused w
 PUBLIC_WEB_ORIGIN  the origin visitors use (the OAuth redirect is <it>/api/auth/callback);
                    default the deployed web app where VERCEL_ENV is set, else localhost:5173
 PUBLIC_LIST_TTL_SECONDS  how long GET /public/pieces is answered from a per-process cache
-                   (default 5; 0 turns the cache off, as the end-to-end server does)
+                   (default 5; 0 turns the cache off)
 CORS_ALLOWED_ORIGINS  comma-separated origins (default: the local Vite dev server;
                    where VERCEL_ENV is set, the deployed web app)
 """
