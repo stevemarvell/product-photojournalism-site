@@ -16,3 +16,4 @@ export declare function censusVerdict(input?: {
   body?: string;
 }): { ok: boolean; removed: number; headline: string; detail: string };
 export declare function treeAt(ref: string): Promise<Census>;
+export declare function mergeBase(baseRef: string, headRef: string): Promise<string>;

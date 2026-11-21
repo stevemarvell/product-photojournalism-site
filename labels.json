@@ -73,5 +73,15 @@
     "name": "aia4",
     "color": "24292f",
     "description": "Step 4 — AI-native: steering by intent, monitoring by exception"
+  },
+  {
+    "name": "fable",
+    "color": "5319e7",
+    "description": "Filed from a Fable review, written so a cheaper model can do it."
+  },
+  {
+    "name": "blocked: later",
+    "color": "c5def5",
+    "description": "Parked by the owner: triage skips it until the label is removed."
   }
 ]

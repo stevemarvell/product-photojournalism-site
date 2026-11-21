@@ -4,16 +4,24 @@
 // state rather than written in advance. The choice is still made by fixed
 // rules, not by judgement, so that it can be tested and read back:
 //
-// 1. Skip anything a person owns: `human`, `do not automate`, or any
+// 1. First skip an issue not written by the owner or someone with write access:
+//    the repository is public, so anyone can open one (`trusted`). This runs
+//    before every other skip, so a stranger's title is never printed, whatever
+//    labels the issue carries. Then skip anything a person owns: `human`, `do not automate`, or any
 //    `blocked…` label (CLAUDE.md: work that needs a person is labelled, not
 //    attempted). Skip a `template` too: it is a blank scaffold a person
 //    copies, and filling it in is never an agent's job (CLAUDE.md).
 // 2. Skip anything already in flight: an open pull request whose body names
 //    the issue with Closes/Fixes/Resolves/Refs.
 // 3. Skip anything whose body says "Depends on #<n>" for an issue still open.
-// 4. Order the rest by the one scale (SOP 5): critical, high, medium, then
+// 4. Defer an issue that is not ready to brief: no `**Then**` line under
+//    `## Acceptance criteria`, or an empty `## Details to complete`
+//    (`readiness`). It is listed as `Not ready` for the coordinator to
+//    complete (work-backlog step 1), is never also skipped, and does not
+//    count against the ceiling.
+// 5. Order the rest by the one scale (SOP 5): critical, high, medium, then
 //    unranked. Within a rank, `security` first, then oldest first.
-// 5. Take at most MAX_ISSUES_PER_RUN of them (SOP 1). The rest are reported
+// 6. Take at most MAX_ISSUES_PER_RUN of them (SOP 1). The rest are reported
 //    as deferred, not dropped.
 //
 // The `work-backlog` skill runs this, works what it picks, and runs it again
@@ -46,6 +54,33 @@ const UNRANKED = 3;
 
 const PERSON = (label) => label === 'human' || label === 'do not automate' || label.startsWith('blocked');
 
+/** Repository permissions that let an author steer the loop. */
+const WRITE_PERMISSIONS = new Set(['admin', 'maintain', 'write']);
+
+/**
+ * Whether an agent may act on this issue. `author_association` OWNER is
+ * trusted outright. MEMBER and COLLABORATOR do not imply write access (a
+ * collaborator can hold read or triage), so for those the author's permission
+ * on the repository must be admin, maintain or write, read through
+ * `permissionOf(login)`. Anything else, a missing login, a missing
+ * `permissionOf` or a lookup that throws, is held: fail closed. A rank label
+ * does not count, because a stranger can edit an issue's body after it is
+ * ranked. A stranger's report is worked when the owner opens an issue of
+ * their own with its content.
+ */
+export function trusted(issue, permissionOf) {
+  const association = issue.authorAssociation;
+  if (association === 'OWNER') return true;
+  if (association !== 'MEMBER' && association !== 'COLLABORATOR') return false;
+  const login = issue.user?.login;
+  if (!login || typeof permissionOf !== 'function') return false;
+  try {
+    return WRITE_PERMISSIONS.has(permissionOf(login));
+  } catch {
+    return false;
+  }
+}
+
 /** Issue numbers an open pull request already claims. */
 export function claimedIssues(pullRequests) {
   const claimed = new Map();
@@ -70,18 +105,72 @@ function rankOf(labels) {
   return Math.min(UNRANKED, ...labels.map((l) => (Object.hasOwn(RANK, l) ? RANK[l] : UNRANKED)));
 }
 
+/** The body's `## ` sections by exact heading, with fenced code blocks and CRLF removed. */
+function sections(body) {
+  const text = String(body ?? '').replace(/\r\n?/g, '\n').replace(/^(```|~~~)[^\n]*\n[\s\S]*?(?:^\1[^\n]*$|(?![\s\S]))/gm, '');
+  const out = new Map();
+  let current = null;
+  for (const line of text.split('\n')) {
+    if (/^## /.test(line)) {
+      current = line.slice(3).trimEnd();
+      if (!out.has(current)) out.set(current, []);
+    } else if (current !== null) {
+      out.get(current).push(line);
+    }
+  }
+  return out;
+}
+
+/** A real `**Then**` line: not a `_` line, and not the template's bracketed placeholder or `...`. */
+function hasThen(line) {
+  if (line.startsWith('_')) return false;
+  const match = /\*\*Then\*\*(.*)$/.exec(line);
+  if (!match) return false;
+  const text = match[1].trim();
+  return text !== '' && text !== '...' && !/^\[[^\]]*\]$/.test(text);
+}
+
 /**
- * @param issues        [{ number, title, labels: string[], body }]
- * @param pullRequests  open PRs: [{ number, body }]
- * @returns {{ work, deferred, skip }} work is at most MAX_ISSUES_PER_RUN long
+ * Whether an issue can be briefed as it stands: null if so, else the reason it
+ * cannot. Reads structure only, never acts on the text. The sections are those
+ * of `.github/ISSUE_TEMPLATE/story.md`; the template's placeholder lines start
+ * with `_` and are ignored, as is a bare `1.`. A details section of `None` is
+ * ready.
  */
-export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN) {
+export function readiness(issue) {
+  const found = sections(issue.body);
+  const criteria = (found.get('Acceptance criteria') ?? []).filter((l) => hasThen(l));
+  if (criteria.length === 0) return 'no acceptance criteria';
+  const details = (found.get('Details to complete') ?? []).map((l) => l.trim()).filter((l) => l && !l.startsWith('_') && !/^1\.$/.test(l));
+  if (details.length === 0) return 'no details to complete';
+  return null;
+}
+
+/**
+ * @param issues        [{ number, title, labels: string[], body, user: { login }, authorAssociation }]
+ * @param pullRequests  open PRs: [{ number, body }]
+ * @param max           most issues to work this run
+ * @param permissionOf (login) => the author's repository permission; see `trusted`
+ * @returns {{ work, deferred, notReady, skip }} work is at most MAX_ISSUES_PER_RUN long
+ */
+export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, permissionOf = undefined) {
   const openNumbers = new Set(issues.map((i) => i.number));
   const claimed = claimedIssues(pullRequests);
   const eligible = [];
   const skip = [];
+  const notReady = [];
 
   for (const issue of issues) {
+    if (!trusted(issue, permissionOf)) {
+      // A stranger's title is text the loop would otherwise print: leave it out.
+      skip.push({
+        number: issue.number,
+        reason: 'not written by the owner or someone with write access',
+        author: issue.user?.login ?? 'unknown',
+        association: issue.authorAssociation ?? 'unknown',
+      });
+      continue;
+    }
     if (issue.labels.includes('template')) {
       skip.push({ number: issue.number, title: issue.title, reason: 'a template, copied by a person' });
       continue;
@@ -98,6 +187,11 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN) {
     const deps = openDependencies(issue, openNumbers);
     if (deps.length) {
       skip.push({ number: issue.number, title: issue.title, reason: `depends on open ${deps.map((n) => `#${n}`).join(', ')}` });
+      continue;
+    }
+    const reason = readiness(issue);
+    if (reason) {
+      notReady.push({ number: issue.number, title: issue.title, reason });
       continue;
     }
     eligible.push({
@@ -117,12 +211,13 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN) {
   return {
     work: ordered.slice(0, max),
     deferred: ordered.slice(max),
+    notReady: notReady.sort((a, b) => a.number - b.number),
     skip: skip.sort((a, b) => a.number - b.number),
   };
 }
 
 /** The plan as text, for a person or a pull request body to read. */
-export function render({ work, deferred, skip }, { truncated = false } = {}) {
+export function render({ work, deferred, notReady = [], skip }, { truncated = false } = {}) {
   const lines = [`Work, in order (at most ${MAX_ISSUES_PER_RUN} per run):`];
   if (work.length === 0) lines.push('  nothing an agent may take on');
   for (const w of work) lines.push(`  #${w.number} [${w.rank}] ${w.title}`);
@@ -130,8 +225,15 @@ export function render({ work, deferred, skip }, { truncated = false } = {}) {
     lines.push('Deferred to the next run (over the ceiling):');
     for (const d of deferred) lines.push(`  #${d.number} [${d.rank}] ${d.title}`);
   }
+  if (notReady.length) {
+    lines.push('Not ready (complete the issue before briefing; at most 3 per run):');
+    for (const n of notReady) lines.push(`  #${n.number} ${n.reason}: ${n.title}`);
+  }
   lines.push('Skip:');
-  for (const s of skip) lines.push(`  #${s.number} ${s.reason}: ${s.title}`);
+  for (const s of skip) {
+    const reason = s.author ? `opened by ${s.author} (${s.association}); copy it into an owner issue to work it` : s.reason;
+    lines.push(s.author ? `  #${s.number} ${reason}` : `  #${s.number} ${reason}: ${s.title}`);
+  }
   if (truncated) lines.push(`WARNING: a listing hit ${FETCH_LIMIT} results; the plan may be incomplete.`);
   return lines.join('\n') + '\n';
 }
@@ -166,6 +268,8 @@ export function fetchOpen(run = gh, maxPages = MAX_PAGES) {
           number: item.number,
           title: item.title,
           body: item.body,
+          user: { login: item.user?.login },
+          authorAssociation: item.author_association,
           labels: (item.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name)),
         });
       }
@@ -178,10 +282,26 @@ export function fetchOpen(run = gh, maxPages = MAX_PAGES) {
   return { issues, pullRequests, truncated: beyond.length > 0 };
 }
 
+/**
+ * `permissionOf` for the CLI: the author's permission on this repository from
+ * REST (`collaborators/<login>/permission`), cached per login. A failed lookup
+ * throws, and `trusted` holds the issue.
+ */
+export function permissionLookup(run = gh) {
+  const cache = new Map();
+  return (login) => {
+    if (!cache.has(login)) {
+      const permission = JSON.parse(run(['api', `repos/{owner}/{repo}/collaborators/${encodeURIComponent(login)}/permission`])).permission;
+      cache.set(login, permission);
+    }
+    return cache.get(login);
+  };
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     const { issues, pullRequests, truncated } = fetchOpen();
-    const plan = triage(issues, pullRequests);
+    const plan = triage(issues, pullRequests, undefined, permissionLookup());
     process.stdout.write(
       process.argv.includes('--json') ? JSON.stringify({ ...plan, truncated }, null, 2) + '\n' : render(plan, { truncated }),
     );

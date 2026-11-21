@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -29,6 +29,8 @@ const FIXTURE: Project = {
   },
 };
 
+const SHA = 'a'.repeat(40);
+
 const manifestText = (project: Project, engine: string) => JSON.stringify({ ...project, engine: { commit: engine } }, null, 2);
 
 // A git stand-in: answers by the first argument, and records every call.
@@ -45,34 +47,34 @@ function fakeGit(answers: Record<string, { status: number; stdout?: string }>) {
 describe('decide', () => {
   it('skips when the diff since the previous deployment is empty', () => {
     const { git } = fakeGit({ diff: { status: 0 } });
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(false);
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: SHA }, git, FIXTURE).build).toBe(false);
   });
 
   it('builds when the diff since the previous deployment is not empty', () => {
     const { git } = fakeGit({ diff: { status: 1 } });
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(true);
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: SHA }, git, FIXTURE).build).toBe(true);
   });
 
   it('builds when git diff errors rather than answering', () => {
     const { git } = fakeGit({ diff: { status: 128 } });
-    expect(decide('web', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(true);
+    expect(decide('web', { VERCEL_GIT_PREVIOUS_SHA: SHA }, git, FIXTURE).build).toBe(true);
   });
 
   it('builds an unknown project without touching git', () => {
     const { git, calls } = fakeGit({});
-    expect(decide('not-in-project-json', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(true);
+    expect(decide('not-in-project-json', { VERCEL_GIT_PREVIOUS_SHA: SHA }, git, FIXTURE).build).toBe(true);
     expect(calls).toEqual([]);
   });
 
   it('fetches the previous commit when the shallow clone lacks it', () => {
     const { git, calls } = fakeGit({ 'cat-file': { status: 1 }, diff: { status: 0 } });
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(false);
-    expect(calls).toContainEqual(['fetch', '--no-tags', '--depth=1', 'origin', 'abc']);
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: SHA }, git, FIXTURE).build).toBe(false);
+    expect(calls).toContainEqual(['fetch', '--no-tags', '--depth=1', '--end-of-options', 'origin', SHA]);
   });
 
   it('builds when the previous commit cannot be fetched', () => {
     const { git } = fakeGit({ 'cat-file': { status: 1 }, fetch: { status: 128 } });
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(true);
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: SHA }, git, FIXTURE).build).toBe(true);
   });
 
   it("compares a branch's first push with where it left develop", () => {
@@ -96,7 +98,7 @@ describe('decide', () => {
   });
 
   it("builds a branch's first push when no fork point is in the clone", () => {
-    const { git } = fakeGit({ log: { status: 0, stdout: 'abc\tpar\tme@example.com\tWork\n' } });
+    const { git } = fakeGit({ log: { status: 0, stdout: SHA + '\tpar\tme@example.com\tWork\n' } });
     expect(decide('web', {}, git, FIXTURE).build).toBe(true);
   });
 });
@@ -341,6 +343,38 @@ describe('the manifest', () => {
 });
 
 // The same decisions with git stubbed, as the other tests here do.
+describe('untrusted previous sha', () => {
+  it('builds, running no git command, for a value that is not a commit id', () => {
+    for (const value of ['--upload-pack=x', '--output=x', 'abc', 'A'.repeat(40), 'a'.repeat(39), 'a'.repeat(41), ' ' + 'a'.repeat(39)]) {
+      const { git, calls } = fakeGit({ diff: { status: 0 } });
+      const result = decide('api', { VERCEL_GIT_PREVIOUS_SHA: value }, git, FIXTURE);
+      expect(result.build, value).toBe(true);
+      expect(result.reason, value).toBe('previous deployment sha is not a commit id');
+      expect(calls, value).toEqual([]);
+    }
+  });
+
+  it('puts --end-of-options before the revision in cat-file, fetch and diff', () => {
+    const { git, calls } = fakeGit({ 'cat-file': { status: 1 }, fetch: { status: 0 }, diff: { status: 1 } });
+    decide('api', { VERCEL_GIT_PREVIOUS_SHA: SHA }, git, FIXTURE);
+    for (const name of ['cat-file', 'fetch', 'diff']) {
+      const call = calls.find((c) => c[0] === name);
+      expect(call, name).toBeDefined();
+      const rev = call!.findIndex((a) => a.startsWith(SHA));
+      expect(rev, name).toBeGreaterThan(-1);
+      expect(call!.indexOf('--end-of-options'), name).toBeGreaterThan(-1);
+      expect(call!.indexOf('--end-of-options'), name).toBeLessThan(rev);
+    }
+  });
+
+  it('has no cat-file, fetch or diff call in the ignore script without --end-of-options', () => {
+    const source = readFileSync(join(__dirname, '../deploy/vercel/vercel-ignore.mjs'), 'utf8');
+    const calls = [...source.matchAll(/git\(\[([^\]]*)\]\)/g)].map((m) => m[1]!).filter((a) => /^'(cat-file|fetch|diff)'/.test(a));
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const c of calls) expect(c).toContain("'--end-of-options'");
+  });
+});
+
 describe('the manifest, with git stubbed', () => {
   const entry = (project: Project) => JSON.stringify({ ...project, engine: { commit: 'x' } });
   const stub = (diffs: { paths: number; manifest: number }, shown: Record<string, string | undefined>) => {
@@ -358,20 +392,20 @@ describe('the manifest, with git stubbed', () => {
   other.apps.web!.reads.push('more');
 
   it('skips when the manifest differs only outside this app, and the smoke gate agrees', () => {
-    const git = stub({ paths: 0, manifest: 1 }, { abc: entry(FIXTURE), HEAD: entry(other) });
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(false);
-    expect(buildIsEquivalent({ git: stub({ paths: 0, manifest: 1 }, { abc: entry(FIXTURE), new: entry(other) }), project: FIXTURE, name: 'api', deployedSha: 'abc', sha: 'new' })).toBe(true);
+    const git = stub({ paths: 0, manifest: 1 }, { [SHA]: entry(FIXTURE), HEAD: entry(other) });
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: SHA }, git, FIXTURE).build).toBe(false);
+    expect(buildIsEquivalent({ git: stub({ paths: 0, manifest: 1 }, { [SHA]: entry(FIXTURE), new: entry(other) }), project: FIXTURE, name: 'api', deployedSha: SHA, sha: 'new' })).toBe(true);
   });
 
   it('builds when this app’s entry differs, and the smoke gate agrees', () => {
-    const git = stub({ paths: 0, manifest: 1 }, { abc: entry(FIXTURE), HEAD: entry(other) });
-    expect(decide('web', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(true);
-    expect(buildIsEquivalent({ git: stub({ paths: 0, manifest: 1 }, { abc: entry(FIXTURE), new: entry(other) }), project: FIXTURE, name: 'web', deployedSha: 'abc', sha: 'new' })).toBe(false);
+    const git = stub({ paths: 0, manifest: 1 }, { [SHA]: entry(FIXTURE), HEAD: entry(other) });
+    expect(decide('web', { VERCEL_GIT_PREVIOUS_SHA: SHA }, git, FIXTURE).build).toBe(true);
+    expect(buildIsEquivalent({ git: stub({ paths: 0, manifest: 1 }, { [SHA]: entry(FIXTURE), new: entry(other) }), project: FIXTURE, name: 'web', deployedSha: SHA, sha: 'new' })).toBe(false);
   });
 
   it('builds when the manifest cannot be read or parsed, in either direction', () => {
-    for (const shown of [{ abc: undefined, HEAD: entry(FIXTURE) }, { abc: 'nope', HEAD: entry(FIXTURE) }, { abc: entry(FIXTURE), HEAD: '[' }]) {
-      expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, stub({ paths: 0, manifest: 1 }, shown), FIXTURE).build).toBe(true);
+    for (const shown of [{ [SHA]: undefined, HEAD: entry(FIXTURE) }, { [SHA]: 'nope', HEAD: entry(FIXTURE) }, { [SHA]: entry(FIXTURE), HEAD: '[' }]) {
+      expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: SHA }, stub({ paths: 0, manifest: 1 }, shown), FIXTURE).build).toBe(true);
     }
   });
 
@@ -386,6 +420,6 @@ describe('the manifest, with git stubbed', () => {
   });
 
   it('builds when diffing the manifest errors', () => {
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, stub({ paths: 0, manifest: 128 }, {}), FIXTURE).build).toBe(true);
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: SHA }, stub({ paths: 0, manifest: 128 }, {}), FIXTURE).build).toBe(true);
   });
 });

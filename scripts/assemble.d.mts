@@ -49,6 +49,7 @@ export interface AssembleResult {
 }
 export type { App };
 export declare const ROOT: string;
+export declare function trackedFiles(root: string): string[];
 export declare const CATALOGUE: string;
 export declare const LIMITS: Limits;
 export declare const GENERATORS: Record<string, unknown>;

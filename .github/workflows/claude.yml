@@ -8,14 +8,28 @@ on:
   pull_request_review:
     types: [submitted]
 
+# Keyed so a comment that would not start a run cannot cancel one that has.
+# `github.ref` is the default branch for every issue_comment, so with it any
+# comment on any issue, a stranger's included, shared one group and cancelled
+# an owner's in-flight @claude run, even though the job's `if:` then skipped
+# the stranger's own run. A guarded event (an @claude comment or review from an
+# OWNER, MEMBER or COLLABORATOR, the same test as the job's `if:`) shares its
+# issue or pull request's group; every other event gets a group of its own
+# (its run id) and cancels nothing. The allowlist here must equal the `if:`'s:
+# scripts/test/claude-workflow-guard.test.ts checks both.
 concurrency:
-  group: claude-${{ github.ref }}
+  group: >-
+    claude-${{
+    (contains(github.event.comment.body || github.event.review.body, '@claude')
+    && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association))
+    && format('{0}', github.event.issue.number || github.event.pull_request.number)
+    || format('ignored-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
   claude:
-    # The `contains(..., '@claude')` checks alone would let anyone on the
-    # internet trigger this job — this is a public repository. The job's own
+    # On a public repository, the `contains(..., '@claude')` checks alone
+    # would let anyone on the internet trigger this job. The job's own
     # permissions are read-only and claude-code-action does its own actor
     # check, but this guard means we are not relying solely on those: only a
     # comment or review from an OWNER, MEMBER, or COLLABORATOR is allowed to
@@ -67,6 +81,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Point this session's telemetry at Grafana Cloud
         run: node scripts/write-ci-telemetry-settings.mjs

@@ -28,6 +28,7 @@
 import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isCommitSha } from '../../smoke.mjs';
 import { buildInputsChanged, buildPathspecs, loadProject } from '../../project.mjs';
 
 const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
@@ -53,8 +54,10 @@ export function decide(project, env, git, manifest = loadProject()) {
 
   let base = env.VERCEL_GIT_PREVIOUS_SHA;
   if (base) {
+    // Untrusted input: only a full lowercase sha is ever handed to git.
+    if (!isCommitSha(base)) return { build: true, reason: 'previous deployment sha is not a commit id' };
     // Vercel's clone is shallow; the last deployed commit may be outside it.
-    if (!hasCommit(git, base) && git(['fetch', '--no-tags', '--depth=1', 'origin', base]).status !== 0) {
+    if (!hasCommit(git, base) && git(['fetch', '--no-tags', '--depth=1', '--end-of-options', 'origin', base]).status !== 0) {
       return { build: true, reason: `cannot fetch the previous deployment's commit ${base}` };
     }
   } else if (env.VERCEL_ENV === 'production') {
@@ -97,7 +100,7 @@ export function forkPoint(git) {
 }
 
 function hasCommit(git, sha) {
-  return git(['cat-file', '-e', `${sha}^{commit}`]).status === 0;
+  return git(['cat-file', '-e', '--end-of-options', `${sha}^{commit}`]).status === 0;
 }
 
 function runGit(args) {

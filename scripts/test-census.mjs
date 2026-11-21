@@ -229,6 +229,47 @@ export async function treeAt(ref) {
   return census(files);
 }
 
+/**
+ * The commit the head branched from: `git merge-base <base> <head>`.
+ *
+ * The base tip is not the right thing to count against. A branch cut before
+ * another pull request added tests to the base lacks those tests, and reading
+ * the base tip directly reports them as removed by this one (#372). The
+ * merge-base is the tree this branch actually started from, so only what it
+ * took away shows.
+ *
+ * With no merge-base (unrelated histories, or a shallow clone that cut it off)
+ * this throws and says so. Falling back to the base tip would compare the
+ * wrong trees and answer confidently, which is worse than failing.
+ */
+export async function mergeBase(baseRef, headRef) {
+  const { execFileSync } = await import('node:child_process');
+  let out = '';
+  try {
+    out = execFileSync('git', ['merge-base', baseRef, headRef], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch (error) {
+    // Only exit 1 with nothing on stdout means "no common ancestor". Anything
+    // else (unknown ref, git missing, a corrupt repo) is a different failure
+    // and must say what git said, not be passed off as a missing merge-base.
+    const stderr = String(error.stderr ?? '').trim();
+    if (error.status !== 1 || String(error.stdout ?? '').trim() || stderr) {
+      throw new Error(
+        `git merge-base ${baseRef} ${headRef} failed: ${stderr || error.message}`,
+      );
+    }
+    out = '';
+  }
+  if (!out) {
+    throw new Error(
+      `No merge-base between ${baseRef} and ${headRef}: the histories are unrelated, or the clone is too shallow to reach the commit they share (fetch with full depth). The census will not compare against the base tip instead, because that would count other pull requests' tests as removed.`,
+    );
+  }
+  return out;
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const [baseRef, headRef] = process.argv.slice(2);
   if (!baseRef || !headRef) {
@@ -236,8 +277,17 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     process.exit(2);
   }
 
+  let origin;
+  try {
+    origin = await mergeBase(baseRef, headRef);
+  } catch (error) {
+    console.error(`::error title=Census could not find its base::${error.message}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
   const verdict = censusVerdict({
-    base: await treeAt(baseRef),
+    base: await treeAt(origin),
     head: await treeAt(headRef),
     // The body is read for one fixed pattern and never interpolated into a
     // shell, a prompt, or this script's own output.
