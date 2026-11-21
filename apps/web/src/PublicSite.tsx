@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import { ApiNotConfiguredError } from './api';
 import { resolveUrl } from './images-api';
+import { Paragraph } from './Prose';
 import { fetchPiece, fetchPieces, PublicApiError, type Piece, type PieceSummary, type PublicPhoto } from './public-api';
 import { parseBody, type Block } from './render';
 
@@ -119,15 +120,7 @@ function Body({ blocks, photos }: { blocks: Block[]; photos: Record<string, Publ
   blocks.forEach((block, i) => {
     if (block.kind === 'paragraph') {
       run.push(
-        <p key={i}>
-          {block.inlines.map((r, j) => {
-            // Text nodes only: React prints a string as text, whatever characters it holds.
-            let node: ReactNode = r.text;
-            if (r.italic) node = <em>{node}</em>;
-            if (r.bold) node = <strong>{node}</strong>;
-            return <span key={j}>{node}</span>;
-          })}
-        </p>,
+        <Paragraph key={i} inlines={block.inlines} />,
       );
       return;
     }
