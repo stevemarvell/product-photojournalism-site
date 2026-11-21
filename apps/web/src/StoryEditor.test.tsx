@@ -554,8 +554,9 @@ describe('the drafting screen panel', () => {
     expect(screen.getByTestId('unpublish')).toBeTruthy();
   });
 
-  it('shows the back link to /editor and the save status', () => {
+  it('shows the back link to /editor and "Saved" before anything has been saved this session', () => {
     render(<Drafting story={story()} />);
+    expect(screen.getByTestId('save-indicator').textContent).toBe('Saved');
     expect(screen.getByTestId('all-stories').textContent).toBe('← Stories');
     expect(screen.getByTestId('all-stories').getAttribute('href')).toBe('/editor');
     expect(screen.getByTestId('save-indicator')).toBeTruthy();

@@ -73,6 +73,25 @@ describe('App', () => {
     expect(screen.queryByText('View site')).toBeNull();
   });
 
+  it('keeps a back link to /editor in the bar while the story loads and when it fails', async () => {
+    window.history.pushState({}, '', '/editor/abc');
+    vi.stubEnv('VITE_API_URL', '/api');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.endsWith('/auth/me')
+            ? new Response(JSON.stringify({ signedIn: true, user: { name: 'Owner', isOwner: true } }), { status: 200 })
+            : new Response('x', { status: 500 }),
+        ),
+      ),
+    );
+    render(<App />);
+    expect(screen.getByTestId('bar-stories').getAttribute('href')).toBe('/editor');
+    await vi.waitFor(() => expect(screen.getByTestId('story-failed')).toBeTruthy());
+    expect(screen.getByTestId('bar-stories').getAttribute('href')).toBe('/editor');
+  });
+
   it('shows the public site, not the editor, anywhere but /editor', () => {
     window.history.pushState({}, '', '/');
     render(<App />);

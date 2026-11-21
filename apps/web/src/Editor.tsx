@@ -49,7 +49,7 @@ export function Editor({
   return (
     <div data-testid="editor-content">
       {storyId ? <StoryEditor id={storyId} /> : <StoryList navigate={navigate} />}
-      <p className="ed-signed-in">
+      <p className={`ed-signed-in ${storyId ? 'ed-wide' : 'ed-narrow'}`}>
         Signed in as {session.name}.{' '}
         <button
           type="button"

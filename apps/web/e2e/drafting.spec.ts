@@ -251,6 +251,15 @@ for (const size of [
 ]) {
   test.describe(`the editor screens at ${size.name}`, () => {
     test.use({ viewport: { width: size.width, height: size.height } });
+    /** At 1280px the bar's first item starts where the page column starts. */
+    const expectBarAligned = async (page: Page, column: string) => {
+      if (size.width < 1000) return;
+      const first = await page.locator('.ed-bar-inner > *:visible').first().boundingBox();
+      const col = await page.locator(column).first().boundingBox();
+      // The column is inset by its own 24px padding; the bar's item by the bar's.
+      const pad = await page.locator(column).first().evaluate((el) => parseFloat(getComputedStyle(el).paddingLeft));
+      expect(Math.round(first!.x)).toBe(Math.round(col!.x + pad));
+    };
     const noSideScroll = (page: Page) =>
       page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
@@ -261,6 +270,7 @@ for (const size of [
       await expect(page.getByRole('link', { name: 'View site' })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Stories' })).toBeVisible();
       expect(await noSideScroll(page)).toBe(true);
+      await expectBarAligned(page, '.ed-list');
     });
 
     test('the drafting screen puts the panel beside the text, or below it on a phone, with no horizontal scroll', async ({ page }) => {
@@ -271,6 +281,11 @@ for (const size of [
       await expect(page.getByRole('link', { name: '← Stories' })).toBeVisible();
       const main = await page.locator('.ed-main').boundingBox();
       const panel = await page.getByTestId('status-panel').boundingBox();
+      await expectBarAligned(page, '.ed-layout');
+      const add = await page.getByTestId('photo-button').boundingBox();
+      const editor = await body(page).boundingBox();
+      expect(add!.y).toBeGreaterThan(editor!.y + 40); // below the text, not in the toolbar
+      await expect(page.getByTestId('photo-button')).toHaveCSS('border-top-style', 'dashed');
       if (size.width >= 1000) expect(panel!.x).toBeGreaterThan(main!.x + main!.width - 1);
       else expect(panel!.y).toBeGreaterThan(main!.y + main!.height - 1);
       expect(await noSideScroll(page)).toBe(true);

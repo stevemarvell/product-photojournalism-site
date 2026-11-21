@@ -3,14 +3,16 @@
 .ed-root { font: 1rem/1.5 Inter, system-ui, sans-serif; color: #141414; background: #fff; min-height: 100%; }
 .ed-root a { color: #141414; }
 .ed-root a:hover { color: #8a1c14; }
-.ed-bar { background: #141414; color: #f6f5f1; padding: 14px 24px; font-family: Inter, system-ui, sans-serif; }
-.ed-bar-inner { max-width: 1180px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.ed-bar { background: #141414; color: #f6f5f1; padding: 14px 0; font-family: Inter, system-ui, sans-serif; }
+.ed-bar-inner { max-width: 1180px; margin: 0 auto; padding: 0 24px; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .ed-bar-name { font: 600 22px/1.2 Newsreader, Georgia, serif; }
 .ed-bar-tag { font: 500 13px Inter, sans-serif; color: #bdbdbd; margin-left: 8px; }
 .ed-bar a, .ed-bar-link { color: #f6f5f1; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center; text-decoration: none; }
 .ed-bar a:hover { color: #fff; text-decoration: underline; }
 .ed-save { font-size: 13px; color: #bdbdbd; }
-.ed-signed-in { max-width: 1180px; margin: 0 auto; padding: 0 24px 40px; font-size: 13px; color: #555; }
+.ed-bar-inner.ed-narrow, .ed-signed-in.ed-narrow { max-width: 960px; }
+#editor-bar-left[data-taken] .ed-bar-default { display: none; }
+.ed-signed-in { max-width: 1180px; box-sizing: border-box; margin: 0 auto; padding: 0 24px 40px; font-size: 13px; color: #555; }
 .ed-link { background: none; border: 0; padding: 0; min-height: 44px; font: inherit; color: #141414; text-decoration: underline; cursor: pointer; }
 
 .ed-btn { min-height: 44px; padding: 0 20px; border: 1px solid #dad7cf; border-radius: 6px; background: #fff; color: #141414; font: 500 15px Inter, system-ui, sans-serif; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
@@ -73,7 +75,8 @@
 .photo-block input { font: 15px Inter, system-ui, sans-serif; color: #141414; border: 1px solid #dad7cf; border-radius: 6px; padding: 0 10px; min-height: 44px; box-sizing: border-box; width: 100%; background: #fff; }
 .photo-thumb { display: block; width: 100%; height: auto; border-radius: 4px; }
 .photo-placeholder { aspect-ratio: 3 / 2; background: #2b2b2b; color: #bdbdbd; display: flex; align-items: center; justify-content: center; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 4px; }
-.add-photo { min-height: 44px; padding: 0 16px; border: 1px dashed #8a8a8a; border-radius: 6px; background: #fff; font-size: 14px; cursor: pointer; }
+.add-photo { align-self: flex-start; min-height: 44px; padding: 0 16px; border: 1px dashed #8a8a8a; border-radius: 6px; background: #fff; color: #141414; font: 14px Inter, system-ui, sans-serif; cursor: pointer; }
+.add-photo-slot { margin-top: 12px; }
 .uploads { list-style: none; padding: 0; margin: 0.5rem 0; }
 .uploads progress { width: 8rem; vertical-align: middle; }
 .photo-status { color: #666; margin: 0.25rem 0; }

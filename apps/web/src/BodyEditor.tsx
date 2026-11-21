@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BoldItalicUnderlineToggles,
   Button,
@@ -30,14 +31,29 @@ export interface UploadRow {
 type PickPhotos = (files: File[], insert: (imageId: string) => void) => void;
 
 /** The photo button: a multi-file picker. Each chosen file is uploaded; see `useUploads`. */
+/** Where the Add photo button is drawn: a node below the editor, set by BodyEditor. */
+const AddPhotoSlot = createContext<HTMLElement | null>(null);
+
 function PhotoButton({ onPick }: { onPick: PickPhotos }) {
+  const slot = useContext(AddPhotoSlot);
   const insert = usePublisher(insertJsx$);
   const input = useRef<HTMLInputElement>(null);
+  // The editor's own context is needed to insert a block, so the button stays a toolbar
+  // child but is drawn below the text, where the design puts it.
+  const button = (
+    <button
+      type="button"
+      data-testid="photo-button"
+      className="add-photo"
+      title="Insert photos"
+      onClick={() => input.current?.click()}
+    >
+      + Add photo
+    </button>
+  );
   return (
     <>
-      <Button data-testid="photo-button" className="add-photo" title="Insert photos" onClick={() => input.current?.click()}>
-        + Add photo
-      </Button>
+      {slot ? createPortal(button, slot) : button}
       <input
         ref={input}
         type="file"
@@ -94,6 +110,7 @@ function Toolbar({ onLeaveSource, onPick }: { onLeaveSource: () => void; onPick:
 export function BodyEditor({ initial, onChange }: { initial: string; onChange: (markdown: string) => void }) {
   const editor = useRef<MDXEditorMethods>(null);
   const container = useRef<HTMLDivElement>(null);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [uploads, setUploads] = useState<UploadRow[]>([]);
   const nextKey = useRef(0);
 
@@ -184,6 +201,7 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
 
   return (
     <PhotoContext.Provider value={store}>
+      <AddPhotoSlot.Provider value={slot}>
       <div
         ref={container}
         data-testid="body-editor"
@@ -195,6 +213,7 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
           plugins={plugins}
           contentEditableClassName="body-editor-content"
         />
+        <div ref={setSlot} className="add-photo-slot" />
         {uploads.length > 0 && (
           <ul data-testid="uploads" className="uploads" aria-live="polite">
             {uploads.map((u) => (
@@ -211,6 +230,7 @@ export function BodyEditor({ initial, onChange }: { initial: string; onChange: (
           </ul>
         )}
       </div>
+      </AddPhotoSlot.Provider>
     </PhotoContext.Provider>
   );
 }

@@ -17,13 +17,19 @@ setupIonicReact();
 export function App() {
   const path = window.location.pathname;
   if (/^\/editor(\/|$)/.test(path)) {
+    const onStory = /\/editor\/[^/]/.test(path);
     return (
       <IonApp>
         <header className="ed-bar">
-          <div className="ed-bar-inner">
-            {/\/editor\/[^/]/.test(path) ? (
+          <div className={`ed-bar-inner ${onStory ? 'ed-wide' : 'ed-narrow'}`}>
+            {onStory ? (
               <>
-                <span id="editor-bar-left" />
+                <span id="editor-bar-left">
+                  {/* Shown until the drafting screen mounts and brings its own (which saves first). */}
+                  <a href="/editor" className="ed-bar-link ed-bar-default" data-testid="bar-stories">
+                    ← Stories
+                  </a>
+                </span>
                 <span id="editor-bar-right" />
               </>
             ) : (

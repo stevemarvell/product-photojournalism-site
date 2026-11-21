@@ -10,7 +10,7 @@ import { useAutosave, type SaveStatus } from './useAutosave';
 const BodyEditor = lazy(() => import('./BodyEditor').then((m) => ({ default: m.BodyEditor })));
 
 const STATUS_TEXT: Record<SaveStatus, string> = {
-  idle: '',
+  idle: 'Saved',
   saving: 'Saving…',
   saved: 'Saved',
   conflict: 'Changed elsewhere, reload',
@@ -120,6 +120,13 @@ export function Drafting({
   const imageStates = useImageStatuses(imageIds);
   const blockers = publishBlockers(draft);
   const conflict = autosave.status === 'conflict';
+
+  // Take over the bar's slot: its default back link hides while this screen's own is there.
+  useEffect(() => {
+    const slot = document.getElementById('editor-bar-left');
+    slot?.setAttribute('data-taken', '');
+    return () => slot?.removeAttribute('data-taken');
+  }, []);
 
   const ask = (text: string, ok: string) =>
     new Promise<boolean>((resolve) => setQuestion({ text, ok, resolve }));
