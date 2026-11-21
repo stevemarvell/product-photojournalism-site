@@ -58,7 +58,7 @@ def test_asking_for_it_on_vercel_stops_the_app_starting(vercel_env: str) -> None
 
 def test_an_unknown_setting_is_refused() -> None:
     with pytest.raises(ConfigError, match="IMAGE_UPLOADS"):
-        build_container({**DEV, "IMAGE_UPLOADS": "blob"})
+        build_container({**DEV, "IMAGE_UPLOADS": "carrier-pigeon"})
 
 
 @pytest.mark.parametrize("name", ["IMAGE_MAX_BYTES", "IMAGE_PROCESSING_TIMEOUT_SECONDS"])

@@ -17,6 +17,7 @@ class FakeXhr {
   method = '';
   url = '';
   sent: unknown = undefined;
+  headers: Record<string, string> = {};
   status = 0;
   upload: { onprogress: ((e: { lengthComputable: boolean; loaded: number; total: number }) => void) | null } = {
     onprogress: null,
@@ -29,6 +30,9 @@ class FakeXhr {
   open(method: string, url: string) {
     this.method = method;
     this.url = url;
+  }
+  setRequestHeader(name: string, value: string) {
+    this.headers[name] = value;
   }
   send(body: unknown) {
     this.sent = body;
@@ -68,6 +72,29 @@ describe('uploadImage', () => {
     expect(progress).toEqual([25, 100]);
     // The register call carries the URL, never the bytes.
     expect(JSON.parse(calls[1]?.[1]?.body as string)).toEqual({ original_url: 'local:orig-tok' });
+  });
+
+  it('sends a Blob target the headers it names, straight to its absolute URL, and registers only the stored URL', async () => {
+    const blob = {
+      upload_url: 'https://vercel.com/api/blob/?pathname=originals/tok',
+      original_url: 'https://store.public.blob.vercel-storage.com/originals/tok',
+      method: 'PUT',
+      headers: { authorization: 'Bearer client-token', 'x-vercel-blob-access': 'public' },
+      max_bytes: 100,
+    };
+    const calls: [string, RequestInit | undefined][] = [];
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return Promise.resolve(url.endsWith('/upload-target') ? json(blob) : json(INFO, 201));
+    });
+    await uploadImage(file('a.jpg', 4), () => {});
+    expect(FakeXhr.instances[0]).toMatchObject({
+      method: 'PUT',
+      url: blob.upload_url,
+      headers: { ...blob.headers, 'x-content-type': 'image/jpeg' },
+    });
+    // The API receives the stored URL and nothing else (no token, no bytes).
+    expect(JSON.parse(calls[1]?.[1]?.body as string)).toEqual({ original_url: blob.original_url });
   });
 
   it('refuses a file over the limit before sending a single byte, naming the limit', async () => {

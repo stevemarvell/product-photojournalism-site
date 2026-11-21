@@ -75,7 +75,29 @@ class InMemoryImageRepository:
     def __init__(self) -> None:
         # Keyed by (organisation_id, image id): a lookup cannot cross organisations.
         self._images: dict[tuple[str, str], ImageRecord] = {}
+        self._uploads: dict[str, str] = {}  # original_url -> the organisation it was issued to
+        self._claimed: set[str] = set()
         self._lock = threading.Lock()
+
+    def bind_upload(self, organisation_id: str, original_url: str) -> None:
+        with self._lock:
+            self._uploads[original_url] = organisation_id
+
+    def upload_issued_to(self, organisation_id: str, original_url: str) -> bool:
+        with self._lock:
+            return self._uploads.get(original_url) == organisation_id
+
+    def create_claiming(self, image: ImageRecord) -> bool:
+        with self._lock:  # the claim and the row are one step
+            url = image.original_url
+            if self._uploads.get(url) != image.organisation_id or url in self._claimed:
+                return False
+            key = (image.organisation_id, image.id)
+            if key in self._images:
+                raise ValueError(f"image {image.id} already exists")
+            self._claimed.add(url)
+            self._images[key] = image
+            return True
 
     def create(self, image: ImageRecord) -> None:
         with self._lock:

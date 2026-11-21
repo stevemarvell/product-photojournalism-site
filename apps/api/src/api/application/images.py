@@ -90,7 +90,9 @@ class ImageService:
         issued; the upload itself is limited again where the bytes arrive."""
         if size > self._max_bytes:
             raise ImageTooLargeError(self._max_bytes)
-        return self._uploads.issue(organisation_id)
+        target = self._uploads.issue(organisation_id)
+        self._images.bind_upload(organisation_id, target.original_url)
+        return target
 
     def register(self, organisation_id: str, original_url: str) -> ImageRecord:
         """Create the row (status processing) for an uploaded original and start processing.
@@ -100,15 +102,17 @@ class ImageService:
         when the stored file is over the limit: the size is read from storage, not trusted
         from the browser.
         """
-        size = self._uploads.size(organisation_id, original_url)
+        if not self._images.upload_issued_to(organisation_id, original_url):
+            raise ImageRefusedError("no such upload")
+        size = self._uploads.size(original_url)
         if size is None:
             raise ImageRefusedError("no such upload")
         if size > self._max_bytes:
             raise ImageTooLargeError(self._max_bytes)
-        if not self._uploads.claim(organisation_id, original_url):
-            raise ImageAlreadyRegisteredError(original_url)
         image = new_image(str(uuid.uuid4()), organisation_id, original_url, size, self._clock.now())
-        self._images.create(image)
+        # The claim and the row are one step, so a failed create never burns the upload.
+        if not self._images.create_claiming(image):
+            raise ImageAlreadyRegisteredError(original_url)
         self._processor.enqueue(organisation_id, image.id)
         return image
 
