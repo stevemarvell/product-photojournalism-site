@@ -21,34 +21,73 @@
 .preview figure { margin: 1rem 0; }
 .preview-area { margin: 0.75rem 0; }
 
-/* The public site: a plain white page, a narrow reading column, photos full width.
-   Ionic's structure.css fixes <body> to the viewport with overflow hidden (the app scrolls
-   inside <ion-content>), so this page is its own scroll container. */
+/* The public site: the owner's home and piece designs. Warm paper ground, Newsreader for
+   display and reading text, Inter for labels. Both are self-hosted (@fontsource, imported in
+   main.tsx), so no reader's browser reaches a third party. Ionic's structure.css fixes <body>
+   to the viewport with overflow hidden (the app scrolls inside <ion-content>), so this page is
+   its own scroll container. */
 .public {
   position: absolute;
   inset: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  background: #fff;
-  color: #111;
-  font: 1.0625rem/1.65 Georgia, 'Times New Roman', serif;
+  background: #f6f5f1;
+  color: #141414;
+  font: 1rem/1.5 Inter, system-ui, sans-serif;
 }
-.public-masthead, .public-column { max-width: 40rem; margin: 0 auto; padding: 0 1rem; }
-.public-masthead { padding-top: 1.25rem; font: 0.875rem/1.4 system-ui, sans-serif; }
-.public-masthead a { color: #555; text-decoration: none; }
-.public-column { padding-bottom: 4rem; }
-.public h1 { font-size: 2rem; line-height: 1.2; margin: 1.5rem 0 0.5rem; }
-.public-line { color: #555; font: 0.875rem/1.4 system-ui, sans-serif; margin: 0 0 1.5rem; }
-/* Photos break out of the column to the full width of the page. */
-.public-photo { margin: 2rem calc(50% - 50vw); }
-.public-photo img, .public-list img { display: block; width: 100%; height: auto; }
-.public-photo figcaption, .public-credit { display: block; max-width: 40rem; margin: 0.5rem auto 0; padding: 0 1rem; box-sizing: border-box; }
-.public-photo figcaption { font-size: 0.9375rem; color: #333; }
-.public-credit { font: 0.75rem/1.4 system-ui, sans-serif; color: #666; }
-.public-list { list-style: none; padding: 0; margin: 1.5rem 0; }
-.public-list li { margin: 0 0 3rem; }
-.public-list a { color: inherit; text-decoration: none; }
-.public-list h2 { font-size: 1.5rem; line-height: 1.25; margin: 0.75rem 0 0.25rem; }
-.public-list p { margin: 0 0 0.25rem; }
-.public-list time { color: #555; font: 0.875rem/1.4 system-ui, sans-serif; }
-.public a:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
+.public a { color: #141414; text-decoration: none; }
+.public a:hover { color: #8a1c14; }
+.public a:focus-visible { outline: 2px solid #141414; outline-offset: 2px; }
+.public-masthead { border-bottom: 1px solid #141414; padding: 20px 0; }
+.public-home .public-masthead { padding: 28px 0 20px; }
+.public-masthead-inner { max-width: 1180px; margin: 0 auto; padding: 0 24px; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; }
+.public-name { font: 600 1.75rem/1.2 Newsreader, Georgia, serif; }
+.public-home .public-name { font-size: 2.5rem; letter-spacing: -0.01em; }
+.public-tagline, .public-line { font-size: 0.8125rem; letter-spacing: 0.12em; text-transform: uppercase; }
+.public-tagline { color: #555; }
+.public-line { color: #8a1c14; }
+.public-main { padding-bottom: 6rem; }
+.public-note { max-width: 680px; margin: 3rem auto 0; padding: 0 24px; box-sizing: border-box; font-size: 1.125rem; color: #3a3a3a; }
+
+/* Home */
+.public-home-body { max-width: 1180px; margin: 0 auto; padding: 48px 24px 0; display: flex; flex-direction: column; gap: 64px; }
+.public-lead { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 32px; align-items: end; }
+.public-lead-text { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; min-width: 0; }
+.public-lead h2 { margin: 0; font: 600 3.25rem/1.05 Newsreader, Georgia, serif; overflow-wrap: anywhere; }
+.public-lead p { margin: 0; font-size: 1.125rem; line-height: 1.55; color: #3a3a3a; }
+.public-home img, .public-placeholder { display: block; width: 100%; height: auto; }
+.public-placeholder { aspect-ratio: 3 / 2; background: #d9d6ce; }
+.public-more { display: flex; flex-direction: column; gap: 24px; }
+.public-more-heading { margin: 0; font-size: 0.8125rem; font-weight: 400; letter-spacing: 0.12em; text-transform: uppercase; color: #555; border-top: 1px solid #141414; padding-top: 16px; }
+.public-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 40px 32px; }
+.public-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.public-card .public-line { font-size: 0.75rem; }
+.public-card .public-placeholder { aspect-ratio: 4 / 3; }
+.public-card h3 { margin: 0; font: 600 1.625rem/1.15 Newsreader, Georgia, serif; overflow-wrap: anywhere; }
+.public-card p { margin: 0; font-size: 0.9375rem; line-height: 1.5; color: #3a3a3a; }
+
+/* Piece */
+.public-piece { display: flex; flex-direction: column; gap: 40px; padding: 56px 0 0; }
+.public-head, .public-text, .public-foot { max-width: 760px; width: 100%; margin: 0 auto; padding: 0 24px; box-sizing: border-box; }
+.public-head { display: flex; flex-direction: column; gap: 18px; }
+.public-head h1 { margin: 0; font: 600 4rem/1.02 Newsreader, Georgia, serif; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.public-standfirst { margin: 0; font: 1.5rem/1.45 Newsreader, Georgia, serif; color: #3a3a3a; }
+.public-text { max-width: 680px; display: flex; flex-direction: column; gap: 22px; font: 1.3125rem/1.65 Newsreader, Georgia, serif; overflow-wrap: anywhere; }
+.public-text p { margin: 0; }
+.public-notfound { margin-top: 3rem; }
+.public-notfound h1 { margin: 0; font: 600 2.5rem/1.1 Newsreader, Georgia, serif; }
+.public-photo { margin: 0; max-width: 1180px; width: 100%; align-self: center; padding: 0 24px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
+.public-photo img { display: block; width: 100%; height: auto; }
+.public-photo figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font: 0.875rem/1.5 Inter, system-ui, sans-serif; color: #3a3a3a; }
+.public-credit { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: #6b6b6b; }
+.public-foot { max-width: 680px; border-top: 1px solid #141414; padding-top: 24px; }
+.public-back { display: inline-flex; min-height: 44px; align-items: center; font-size: 0.875rem; font-weight: 500; }
+
+@media (max-width: 40rem) {
+  .public-home .public-name { font-size: 2rem; }
+  .public-lead h2 { font-size: 2.25rem; }
+  .public-head h1 { font-size: 2.5rem; }
+  .public-standfirst { font-size: 1.25rem; }
+  .public-text { font-size: 1.125rem; }
+  .public-piece { padding-top: 32px; }
+}

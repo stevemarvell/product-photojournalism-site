@@ -51,26 +51,91 @@ describe('routeOf', () => {
 });
 
 describe('the home page', () => {
-  it('lists each piece with hero, title, description and published date, linking to /<uuid>', async () => {
-    const fetchSpy = answer(200, [summary]);
+  // Scenario: home leads with the newest piece
+  it('shows the first piece as the lead block and the rest under "More" as cards, each linking to its page', async () => {
+    const other = { ...summary, id: 'b'.repeat(8) + '-0000-4000-8000-' + 'b'.repeat(12), title: 'Older', description: 'Another walk', location: 'Porto', date: null, first_published_at: '2026-10-01T12:00:00Z' };
+    const fetchSpy = answer(200, [summary, other]);
     vi.stubGlobal('fetch', fetchSpy);
     render(<PublicSite path="/" />);
-    const link = await screen.findByTestId('piece-link');
+    const links = await screen.findAllByTestId('piece-link');
     expect(fetchSpy).toHaveBeenCalledWith('/api/public/pieces', { cache: 'no-store' });
-    expect(link.getAttribute('href')).toBe(`/${ID}`);
-    expect(link.textContent).toContain('Dusk');
-    const img = link.querySelector('img');
+    expect(links).toHaveLength(2);
+    const [lead, card] = links as [HTMLElement, HTMLElement];
+    expect(lead.getAttribute('href')).toBe(`/${ID}`);
+    expect(lead.className).toBe('public-lead');
+    expect(lead.textContent).toContain('Lisbon \u00b7 31 October 2026');
+    expect(lead.querySelector('h2')?.textContent).toBe('Dusk');
+    expect(lead.textContent).toContain('A walk');
+    const img = lead.querySelector('img');
     expect(img?.getAttribute('alt')).toBe('A street');
     expect(img?.getAttribute('srcset')).toBe('/api/public/images/i-1-480.jpg 480w, /api/public/images/i-1-960.jpg 960w');
-    expect(screen.getByText('A walk')).toBeTruthy();
-    expect(screen.getByText('9 November 2026')).toBeTruthy();
+    const more = screen.getByTestId('more');
+    expect(more.querySelector('h2')?.textContent).toBe('More');
+    expect(more.contains(card)).toBe(true);
+    expect(more.contains(lead)).toBe(false);
+    expect(card.getAttribute('href')).toBe(`/${other.id}`);
+    expect(card.querySelector('h3')?.textContent).toBe('Older');
+    expect(card.textContent).toContain('Another walk');
+    expect(card.querySelector('img')).toBeTruthy();
   });
 
-  it('keeps the order the API gives', async () => {
-    vi.stubGlobal('fetch', answer(200, [{ ...summary, id: 'b'.repeat(36), title: 'Newer' }, summary]));
+  // Scenario: one live piece
+  it('shows a single piece as the lead block with no "More" section', async () => {
+    vi.stubGlobal('fetch', answer(200, [summary]));
     render(<PublicSite path="/" />);
     await screen.findByTestId('piece-list');
-    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Newer', 'Dusk']);
+    expect(screen.getAllByTestId('piece-link')).toHaveLength(1);
+    expect(screen.queryByTestId('more')).toBeNull();
+    expect(screen.queryByText('More')).toBeNull();
+  });
+
+  // Scenario: a piece without a hero photo
+  it('shows a neutral placeholder box in the photo slot of a piece without a hero', async () => {
+    vi.stubGlobal('fetch', answer(200, [{ ...summary, hero: null }]));
+    render(<PublicSite path="/" />);
+    const link = await screen.findByTestId('piece-link');
+    expect(link.querySelector('img')).toBeNull();
+    expect(link.querySelector('[data-testid="placeholder"]')).toBeTruthy();
+    expect(link.textContent).toContain('Dusk');
+    expect(link.textContent).toContain('A walk');
+  });
+
+  it('puts the location first and falls back to the first-published date when the piece has no date; either part may be absent', async () => {
+    vi.stubGlobal('fetch', answer(200, [{ ...summary, date: null }, { ...summary, id: 'c'.repeat(8) + '-0000-4000-8000-' + 'c'.repeat(12), location: '', date: null }]));
+    render(<PublicSite path="/" />);
+    const links = await screen.findAllByTestId('piece-link');
+    expect(links[0]?.querySelector('.public-line')?.textContent).toBe('Lisbon \u00b7 9 November 2026');
+    expect(links[1]?.querySelector('.public-line')?.textContent).toBe('9 November 2026');
+  });
+
+  it('renders no empty location line when a piece has neither a location nor a readable date', async () => {
+    vi.stubGlobal('fetch', answer(200, [{ ...summary, location: '', date: null, first_published_at: 'not a date' }]));
+    render(<PublicSite path="/" />);
+    const link = await screen.findByTestId('piece-link');
+    expect(link.querySelector('.public-line')).toBeNull();
+    expect(link.querySelector('time')).toBeNull();
+  });
+
+  it('wraps the date in a machine-readable <time> on the home blocks and the piece page', async () => {
+    vi.stubGlobal('fetch', answer(200, [summary, { ...summary, id: 'e'.repeat(8) + '-0000-4000-8000-' + 'e'.repeat(12), date: null }]));
+    const { unmount } = render(<PublicSite path="/" />);
+    const links = await screen.findAllByTestId('piece-link');
+    expect(links[0]?.querySelector('time')?.getAttribute('datetime')).toBe('2026-10-31');
+    expect(links[0]?.querySelector('time')?.textContent).toBe('31 October 2026');
+    expect(links[1]?.querySelector('time')?.getAttribute('datetime')).toBe('2026-11-09T12:00:00Z');
+    unmount();
+    vi.stubGlobal('fetch', answer(200, piece('Words.')));
+    render(<PublicSite path={`/${ID}`} />);
+    const article = await screen.findByTestId('piece');
+    expect(article.querySelector('.public-line time')?.getAttribute('datetime')).toBe('2026-10-31');
+  });
+
+  it('keeps the masthead name and the tagline without the word "story"', async () => {
+    vi.stubGlobal('fetch', answer(200, [summary, { ...summary, id: 'd'.repeat(8) + '-0000-4000-8000-' + 'd'.repeat(12) }]));
+    render(<PublicSite path="/" />);
+    await screen.findByTestId('piece-list');
+    expect(screen.getByText('Photojournalism')).toBeTruthy();
+    expect(screen.getByTestId('public').textContent).not.toMatch(/stor(y|ies)/i);
   });
 
   it('says plainly that nothing is published when the list is empty', async () => {
@@ -119,14 +184,18 @@ describe('a piece page', () => {
     const article = await screen.findByTestId('piece');
     expect(fetchSpy).toHaveBeenCalledWith(`/api/public/pieces/${ID}`, { cache: 'no-store' });
     expect(article.querySelector('h1')?.textContent).toBe('Dusk');
-    expect(article.textContent).toContain('31 October 2026 · Lisbon');
+    expect(article.textContent).toContain('Lisbon · 31 October 2026');
     expect(article.querySelector('strong')?.textContent).toBe('bold');
     expect(article.querySelector('em')?.textContent).toBe('italic');
     const img = article.querySelector('figure img');
     expect(img?.getAttribute('alt')).toBe('A street at dusk');
     expect(img?.getAttribute('srcset')).toContain('/api/public/images/i-1-960.jpg 960w');
     expect(img?.getAttribute('sizes')).toBe('100vw');
-    expect(article.querySelector('figcaption')?.textContent).toBe('Evening, & quiet');
+    expect(article.querySelector('.public-standfirst')?.textContent).toBe('A walk');
+    expect(article.querySelector('figcaption .public-credit')?.textContent).toBe('A. Photographer');
+    const back = screen.getByText('\u2190 All pieces');
+    expect(back.getAttribute('href')).toBe('/');
+    expect(article.querySelector('figcaption span')?.textContent).toBe('Evening, & quiet');
     expect(article.textContent).toContain('A. Photographer');
     expect(article.textContent).toContain('Closing words.');
   });

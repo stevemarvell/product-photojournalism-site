@@ -68,22 +68,55 @@ const BODY = (image: string) =>
   `Opening words with **bold** and *italic*.\n\n<Photo image="${image}" alt="A street at dusk" caption="Evening light" credit="A. Photographer" />\n\nClosing words.`;
 
 test.describe('the home page', () => {
-  test('lists live pieces newest first, each with hero, title, description and published date, linking to /<uuid>', async ({ page }) => {
+  test('leads with the newest piece and lists the rest under "More", each linking to /<uuid>', async ({ page }) => {
     // The API orders them; the page keeps that order (newest first by first published date).
     await mockApi(page, { list: [B, A], pieces: {} });
     const heroLoaded = page.waitForResponse((r) => /img-b-\d+\.jpg$/.test(r.url()) && r.status() === 200);
     await page.goto('/');
     const links = page.getByTestId('piece-link');
     await expect(links).toHaveCount(2);
-    await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Dawn', 'Dusk']);
     await expect(links.nth(0)).toHaveAttribute('href', `/${ID_B}`);
+    await expect(links.nth(0)).toHaveClass(/public-lead/);
+    await expect(links.nth(0).getByRole('heading', { level: 2 })).toHaveText('Dawn');
     await expect(links.nth(1)).toHaveAttribute('href', `/${ID_A}`);
+    await expect(page.getByTestId('more').getByRole('heading', { level: 2 })).toHaveText('More');
+    await expect(page.getByTestId('more').getByRole('heading', { level: 3 })).toHaveText('Dusk');
     await expect(links.nth(0).locator('img')).toHaveAttribute('alt', 'Dawn hero');
     await expect(links.nth(0).locator('img')).toHaveAttribute('srcset', /img-b-480\.jpg 480w.*img-b-1600\.jpg 1600w/);
     await expect(page.getByText('About Dawn')).toBeVisible();
-    await expect(page.getByText('8 November 2026')).toBeVisible();
+    await expect(page.getByText('Lisbon · 31 October 2026').first()).toBeVisible();
+    await expect(page.getByText('Photojournalism', { exact: true })).toBeVisible();
     // The browser fetched a web version of the hero, from the API.
     expect((await heroLoaded).url()).toMatch(/^http:\/\/api\.e2e\.invalid\/public\/images\/img-b-/);
+  });
+
+  test('a single piece is the lead block and there is no "More"', async ({ page }) => {
+    await mockApi(page, { list: [A], pieces: {} });
+    await page.goto('/');
+    await expect(page.getByTestId('piece-link')).toHaveCount(1);
+    await expect(page.getByTestId('more')).toHaveCount(0);
+  });
+
+  test('a piece without a hero shows a placeholder box where the photo goes', async ({ page }) => {
+    await mockApi(page, { list: [{ ...A, hero: null }], pieces: {} });
+    await page.goto('/');
+    await expect(page.getByTestId('placeholder')).toBeVisible();
+    await expect(page.getByTestId('piece-link').locator('img')).toHaveCount(0);
+  });
+
+  test('the home page fits a 390px phone: one column grid, no sideways scroll', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockApi(page, { list: [B, A, { ...A, id: 'f'.repeat(8) + '-0000-4000-8000-' + 'f'.repeat(12), title: 'Third' }], pieces: {} });
+    await page.goto('/');
+    await expect(page.getByTestId('piece-link')).toHaveCount(3);
+    const m = await page.evaluate(() => {
+      const root = document.querySelector('.public') as HTMLElement;
+      const cards = [...document.querySelectorAll('.public-card')].map((c) => Math.round(c.getBoundingClientRect().left));
+      return { over: root.scrollWidth - root.clientWidth, cards };
+    });
+    expect(m.over).toBeLessThanOrEqual(0);
+    expect(m.cards).toHaveLength(2);
+    expect(new Set(m.cards).size).toBe(1); // every card starts at the same left edge: one column
   });
 
   test('says nothing has been published when there are no live pieces', async ({ page }) => {
@@ -113,35 +146,64 @@ test.describe('the home page', () => {
   });
 });
 
+test.describe('the masthead', () => {
+  for (const [name, path] of [['home', '/'], ['a piece', `/${ID_A}`]] as const) {
+    test(`on ${name} the site name lines up with the main column at 1280px`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await mockApi(page, { list: [A], pieces: { [ID_A]: detail(A, BODY('img-a')) } });
+      await page.goto(path);
+      await expect(page.locator('.public-main')).toBeVisible();
+      await expect(page.locator('.public-name')).toBeVisible();
+      await expect(page.getByTestId('loading')).toHaveCount(0);
+      const sel = name === 'home' ? '.public-lead' : '.public-photo img';
+      const edges = await page.evaluate((q) => ({
+        name: document.querySelector('.public-name')?.getBoundingClientRect().left ?? -1,
+        col: document.querySelector(q)?.getBoundingClientRect().left ?? -2,
+      }), sel);
+      expect(edges.name).toBe(edges.col);
+    });
+  }
+});
+
 test.describe('a piece page', () => {
   test('shows title, date and location, paragraphs and full-width photos with srcset, alt, caption and credit', async ({ page }) => {
     await mockApi(page, { list: [A], pieces: { [ID_A]: detail(A, BODY('img-a')) } });
     await page.goto(`/${ID_A}`);
     const article = page.getByTestId('piece');
     await expect(article.getByRole('heading', { level: 1 })).toHaveText('Dusk');
-    await expect(article).toContainText('31 October 2026 · Lisbon');
+    await expect(article).toContainText('Lisbon · 31 October 2026');
+    await expect(article.locator('.public-standfirst')).toHaveText('About Dusk');
+    await expect(article.getByRole('link', { name: '← All pieces' })).toHaveAttribute('href', '/');
     await expect(article.locator('strong')).toHaveText('bold');
     await expect(article.locator('em')).toHaveText('italic');
     await expect(article).toContainText('Closing words.');
     const img = article.locator('figure img');
     await expect(img).toHaveAttribute('alt', 'A street at dusk');
     await expect(img).toHaveAttribute('srcset', /img-a-480\.jpg 480w, .*img-a-960\.jpg 960w, .*img-a-1600\.jpg 1600w/);
-    await expect(article.locator('figcaption')).toHaveText('Evening light');
+    await expect(article.locator('figcaption span').first()).toHaveText('Evening light');
     await expect(article).toContainText('A. Photographer');
-    // Full width: the photo is as wide as the page, wider than the text column.
-    const widths = await page.evaluate(() => ({
-      page: document.documentElement.clientWidth,
-      photo: document.querySelector('figure img')?.getBoundingClientRect().width ?? 0,
-      column: document.querySelector('.public-column')?.getBoundingClientRect().width ?? 0,
-    }));
-    expect(Math.round(widths.photo)).toBe(widths.page);
-    expect(widths.column).toBeLessThan(widths.page);
+    // The photo is wider than the 680px reading column and no wider than 1180px; the caption sits left, the credit right.
+    const m = await page.evaluate(() => {
+      const r = (q: string) => document.querySelector(q)?.getBoundingClientRect();
+      return {
+        photo: r('figure img')?.width ?? 0,
+        text: r('.public-text p')?.width ?? 0,
+        caption: r('figcaption span')?.left ?? 0,
+        credit: r('figcaption .public-credit')?.left ?? 0,
+        font: getComputedStyle(document.querySelector('.public-head h1') as Element).fontFamily,
+      };
+    });
+    expect(m.photo).toBeGreaterThan(680);
+    expect(m.photo).toBeLessThanOrEqual(1180);
+    expect(m.text).toBeLessThanOrEqual(680);
+    expect(m.credit).toBeGreaterThan(m.caption);
+    expect(m.font).toContain('Newsreader');
     await expect(page).toHaveTitle('Dusk');
     await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', 'About Dusk');
   });
 
-  test('scrolls to the end of a long piece and fits a phone with no sideways scroll', async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 667 });
+  test('scrolls to the end of a long piece and fits a 390px phone with no sideways scroll, back link 44px tall', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     const long = Array.from({ length: 30 }, (_, i) => `Paragraph ${i + 1} ${'words '.repeat(40)}`).join('\n\n') + '\n\n' + BODY('img-a');
     await mockApi(page, { list: [A], pieces: { [ID_A]: detail(A, long) } });
     await page.goto(`/${ID_A}`);
@@ -154,6 +216,8 @@ test.describe('a piece page', () => {
     });
     expect(overflow.x).toBeLessThanOrEqual(0);
     expect(overflow.scrolled).toBeGreaterThan(0);
+    const back = await page.getByRole('link', { name: '← All pieces' }).boundingBox();
+    expect(back?.height ?? 0).toBeGreaterThanOrEqual(44);
   });
 
   test('shows a normal not-found page for an id that does not exist or is not live (API 404)', async ({ page }) => {
@@ -180,7 +244,7 @@ test.describe('a piece page', () => {
     state.list = [B, A];
     state.pieces = { [ID_A]: { ...detail(A, BODY('img-a')), title: 'Dusk, revised' }, [ID_B]: detail(B, BODY('img-b')) };
     await page.reload();
-    await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Dawn', 'Dusk']);
+    await expect(page.getByTestId('piece-link').locator('h2, h3')).toHaveText(['Dawn', 'Dusk']);
     await page.goto(`/${ID_A}`);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Dusk, revised');
 
@@ -244,7 +308,23 @@ test.describe('the wording rule', () => {
       );
       expect(attributes).not.toMatch(STORY);
       // Nor does any URL the browser fetched while rendering (the API paths included).
+      // Fonts are self-hosted: nothing fetched left the origin except the mocked API.
+      expect(asked.filter((u) => !/^(http:\/\/(localhost|127\.0\.0\.1)|http:\/\/api\.e2e\.invalid|data:)/.test(u))).toEqual([]);
       expect(asked.filter((u) => STORY.test(new URL(u).pathname + new URL(u).search))).toEqual([]);
     });
   }
+});
+
+test('fonts are served from the site itself: Newsreader and Inter load, and no font request leaves the origin', async ({ page }) => {
+  const asked = await mockApi(page, { list: [A], pieces: {} });
+  await page.goto('/');
+  await expect(page.getByTestId('piece-link')).toBeVisible();
+  const loaded = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family.replace(/"/g, ''));
+  });
+  expect(loaded).toEqual(expect.arrayContaining(['Newsreader', 'Inter']));
+  const fonts = asked.filter((u) => /\.woff2?$/.test(new URL(u).pathname));
+  expect(fonts.length).toBeGreaterThan(0);
+  for (const u of fonts) expect(new URL(u).origin).toBe(new URL(page.url()).origin);
 });
