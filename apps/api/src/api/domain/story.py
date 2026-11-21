@@ -27,6 +27,22 @@ class DraftFields:
 
 
 @dataclass(frozen=True)
+class PublicStory:
+    """The only columns the public list reads: ids, publish dates and the `published_*`
+    text. A draft field is not a member, so it cannot reach a public answer."""
+
+    id: str
+    organisation_id: str
+    first_published_at: datetime | None
+    last_published_at: datetime | None
+    published_title: str
+    published_description: str
+    published_location: str
+    published_date: dt.date | None
+    published_content: str
+
+
+@dataclass(frozen=True)
 class Story:
     id: str
     organisation_id: str
@@ -61,6 +77,20 @@ class Story:
             self.draft_location,
             self.draft_date,
             self.draft_content,
+        )
+
+    @property
+    def public(self) -> PublicStory:
+        return PublicStory(
+            self.id,
+            self.organisation_id,
+            self.first_published_at,
+            self.last_published_at,
+            self.published_title,
+            self.published_description,
+            self.published_location,
+            self.published_date,
+            self.published_content,
         )
 
     @property
@@ -280,11 +310,3 @@ def owner_order(stories: list[Story]) -> list[Story]:
         reverse=True,
     )
     return unpublished + [s for _, _, s in ever_published]
-
-
-def public_order(stories: list[Story]) -> list[Story]:
-    """The home page (spec section 8): live stories only, newest first by first_published_at.
-    Unpublishing and republishing does not change that date, so it does not change the place.
-    Ties break on id so the order is stable."""
-    shown = [s for s in stories if s.live and s.first_published_at is not None]
-    return sorted(shown, key=lambda s: (s.first_published_at, s.id), reverse=True)  # type: ignore[arg-type,return-value]

@@ -57,3 +57,14 @@ def test_the_ports_are_declared() -> None:
         "SessionStore",
     ):
         assert getattr(api.application.ports, name) is getattr(api.application, name)
+
+
+def test_the_public_story_view_has_no_draft_field() -> None:
+    # The public list reads PublicStory only: a draft column cannot be a member of it.
+    from dataclasses import fields
+
+    from api.domain import PublicStory
+
+    names = [f.name for f in fields(PublicStory)]
+    assert names and not [n for n in names if n.startswith("draft_")]
+    assert all(n in ("id", "organisation_id") or "published" in n for n in names)

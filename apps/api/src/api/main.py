@@ -20,7 +20,7 @@ from api.domain import StorageUnavailableError
 from api.image_routes import local_upload_router
 from api.image_routes import public_router as public_image_router
 from api.image_routes import router as image_router
-from api.public_routes import NoStorePublic
+from api.public_routes import ListCache, NoStorePublic
 from api.public_routes import router as public_router
 from api.security_headers import install_security_headers
 from api.story_routes import router as story_router
@@ -67,6 +67,7 @@ def create_app(
     )
 
     app.state.container = container
+    app.state.public_list_cache = ListCache()
     app.include_router(auth_router)
     app.include_router(auth_owner_router)
     app.include_router(story_router)

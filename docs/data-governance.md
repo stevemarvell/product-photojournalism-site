@@ -62,9 +62,12 @@ API for an anonymous reader, and nothing else of a story does:
   by `apps/web/e2e/public.spec.ts` (text, URL, title, metadata, attributes and every request
   made) and `apps/api/tests/test_public_site.py` (public JSON).
 - **Freshness:** every `/public/pieces` response, success or error, is
-  `Cache-Control: no-store` (`NoStorePublic`), and the browser asks with `cache: no-store`, so Publish,
-  Unpublish and Republish show on the next load. Nothing public is cached except the web
-  versions of images (immutable, by id). Caching the pages with invalidation on publish (spec
+  `Cache-Control: no-store` (`NoStorePublic`), and the browser asks with `cache: no-store`. The
+  API reads the public list from the database at most once per 5 seconds per server process
+  (`PUBLIC_LIST_TTL_SECONDS`, 0 turns it off) and answers from memory in between, successes
+  only, so Publish, Unpublish and Republish show on the list within 5 seconds; a single piece
+  page is read on every request. Nothing else public is cached except the web versions of
+  images (immutable, by id). Caching the pages with invalidation on publish (spec
   section 8) is a later optimisation, not built.
 - **Unreachable storage** (the Postgres connection fails, or its migration does) answers
   503 on the public reads too, not an empty page and not a stack trace.

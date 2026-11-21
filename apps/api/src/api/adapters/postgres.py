@@ -23,6 +23,7 @@ from psycopg import errors as pg_errors
 from api.adapters.migrate import migrate
 from api.application.sessions import SESSION_MAX_AGE
 from api.domain import (
+    PublicStory,
     SessionRecord,
     StorageUnavailableError,
     Story,
@@ -120,6 +121,11 @@ _STORY_COLUMNS = (
     "published_content, created_at, updated_at, last_saved_by, previous_updated_at, "
     "last_saved_seq"
 )
+_PUBLIC_COLUMNS = (
+    "id, organisation_id, first_published_at, last_published_at, "
+    "published_title, published_description, published_location, published_date, "
+    "published_content"
+)
 _COLUMN_NAMES = [c.strip() for c in _STORY_COLUMNS.split(",")]
 _SET_CLAUSE = ", ".join(
     f"{c} = %({c})s" for c in _COLUMN_NAMES if c not in ("id", "organisation_id")
@@ -159,6 +165,15 @@ class PostgresStoryRepository:
                 (organisation_id, story_id),
             ).fetchone()
         return _row_to_story(row) if row else None
+
+    def list_live(self, organisation_id: str) -> list[PublicStory]:
+        with self._db.connection() as conn:
+            rows = conn.execute(
+                f"select {_PUBLIC_COLUMNS} from story where organisation_id = %s and live "
+                "order by first_published_at desc, id desc",
+                (organisation_id,),
+            ).fetchall()
+        return [PublicStory(*r) for r in rows]
 
     def list(self, organisation_id: str) -> list[Story]:
         with self._db.connection() as conn:
