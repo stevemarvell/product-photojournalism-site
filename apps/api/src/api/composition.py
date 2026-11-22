@@ -1,16 +1,24 @@
 """Composition root: the one place that picks adapters, from environment variables.
 
 STORY_REPOSITORY   memory | postgres (needs DATABASE_URL, or POSTGRES_URL, which the
-                   Vercel/Neon integration injects). The default is postgres only where
-                   VERCEL_ENV=production, so a deployment never silently runs on memory
-                   and a preview never gets the database unless it is asked for.
+                   Vercel/Neon integration injects). The default is postgres where
+                   VERCEL_ENV=production, so a production deployment never silently runs on
+                   memory. A preview never reads those production variables (see
+                   PREVIEW_*): its default is postgres only when PREVIEW_DATABASE_URL is set.
+PREVIEW_DATABASE_URL  where VERCEL_ENV=preview, the only database URL read (the preview
+                   Neon database). Set: postgres by default, migrated like production's, on
+                   first use. Unset: memory.
+PREVIEW_BLOB_READ_WRITE_TOKEN  where VERCEL_ENV=preview, the only Blob token read (the
+                   preview store's). Set: blob images and direct uploads. Unset: filesystem
+                   and uploads off. Never logged.
 SESSIONS           follow STORY_REPOSITORY: postgres uses the same database (so sign-out and
                    revoke-all hold across serverless instances), memory is per process.
                    The schema is migrated (yoyo, under an advisory lock) before the first
                    query of the process, not at import, so an unreachable database still
                    lets /health answer 503. Image rows, upload bindings and claims follow
                    STORY_REPOSITORY too (postgres: they survive a restart).
-BLOB_READ_WRITE_TOKEN  the Vercel Blob store's token (set by Vercel). Never logged.
+BLOB_READ_WRITE_TOKEN  the Vercel Blob store's token (set by Vercel), read only outside
+                   preview. Never logged.
 IMAGE_STORE        filesystem | blob. Default blob only where VERCEL_ENV=production and
                    BLOB_READ_WRITE_TOKEN is set, else filesystem; IMAGE_DIR sets where
                    (default .data/images, /tmp/images where VERCEL_ENV is set: the bundle is
@@ -178,7 +186,22 @@ def build_container(
     # Only production reaches the database by default: a preview runs branch
     # code, so it gets the database only when STORY_REPOSITORY asks for it.
     production = env.get("VERCEL_ENV") == "production"
-    repo_name = env.get("STORY_REPOSITORY", "postgres" if production else "memory")
+    preview = env.get("VERCEL_ENV") == "preview"
+    # A preview runs branch code, so it reads preview resources only: the production
+    # variables are not consulted there, whether or not they are present.
+    if preview:
+        database_url = (env.get("PREVIEW_DATABASE_URL") or "").strip()
+        blob_token = (env.get("PREVIEW_BLOB_READ_WRITE_TOKEN") or "").strip()
+        token_name = "PREVIEW_BLOB_READ_WRITE_TOKEN"
+        url_name = "PREVIEW_DATABASE_URL"
+    else:
+        database_url = env.get("DATABASE_URL") or env.get("POSTGRES_URL") or ""
+        blob_token = (env.get("BLOB_READ_WRITE_TOKEN") or "").strip()
+        token_name = "BLOB_READ_WRITE_TOKEN"
+        url_name = "DATABASE_URL (or POSTGRES_URL)"
+    repo_name = env.get(
+        "STORY_REPOSITORY", "postgres" if production or (preview and database_url) else "memory"
+    )
     stories: StoryRepository
     sessions: SessionStore
     image_repository: ImageRepository
@@ -187,25 +210,23 @@ def build_container(
         sessions = InMemorySessionStore()
         image_repository = InMemoryImageRepository()
     elif repo_name == "postgres":
-        url = env.get("DATABASE_URL") or env.get("POSTGRES_URL")
-        if not url:
-            raise ConfigError("STORY_REPOSITORY=postgres needs DATABASE_URL (or POSTGRES_URL)")
-        database = PostgresDatabase(url)
+        if not database_url:
+            raise ConfigError(f"STORY_REPOSITORY=postgres needs {url_name}")
+        database = PostgresDatabase(database_url)
         stories = PostgresStoryRepository(database)
         sessions = PostgresSessionStore(database)
         image_repository = PostgresImageRepository(database)
     else:
         raise ConfigError(f"unknown STORY_REPOSITORY {repo_name!r}")
 
-    blob_token = (env.get("BLOB_READ_WRITE_TOKEN") or "").strip()
-    blob_by_default = production and bool(blob_token)
+    blob_by_default = (production or preview) and bool(blob_token)
     blob: BlobStore | None = None
 
     def blob_store() -> BlobStore:
         nonlocal blob
         if blob is None:
             if not blob_token:
-                raise ConfigError("Vercel Blob needs BLOB_READ_WRITE_TOKEN")
+                raise ConfigError(f"Vercel Blob needs {token_name}")
             try:
                 blob = BlobStore(blob_token, http_client_factory=blob_http)
             except ValueError as e:

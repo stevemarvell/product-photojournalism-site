@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { E2E_API_ORIGIN, previewHeaders, SECURITY_HEADERS } from '../security-headers.mjs';
 
 const config = JSON.parse(readFileSync(join(process.cwd(), 'vercel.json'), 'utf8')) as {
-  rewrites: { source: string; destination: string }[];
+  rewrites: { source: string; destination: string; has?: { type: string; value: string }[] }[];
 };
 
 describe('vercel.json rewrites', () => {
@@ -14,6 +14,54 @@ describe('vercel.json rewrites', () => {
   it('keeps the /api rewrite that sign-in depends on', () => {
     const api = config.rewrites.find((r) => r.source === '/api/:path*');
     expect(api?.destination).toMatch(/^https:\/\/.+\/:path\*$/);
+  });
+});
+
+// Issue #85: the safe default is production. Only the web project's branch aliases that are not
+// the production branch (staging and pull request previews) go to the API's staging branch.
+// Rewrites apply in order, first match wins, so the develop alias comes before the pattern.
+describe('vercel.json /api rewrites: develop alias, branch aliases, then production', () => {
+  const apis = config.rewrites.filter((r) => r.source === '/api/:path*');
+  const PROD = 'https://photojournalism-site-api-stevemarvell-team.vercel.app/:path*';
+  const STAGING = 'https://photojournalism-site-api-git-staging-stevemarvell-team.vercel.app/:path*';
+  // What Vercel does with a rewrite: the first whose `has` conditions match; a host value is a
+  // regular expression (a plain hostname matches itself, so it is anchored here to mean that).
+  const target = (host: string): string | undefined =>
+    apis.find((r) =>
+      (r.has ?? []).every((c) => c.type === 'host' && new RegExp(c.value.startsWith('^') ? c.value : `^${c.value.replaceAll('.', '\\.')}$`).test(host)),
+    )?.destination;
+
+  it('has three, in order: develop alias, branch aliases, unconditional fallback', () => {
+    expect(apis).toHaveLength(3);
+    expect(apis[0]?.has?.[0]?.value).toBe('photojournalism-site-git-develop-stevemarvell-team.vercel.app');
+    expect(apis[1]?.has).toHaveLength(1);
+    expect(apis[2]?.has).toBeUndefined();
+    expect(apis.map((r) => r.destination)).toEqual([PROD, STAGING, PROD]);
+  });
+  it('sends the production domains, the develop alias, a production hash URL and a custom domain to production', () => {
+    for (const host of [
+      'photojournalism-site-stevemarvell-team.vercel.app',
+      'photojournalism-portfolio-marvell.vercel.app',
+      'photojournalism-site-git-develop-stevemarvell-team.vercel.app',
+      'photojournalism-site-5x9k2abcd-stevemarvell-team.vercel.app',
+      'photos.example.com',
+    ])
+      expect(target(host), host).toBe(PROD);
+  });
+  it('sends the staging alias and a pull request branch alias to staging', () => {
+    for (const host of [
+      'photojournalism-site-git-staging-stevemarvell-team.vercel.app',
+      'photojournalism-site-git-feat-85-thing-stevemarvell-team.vercel.app',
+    ])
+      expect(target(host), host).toBe(STAGING);
+  });
+  it('anchors the branch pattern: lookalike hosts stay on production', () => {
+    for (const host of [
+      'evil-photojournalism-site-git-x-stevemarvell-team.vercel.app',
+      'photojournalism-site-git-x-stevemarvell-team.vercel.app.evil.com',
+      'photojournalism-site-git-x-stevemarvell-teamXvercel.app',
+    ])
+      expect(target(host), host).toBe(PROD);
   });
 });
 

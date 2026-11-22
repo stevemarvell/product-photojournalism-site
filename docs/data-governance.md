@@ -28,9 +28,12 @@ only URLs on the store's own host under `originals/` that it issued to the calle
 organisation (kept in Postgres, so that and the single-use claim survive a restart). The
 read-write token never leaves the API and is in no response or log. Web versions are written
 to `web/<image id>-<width>.jpg` in the same store and served from Blob's own URLs; the API's
-`/public/images/` route exists only on the local store. A **preview** keeps in-memory rows and
-no upload target (503) unless `IMAGE_UPLOADS=blob` is set on it, so a branch's code does not
-write to the production store by default. Locally the file goes to the owner-only
+`/public/images/` route exists only on the local store. A **preview** holds
+preview credentials only: it reads `PREVIEW_DATABASE_URL` and `PREVIEW_BLOB_READ_WRITE_TOKEN`
+(a separate Neon database and a separate Blob store) and never `DATABASE_URL`, `POSTGRES_URL`
+or `BLOB_READ_WRITE_TOKEN`, so a branch's code cannot reach production's rows or images even
+when those variables are present. Without the `PREVIEW_*` variables it keeps in-memory rows and
+no upload target (503). Locally the file goes to the owner-only
 `PUT /images/uploads/{token}`, which exists **only** when
 `API_ENVIRONMENT=development` (or `IMAGE_UPLOADS=local`) and **never** where `VERCEL_ENV` is
 set: asking for it there stops the app starting. Originals are **public Blob objects at
@@ -99,8 +102,13 @@ holds.
 - **Production: Postgres.** Production selects the Postgres adapter by default
   (`STORY_REPOSITORY`), for stories and for sessions (`PostgresStoryRepository`,
   `PostgresSessionStore`, tables `story`, `session`, `session_epoch`; every story query
-  filters on `organisation_id`). Local runs and previews use the in-memory adapters
-  (`InMemoryStoryRepository`, `InMemorySessionStore`), which lose everything on restart.
+  filters on `organisation_id`). Local runs use the in-memory adapters
+  (`InMemoryStoryRepository`, `InMemorySessionStore`), which lose everything on restart, and
+  so does a preview without `PREVIEW_DATABASE_URL`. A preview with it uses that separate
+  preview database, migrated the same way as production's. The web branch aliases other than `develop`
+  (`staging` and pull request previews) call the API's `staging` branch deployment (the web
+  `vercel.json` rewrite); every other host, per-deployment hash URLs of previews included,
+  calls the production API, so a preview is tested on its branch alias. The staging API is the preview API holding the preview credentials, shared by every pull request preview.
 - **Migrations** (yoyo-migrations, SQL files in `apps/api/src/api/migrations/`) run inside
   the API process, once per process, before its first query (not at import, so an
   unreachable database still lets `/health` answer 503). They run under a Postgres advisory
