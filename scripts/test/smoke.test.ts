@@ -465,25 +465,69 @@ describe('staging smoke', () => {
 
 describe('scripts/smoke.mjs as a process', () => {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const run = (ref: string, event = 'push') =>
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  // Runs against a project.json written for the case (nothing deployed), never the repository's own, so the
+  // answer holds in every product whatever its productionBranch or deployed apps.
+  const run = (ref: string, manifest: object, event = 'push') =>
     new Promise<{ code: number; out: string }>((done) => {
-      // Run against the committed project.json (nothing deployed), with productionBranch absent: develop.
-      execFile('node', ['scripts/smoke.mjs'], { cwd: root, env: { ...process.env, GITHUB_REF: ref, GITHUB_EVENT_NAME: event, GITHUB_SHA: '' } }, (error, stdout) =>
-        done({ code: error ? ((error as { code?: number }).code ?? 1) : 0, out: stdout }),
+      const dir = mkdtempSync(join(tmpdir(), 'smoke-proc-'));
+      dirs.push(dir);
+      const file = join(dir, 'project.json');
+      writeFileSync(file, JSON.stringify(manifest));
+      execFile(
+        'node',
+        ['scripts/smoke.mjs'],
+        { cwd: root, env: { ...process.env, SMOKE_PROJECT_JSON: file, GITHUB_REF: ref, GITHUB_EVENT_NAME: event, GITHUB_SHA: '' } },
+        (error, stdout) => done({ code: error ? ((error as { code?: number }).code ?? 1) : 0, out: stdout }),
       );
     });
+  const bare = { name: 'thing', apps: { svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] } } };
+  const onMain = { ...bare, productionBranch: 'main' };
 
   // Timeout: spawns node; 30 s.
-  it('exits 0 with a one-line message on a push to another branch', { timeout: 30_000 }, async () => {
-    const result = await run('refs/heads/main');
+  it('with productionBranch absent, exits 0 with a one-line message on a push to another branch', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/main', bare);
     expect(result.code).toBe(0);
     expect(result.out.trim()).toBe('not the production branch (refs/heads/main); nothing to smoke');
   });
 
   // Timeout: spawns node; 30 s.
-  it('goes on to smoke on a push to the production branch', { timeout: 30_000 }, async () => {
-    const result = await run('refs/heads/develop');
+  it('with productionBranch absent, goes on to smoke on a push to develop', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/develop', bare);
     expect(result.out).not.toMatch(/not the production branch/);
-    expect(result.out).toMatch(/nothing is deployed|no commit|every deployed/);
+    expect(result.out).toMatch(/nothing is deployed/);
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch main, skips a push to a feature branch', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/feature-x', onMain);
+    expect(result.code).toBe(0);
+    expect(result.out.trim()).toBe('not the production branch (refs/heads/feature-x); nothing to smoke');
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch main, goes on to smoke on a push to main', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/main', onMain);
+    expect(result.out).not.toMatch(/not the production branch/);
+    expect(result.out).toMatch(/nothing is deployed/);
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('fails naming SMOKE_PROJECT_JSON and its path when unreadable, rather than falling back to the repository project.json', { timeout: 30_000 }, async () => {
+    const missing = '/nonexistent/project.json';
+    const result = await new Promise<{ code: number; err: string }>((done) =>
+      execFile(
+        'node',
+        ['scripts/smoke.mjs'],
+        { cwd: root, env: { ...process.env, SMOKE_PROJECT_JSON: missing, GITHUB_REF: 'refs/heads/develop', GITHUB_EVENT_NAME: 'push', GITHUB_SHA: '' } },
+        (error, _stdout, stderr) => done({ code: error ? ((error as { code?: number }).code ?? 1) : 0, err: stderr }),
+      ),
+    );
+    expect(result.code).toBe(1);
+    expect(result.err).toContain('SMOKE_PROJECT_JSON');
+    expect(result.err).toContain(missing);
   });
 });
