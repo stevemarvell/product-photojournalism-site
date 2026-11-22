@@ -109,9 +109,7 @@ class FakeBlob:
             },
         )
 
-    def _client_token_problem(
-        self, token: str, pathname: str, size: int
-    ) -> httpx.Response | None:
+    def _client_token_problem(self, token: str, pathname: str, size: int) -> httpx.Response | None:
         prefix = f"vercel_blob_client_{STORE_ID}_"
         if not token.startswith(prefix):
             return error(403, "forbidden", "Invalid token")

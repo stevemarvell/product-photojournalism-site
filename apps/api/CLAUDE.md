@@ -40,10 +40,12 @@ implementations; `composition.py` picks them from environment variables, and
 
 | Variable | Values (default first) |
 | --- | --- |
-| `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`, else `POSTGRES_URL`); default is `postgres` when `VERCEL_ENV` is `production`, and `memory` otherwise, previews included |
-| `BLOB_READ_WRITE_TOKEN` | the public Blob store's token (Vercel sets it); never logged or returned |
-| `IMAGE_STORE` / `IMAGE_DIR` | `filesystem` / `.data/images` (`/tmp/images` when `VERCEL_ENV` is set), or `blob`; the default is `blob` only with `VERCEL_ENV=production` and the token |
-| `IMAGE_UPLOADS` | `local` (originals PUT to this API's owner-only `/images/uploads/{token}`), `blob` (the browser uploads straight to Blob with a client token) or `off`; default `blob` in production with the token, `local` only with `API_ENVIRONMENT=development` and no `VERCEL_ENV`, else `off` (uploads answer 503); `local` with `VERCEL_ENV` set refuses to start; a preview never uses Blob unless asked |
+| `STORY_REPOSITORY` | `memory`, `postgres` (needs `DATABASE_URL`, else `POSTGRES_URL`); default is `postgres` when `VERCEL_ENV` is `production`, `postgres` in a preview only when `PREVIEW_DATABASE_URL` is set, and `memory` otherwise |
+| `PREVIEW_DATABASE_URL` | where `VERCEL_ENV=preview`, the **only** database URL read (the preview Neon database; `DATABASE_URL` and `POSTGRES_URL` are not read there). Migrated by the same in-process yoyo run as production's, on first use. Unset: memory |
+| `PREVIEW_BLOB_READ_WRITE_TOKEN` | where `VERCEL_ENV=preview`, the **only** Blob token read (the preview store's; `BLOB_READ_WRITE_TOKEN` is not read there). Set: blob images and direct uploads on. Unset: filesystem, uploads off. Never logged |
+| `BLOB_READ_WRITE_TOKEN` | the public Blob store's token (Vercel sets it), read outside previews only; never logged or returned |
+| `IMAGE_STORE` / `IMAGE_DIR` | `filesystem` / `.data/images` (`/tmp/images` when `VERCEL_ENV` is set), or `blob`; the default is `blob` only with `VERCEL_ENV=production` and the token, or `VERCEL_ENV=preview` and the preview token |
+| `IMAGE_UPLOADS` | `local` (originals PUT to this API's owner-only `/images/uploads/{token}`), `blob` (the browser uploads straight to Blob with a client token) or `off`; default `blob` in production with `BLOB_READ_WRITE_TOKEN`, or in a preview with `PREVIEW_BLOB_READ_WRITE_TOKEN`, `local` only with `API_ENVIRONMENT=development` and no `VERCEL_ENV`, else `off` (uploads answer 503); `local` with `VERCEL_ENV` set refuses to start; a preview without `PREVIEW_BLOB_READ_WRITE_TOKEN` never uses Blob unless asked |
 | `IMAGE_PROCESSING` | `thread` or `inline` (inside `POST /images`); default `inline` when `VERCEL_ENV` is set |
 | `IMAGE_MAX_BYTES`, `IMAGE_PROCESSING_TIMEOUT_SECONDS`, `IMAGE_MAX_PIXELS` | `26214400` (25 MB), `120`, `64000000` (an original declaring more pixels fails before it is decoded) |
 | `IDENTITY_PROVIDER` | `none` (signs nobody in), `stub` (owner; only with `API_ENVIRONMENT=development`, refused when `VERCEL_ENV` is set), `vercel` (Sign in with Vercel; the default when `VERCEL_ENV` is set, else `none`) |

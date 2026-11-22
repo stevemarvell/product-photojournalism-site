@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { E2E_API_ORIGIN, previewHeaders, SECURITY_HEADERS } from '../security-headers.mjs';
 
 const config = JSON.parse(readFileSync(join(process.cwd(), 'vercel.json'), 'utf8')) as {
-  rewrites: { source: string; destination: string }[];
+  rewrites: { source: string; destination: string; has?: { type: string; value: string }[] }[];
 };
 
 describe('vercel.json rewrites', () => {
@@ -14,6 +14,33 @@ describe('vercel.json rewrites', () => {
   it('keeps the /api rewrite that sign-in depends on', () => {
     const api = config.rewrites.find((r) => r.source === '/api/:path*');
     expect(api?.destination).toMatch(/^https:\/\/.+\/:path\*$/);
+  });
+});
+
+// Issue #85: production's host goes to the production API; every other host (staging and the
+// pull request previews) falls through to the API's staging branch. Rewrites apply in order.
+describe('vercel.json /api rewrites: production, then staging', () => {
+  const apis = config.rewrites.filter((r) => r.source === '/api/:path*');
+  const productionHost = 'photojournalism-site-stevemarvell-team.vercel.app';
+  // What Vercel does with a rewrite: the first whose source and `has` conditions match.
+  const target = (host: string): string | undefined =>
+    apis.find((r) => (r.has ?? []).every((c) => c.type === 'host' && c.value === host))?.destination;
+
+  it('has exactly two, the host-conditioned production one first', () => {
+    expect(apis).toHaveLength(2);
+    expect(apis[0]?.has).toEqual([{ type: 'host', value: productionHost }]);
+    expect(apis[1]?.has).toBeUndefined();
+  });
+  it('sends the production host to the production API', () => {
+    expect(target(productionHost)).toBe('https://photojournalism-site-api-stevemarvell-team.vercel.app/:path*');
+  });
+  it('sends staging and preview hosts to the API staging branch', () => {
+    const staging = 'https://photojournalism-site-api-git-staging-stevemarvell-team.vercel.app/:path*';
+    expect(target('photojournalism-site-git-staging-stevemarvell-team.vercel.app')).toBe(staging);
+    expect(target('photojournalism-site-git-feat-1-stevemarvell-team.vercel.app')).toBe(staging);
+  });
+  it('never sends a non-production host to the production API', () => {
+    expect(target('photojournalism-site-git-x-stevemarvell-team.vercel.app')).not.toContain('photojournalism-site-api-stevemarvell');
   });
 });
 

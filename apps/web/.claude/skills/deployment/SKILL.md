@@ -57,6 +57,18 @@ predicts. Don't construct it; read it from the Vercel bot's comment on the
 pull request, or from the Vercel dashboard's deployments list for
 `photojournalism-site`.
 
+## Staging and preview data (issue #85)
+
+`staging` is a long-lived branch, merged from `develop` when the owner wants a UAT build;
+production stays `develop`. It is a Preview deployment (custom environments are not on this
+plan), so it has a stable branch URL: `photojournalism-site-git-staging-stevemarvell-team.vercel.app`
+(web) and `photojournalism-site-api-git-staging-stevemarvell-team.vercel.app` (API). The web
+`vercel.json` sends `/api` from the production host to the production API and from every other
+host to the API's `staging` URL. The API reads `PREVIEW_DATABASE_URL` and
+`PREVIEW_BLOB_READ_WRITE_TOKEN` in a preview (never the production variables); they are set on
+the API project's Preview environment, scoped to the `staging` branch. The preview database is
+migrated by the API itself on first use, exactly as production's is.
+
 **Vercel tears down neither kind of preview.** The preview deployment and its
 branch alias survive the merge *and* the branch deletion; nothing built into
 Vercel cleans them up on its own.

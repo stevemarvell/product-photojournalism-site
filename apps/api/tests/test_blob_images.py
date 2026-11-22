@@ -253,8 +253,12 @@ def test_the_original_url_appears_in_no_public_or_owner_response_only_web_versio
     saved = owner.put(
         f"/stories/{story['id']}/draft",
         json={
-            "title": "Dusk", "description": "d", "location": "Lisbon", "date": "2026-10-31",
-            "content": f"Words.\n\n{photo}\n", "updated_at": story["updated_at"],
+            "title": "Dusk",
+            "description": "d",
+            "location": "Lisbon",
+            "date": "2026-10-31",
+            "content": f"Words.\n\n{photo}\n",
+            "updated_at": story["updated_at"],
         },  # fmt: skip
     )
     assert saved.status_code == 200, saved.text
@@ -295,8 +299,12 @@ def test_this_api_serves_no_image_file_once_blob_serves_the_web_versions() -> No
 
 def test_the_local_route_is_still_served_on_the_local_store(tmp_path) -> None:  # noqa: ANN001
     container = build_container(
-        {"IDENTITY_PROVIDER": "stub", "API_ENVIRONMENT": "development",
-         "STORY_REPOSITORY": "memory", "IMAGE_DIR": str(tmp_path)}  # fmt: skip
+        {
+            "IDENTITY_PROVIDER": "stub",
+            "API_ENVIRONMENT": "development",
+            "STORY_REPOSITORY": "memory",
+            "IMAGE_DIR": str(tmp_path),
+        }  # fmt: skip
     )
     assert container.local_images is not None
     key = "0b7f3c9e-1111-4222-8333-444455556666-480.jpg"
@@ -323,7 +331,8 @@ def test_web_versions_are_written_to_blob_with_no_exif() -> None:
                                                          "jfif_density", "dpi"})  # fmt: skip
     # The API wrote them with its read-write token; the browser's client token is for originals.
     web_puts = [
-        r for r in fake.requests
+        r
+        for r in fake.requests
         if r.method == "PUT" and r.url.params.get("pathname", "").startswith("web/")
     ]
     assert len(web_puts) == 4
@@ -373,8 +382,11 @@ def test_production_runs_processing_inline_and_local_runs_a_thread() -> None:
 
 def test_production_with_the_token_picks_blob_and_postgres() -> None:
     c = build_container(
-        {"VERCEL_ENV": "production", "BLOB_READ_WRITE_TOKEN": RW_TOKEN,
-         "DATABASE_URL": "postgresql://u:p@127.0.0.1:1/db"}  # fmt: skip
+        {
+            "VERCEL_ENV": "production",
+            "BLOB_READ_WRITE_TOKEN": RW_TOKEN,
+            "DATABASE_URL": "postgresql://u:p@127.0.0.1:1/db",
+        }  # fmt: skip
     )
     assert isinstance(c.images, BlobImageStore)
     assert isinstance(c.image_service._uploads, BlobOriginalUploads)  # noqa: SLF001
@@ -432,9 +444,7 @@ def test_the_image_store_puts_public_cacheable_jpegs_under_web() -> None:
 
 def test_a_late_worker_cannot_revive_a_timed_out_image_on_blob_either() -> None:
     fake = FakeBlob()
-    container = build_container(
-        {**ENV, "IMAGE_PROCESSING": "thread"}, blob_http=fake.client
-    )
+    container = build_container({**ENV, "IMAGE_PROCESSING": "thread"}, blob_http=fake.client)
     clock = FakeClock()
     repo = InMemoryImageRepository()
     jobs: list[Callable[[], None]] = []
@@ -444,8 +454,12 @@ def test_a_late_worker_cannot_revive_a_timed_out_image_on_blob_either() -> None:
         def enqueue(self, organisation_id: str, image_id: str) -> None:
             jobs.append(
                 lambda: process_image(
-                    organisation_id, image_id, images=repo, uploads=uploads,
-                    store=container.images, renderer=PillowImageRenderer(),
+                    organisation_id,
+                    image_id,
+                    images=repo,
+                    uploads=uploads,
+                    store=container.images,
+                    renderer=PillowImageRenderer(),
                 )  # fmt: skip
             )
 
@@ -453,8 +467,9 @@ def test_a_late_worker_cannot_revive_a_timed_out_image_on_blob_either() -> None:
         repo, uploads, Later(), clock,
         max_bytes=10_000_000, timeout=timedelta(seconds=120),
     )  # fmt: skip
-    client = TestClient(create_app(container=replace(container, image_service=service,
-                                                     image_status=service)))
+    client = TestClient(
+        create_app(container=replace(container, image_service=service, image_status=service))
+    )
     assert client.get("/auth/callback", follow_redirects=False).status_code == 303
     t = client.post("/images/upload-target", json={"size": 100}).json()
     assert fake.browser_put(t, jpeg(600, 400)) == 200

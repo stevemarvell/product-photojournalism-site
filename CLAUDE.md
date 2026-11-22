@@ -12,7 +12,14 @@ Deployed from `develop` to free Vercel addresses:
 - web: https://photojournalism-site-stevemarvell-team.vercel.app (the API is
   reached through its `/api` rewrite, so the sign-in cookie is first-party)
 - API: https://photojournalism-site-api-stevemarvell-team.vercel.app, with a
-  Neon Postgres database in production; previews use the in-memory store
+  Neon Postgres database in production
+- staging (a long-lived `staging` branch, merged from `develop` for UAT):
+  web https://photojournalism-site-git-staging-stevemarvell-team.vercel.app and API
+  https://photojournalism-site-api-git-staging-stevemarvell-team.vercel.app (branch URLs,
+  confirmed after the first staging deploy). Every non-production web deployment, pull
+  request previews included, calls the API's `staging` deployment, which uses the preview
+  Neon database and Blob store (`PREVIEW_*`); a preview without them runs on memory with
+  uploads off
 
 The AI layer — `.claude/`, `scripts/`, `.github/`, `telemetry/` — is the
 engine: the loop of verify, review, isolate, deploy, smoke and triage.
