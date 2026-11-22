@@ -40,7 +40,7 @@ there.
 | `apps/api/` | The FastAPI back end in hexagonal layers (`domain/`, `application/` ports, `adapters/`), run as Vercel Python functions: `/health`, `/version`, Sign in with Vercel under `/auth/*`, and the owner guard every non-public route uses. Its own rules are in `apps/api/CLAUDE.md`. |
 | `apps/web/` | The Ionic React front end on Vite: the public site, sign-in, and the owner-only `/editor`, with a Playwright end-to-end suite and the documentation site built into its bundle at /docs/. Its own rules are in `apps/web/CLAUDE.md`. |
 | `project.json` | The one place the AI layer learns about the apps: paths, toolchains, build inputs, and each app's Vercel deployment. Read through `scripts/project.mjs`. |
-| `docs/` | `sops.md`, how agent work is run; `data-governance.md`, what the deployment holds and exposes, and the sign-in controls everything else relies on. |
+| `docs/` | `sops.md`, how agent work is run; `releases.md`, the branching strategy and how `develop` is released to `main`; `data-governance.md`, what the deployment holds and exposes, and the sign-in controls everything else relies on. |
 
 <!-- shared:begin — the AI layer's rules, identical in every repository built
 from boris. Edit them in boris and sync; a local edit here is lost on the next
