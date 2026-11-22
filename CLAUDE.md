@@ -7,20 +7,25 @@ the *Photojournalism Site MVP: Build Spec v2* doc
 (https://claude.ai/code/artifact/7fbdc774-5dba-4a7a-a785-5f2f597c27fe); its
 build order is the issue chain #11 to #17.
 
-Deployed from `develop` to free Vercel addresses:
+Branches: `main` is production, `develop` is staging for UAT, and a feature branch is
+its pull request's preview. Free Vercel addresses:
 
-- web: https://photojournalism-site-stevemarvell-team.vercel.app (the API is
-  reached through its `/api` rewrite, so the sign-in cookie is first-party)
-- API: https://photojournalism-site-api-stevemarvell-team.vercel.app, with a
-  Neon Postgres database in production
-- staging (a long-lived `staging` branch, merged from `develop` for UAT):
-  web https://photojournalism-site-git-staging-stevemarvell-team.vercel.app and API
-  https://photojournalism-site-api-git-staging-stevemarvell-team.vercel.app (branch URLs,
-  confirmed after the first staging deploy). The web branch aliases other than `develop` (staging and pull request
-  previews) call the API's `staging` deployment, which uses the preview Neon database and Blob
-  store (`PREVIEW_*`); every other host, preview hash URLs included, calls the production API, so
-  test a preview on its branch alias. A preview API without `PREVIEW_*` runs on memory with
-  uploads off
+- web (production, from `main`): https://photojournalism-site-stevemarvell-team.vercel.app
+  (the API is reached through its `/api` rewrite, so the sign-in cookie is first-party)
+- API (production, from `main`): https://photojournalism-site-api-stevemarvell-team.vercel.app,
+  with a Neon Postgres database in production
+- staging (`develop`, a Preview deployment): web
+  https://photojournalism-site-git-develop-stevemarvell-team.vercel.app and API
+  https://photojournalism-site-api-git-develop-stevemarvell-team.vercel.app. Every web branch
+  alias (`develop` and pull request previews) calls the API's `develop` alias, which uses the
+  preview Neon database and Blob store (`PREVIEW_*`); every other host, preview hash URLs
+  included, calls the production API, so test a preview on its branch alias. A preview API
+  without `PREVIEW_*` runs on memory with uploads off
+
+Promoting to production: once the owner has done UAT on staging, open a pull request
+`develop` into `main` and merge it with a merge commit (not a squash, so `main` and
+`develop` keep a shared history). Vercel then builds `main` to production. Nothing else
+merges to `main`.
 
 The AI layer — `.claude/`, `scripts/`, `.github/`, `telemetry/` — is the
 engine: the loop of verify, review, isolate, deploy, smoke and triage.

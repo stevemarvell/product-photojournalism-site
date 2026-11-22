@@ -22,7 +22,7 @@ Load-bearing and non-obvious settings:
   but then reads this app's own lockfiles and build config relative to that
   root, not the repository root.
 - Left alone, Vercel builds on **every** push to every branch — production on
-  `develop`, a preview everywhere else — whatever the push touched.
+  `main`, a preview everywhere else (`develop` is staging) — whatever the push touched.
   `apps/web/vercel.json` sets an `ignoreCommand` running
   `scripts/deploy/vercel/vercel-ignore.mjs`, which diffs
   `VERCEL_GIT_PREVIOUS_SHA` (the last *successful* deployment, so never a
@@ -57,21 +57,22 @@ predicts. Don't construct it; read it from the Vercel bot's comment on the
 pull request, or from the Vercel dashboard's deployments list for
 `photojournalism-site`.
 
-## Staging and preview data (issue #85)
+## Staging and preview data (issues #85, #91)
 
-`staging` is a long-lived branch, merged from `develop` when the owner wants a UAT build;
-production stays `develop`. It is a Preview deployment (custom environments are not on this
-plan), so it has a stable branch URL: `photojournalism-site-git-staging-stevemarvell-team.vercel.app`
-(web) and `photojournalism-site-api-git-staging-stevemarvell-team.vercel.app` (API). The web
-`vercel.json` sends `/api` in order: the `develop` branch alias to the production API; any other
-branch alias of the web project (`photojournalism-site-git-<branch>-stevemarvell-team.vercel.app`,
-which covers `staging` and every pull request) to the API's `staging` URL; every other host
-(production domains, custom domains, per-deployment hash URLs) to the production API. A
-preview's hash URL therefore uses the production API, as before: **test a preview on its branch
-alias.** The API reads `PREVIEW_DATABASE_URL` and
-`PREVIEW_BLOB_READ_WRITE_TOKEN` in a preview (never the production variables); they are set on
-the API project's Preview environment, scoped to the `staging` branch. The preview database is
-migrated by the API itself on first use, exactly as production's is.
+`main` is production; `develop` is staging for UAT, promoted by a `develop` into `main` pull
+request (merge commit) once the owner has accepted it. `develop` is a Preview deployment
+(custom environments are not on this plan), so it has a stable branch URL:
+`photojournalism-site-git-develop-stevemarvell-team.vercel.app` (web) and
+`photojournalism-site-api-git-develop-stevemarvell-team.vercel.app` (API). The web
+`vercel.json` sends `/api` in order: any branch alias of the web project
+(`photojournalism-site-git-<branch>-stevemarvell-team.vercel.app`, which covers `develop` and
+every pull request) to the API's `develop` alias; every other host (production domains,
+custom domains, per-deployment hash URLs) to the production API. A preview's hash URL
+therefore uses the production API: **test a preview on its branch alias.** The API reads
+`PREVIEW_DATABASE_URL` and `PREVIEW_BLOB_READ_WRITE_TOKEN` in a preview (never the production
+variables); they are set on the API project's Preview environment, scoped to the `develop`
+branch. The preview database is migrated by the API itself on first use, exactly as
+production's is.
 
 **Vercel tears down neither kind of preview.** The preview deployment and its
 branch alias survive the merge *and* the branch deletion; nothing built into
@@ -86,7 +87,7 @@ docs/data-governance.md, before the first pull request that deploys this app
 closes**). Run it by hand (`gh workflow run preview-prune -f
 dry_run=false`) to delete every preview whose branch no longer exists; the
 default `dry_run=true` only lists them. Its preview modes never delete a
-production deployment or a `develop` build, whatever they are asked.
+production deployment or a `develop` (staging) build, whatever they are asked.
 
 Production history is trimmed the same way: every merge makes a production
 deployment and Vercel keeps them all, so each close (and each manual run)
