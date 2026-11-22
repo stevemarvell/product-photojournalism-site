@@ -7,20 +7,10 @@
       "has": [
         {
           "type": "host",
-          "value": "photojournalism-site-git-develop-stevemarvell-team.vercel.app"
-        }
-      ],
-      "destination": "https://photojournalism-site-api-stevemarvell-team.vercel.app/:path*"
-    },
-    {
-      "source": "/api/:path*",
-      "has": [
-        {
-          "type": "host",
           "value": "^photojournalism-site-git-[a-z0-9-]+-stevemarvell-team\\.vercel\\.app$"
         }
       ],
-      "destination": "https://photojournalism-site-api-git-staging-stevemarvell-team.vercel.app/:path*"
+      "destination": "https://photojournalism-site-api-git-develop-stevemarvell-team.vercel.app/:path*"
     },
     {
       "source": "/api/:path*",
