@@ -170,6 +170,12 @@ def test_the_web_build_calls_the_api_same_origin_and_the_rewrite_targets_the_dep
     # The unconditional fallback, last, is the production API: production is the safe default.
     assert api_rewrites[-1] == {"source": "/api/:path*", "destination": f"{api_url}/:path*"}
     assert "has" not in api_rewrites[-1]
+    # Branch aliases (develop = staging, pull request previews) call the API's develop alias.
+    assert len(api_rewrites) == 2
+    api_host = api_url.removeprefix("https://").removesuffix("-stevemarvell-team.vercel.app")
+    assert api_rewrites[0]["destination"] == (
+        f"https://{api_host}-git-develop-stevemarvell-team.vercel.app/:path*"
+    )
 
 
 def test_the_api_commit_endpoint_is_version_not_health() -> None:
