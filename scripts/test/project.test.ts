@@ -13,6 +13,7 @@ import {
   deployed,
   hasDeploy,
   loadProject,
+  productionBranch,
   validate,
   verifiedPaths,
   type Project,
@@ -123,6 +124,21 @@ describe('the --has-deploy CLI', () => {
 describe('validate', () => {
   it('accepts the documented shape', () => {
     expect(validate(minimal()).name).toBe('thing');
+  });
+
+  it('accepts an optional productionBranch that is a git branch name, and defaults to develop', () => {
+    expect(productionBranch(validate(minimal()))).toBe('develop');
+    expect(productionBranch(validate({ ...minimal(), productionBranch: 'main' }))).toBe('main');
+  });
+
+  it('refuses any other productionBranch, naming the allowed values', () => {
+    for (const bad of ['', 'staging', 'release/1', 'main ', 'a..b']) {
+      expect(() => validate({ ...minimal(), productionBranch: bad }), bad).toThrow(/productionBranch.*develop, main/);
+    }
+  });
+
+  it('refuses a productionBranch that is not a string', () => {
+    expect(() => validate({ ...minimal(), productionBranch: 7 as unknown as string })).toThrow(/productionBranch/);
   });
 
   it('accepts services: ["postgres"] and an empty list', () => {

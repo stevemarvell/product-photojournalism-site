@@ -38,13 +38,22 @@
 // does not have to know that, since `deployed(project)` is then empty and
 // the loop below simply does nothing.
 //
+// Which branch publishes production is project.json's `productionBranch`
+// (default `develop`). smoke.yml runs on a push to `develop` and to `main`, and
+// a push to any branch but that one exits 0 here with nothing checked: a
+// product whose `develop` is a staging preview has no production deployment
+// for that commit to wait for. See notProductionBranch. That push is instead
+// smoked against staging: when productionBranch is `main`, a push to `develop`
+// checks each app's branch alias (the provider derives it) (same gate,
+// same app checks). See isStagingPush, stagingProject; docs/releases.md.
+//
 // Usage (smoke.yml runs it with a full-history checkout, fetch-depth: 0):
 //     node scripts/smoke.mjs            # the commit is $GITHUB_SHA, the
 //                                        # gate follows $GITHUB_EVENT_NAME
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { provider } from './deploy/index.mjs';
-import { ROOT, deployed, loadProject } from './project.mjs';
+import { ROOT, deployed, loadProject, productionBranch } from './project.mjs';
 
 export const GATE_ATTEMPTS = 40;
 export const GATE_INTERVAL_MS = 15_000;
@@ -102,6 +111,38 @@ export function gateForEvent(eventName) {
   return eventName !== 'schedule' && eventName !== 'workflow_dispatch';
 }
 
+/** The short branch name in a GITHUB_REF (`refs/heads/main` is `main`); null for a tag, a pull request ref, or nothing. */
+export function branchOfRef(ref) {
+  const match = /^refs\/heads\/(.+)$/.exec(ref ?? '');
+  return match ? match[1] : null;
+}
+
+/** A push to a branch that is not the production branch has no production deployment to wait for: the message to
+ * print and exit 0 on, or null when smoke should run. `schedule` and `workflow_dispatch` are never skipped: they
+ * check whatever is live, and their GITHUB_REF is the default branch or whichever branch was dispatched, not a
+ * commit that should have deployed. No ref at all is not skipped either: fail closed, not open. */
+export function notProductionBranch({ project, ref, eventName }) {
+  if (eventName === 'schedule' || eventName === 'workflow_dispatch' || !ref) return null;
+  const branch = branchOfRef(ref);
+  if (branch !== null && branch === productionBranch(project)) return null;
+  return `not the production branch (${ref}); nothing to smoke`;
+}
+
+/** Whether this run is a push to `develop` while production is published from `main`: the staging case. */
+export function isStagingPush({ project, ref, eventName }) {
+  return eventName === 'push' && branchOfRef(ref) === 'develop' && productionBranch(project) === 'main';
+}
+
+/** `project` with every deployed app's `deploy.url` replaced by its `develop` branch alias (staging). Apps without a deploy block are untouched. */
+export function stagingProject(project) {
+  const apps = Object.fromEntries(
+    Object.entries(project.apps).map(([name, app]) =>
+      app.deploy ? [name, { ...app, deploy: { ...app.deploy, url: provider(app.deploy.provider).branchAlias(app.deploy, 'develop') } }] : [name, app],
+    ),
+  );
+  return { ...project, apps };
+}
+
 /** Gate and check every deployed app. Stops at the first failure.
  * `gate: false` (a scheduled or manually dispatched run) skips the
  * freshness wait entirely: each app is checked once, its reported commit is
@@ -144,8 +185,28 @@ export async function smoke({ project, sha, fetchJson, git, sleep, run, log, gat
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  // SMOKE_PROJECT_JSON points the process at another project.json (the process tests use it, so they do not
+  // depend on the repository running them); unset, it is the repository's own.
+  let loaded;
+  try {
+    loaded = process.env.SMOKE_PROJECT_JSON ? loadProject(process.env.SMOKE_PROJECT_JSON) : loadProject();
+  } catch (error) {
+    const source = process.env.SMOKE_PROJECT_JSON ? `SMOKE_PROJECT_JSON (${process.env.SMOKE_PROJECT_JSON})` : 'project.json';
+    console.error(`cannot load ${source}: ${error.message}`);
+    process.exit(1);
+  }
+  const target = { project: loaded, ref: process.env.GITHUB_REF, eventName: process.env.GITHUB_EVENT_NAME };
+  // A push to develop when main is production is staging: check the develop alias instead of skipping.
+  const staging = isStagingPush(target);
+  const project = staging ? stagingProject(loaded) : loaded;
+  if (staging) console.log('staging: checking the develop branch alias of each deployed app');
+  const skipped = staging ? null : notProductionBranch(target);
+  if (skipped) {
+    console.log(skipped);
+    process.exit(0);
+  }
   const result = await smoke({
-    project: loadProject(),
+    project,
     sha: process.env.GITHUB_SHA,
     gate: gateForEvent(process.env.GITHUB_EVENT_NAME),
     fetchJson: async (url) => {

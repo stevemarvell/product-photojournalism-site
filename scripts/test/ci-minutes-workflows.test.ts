@@ -102,8 +102,8 @@ describe('verify.yml', () => {
 });
 
 describe('smoke.yml', () => {
-  it('still runs on every push to develop', () => {
-    expect(load('smoke.yml').on['push']?.branches).toEqual(['develop']);
+  it('still runs on every push to develop, and on main for a product that publishes from it', () => {
+    expect(load('smoke.yml').on['push']?.branches).toEqual(['develop', 'main']);
   });
 });
 

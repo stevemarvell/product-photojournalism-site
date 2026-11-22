@@ -40,7 +40,7 @@ there.
 | `apps/api/` | The FastAPI back end in hexagonal layers (`domain/`, `application/` ports, `adapters/`), run as Vercel Python functions: `/health`, `/version`, Sign in with Vercel under `/auth/*`, and the owner guard every non-public route uses. Its own rules are in `apps/api/CLAUDE.md`. |
 | `apps/web/` | The Ionic React front end on Vite: the public site, sign-in, and the owner-only `/editor`, with a Playwright end-to-end suite and the documentation site built into its bundle at /docs/. Its own rules are in `apps/web/CLAUDE.md`. |
 | `project.json` | The one place the AI layer learns about the apps: paths, toolchains, build inputs, and each app's Vercel deployment. Read through `scripts/project.mjs`. |
-| `docs/` | `sops.md`, how agent work is run; `data-governance.md`, what the deployment holds and exposes, and the sign-in controls everything else relies on. |
+| `docs/` | `sops.md`, how agent work is run; `releases.md`, the branching strategy and how `develop` is released to `main`; `data-governance.md`, what the deployment holds and exposes, and the sign-in controls everything else relies on. |
 
 <!-- shared:begin — the AI layer's rules, identical in every repository built
 from boris. Edit them in boris and sync; a local edit here is lost on the next
@@ -75,7 +75,8 @@ sync. Repository-specific facts go in the sections outside this block. -->
   asking; a green PR left open is work that looks finished and is not. Never
   commit or push directly to `develop`. Whether anything mechanical enforces
   these is a repository setting, recorded under *Repository settings* below,
-  not assumed.
+  not assumed. A product that publishes production from `main` releases by
+  `docs/releases.md` and the `release` skill.
 
 - **Decide and act; report after.** The test is **recoverability, not scope**:
   stop for work nobody can get back, for money, and for anything reaching a
@@ -186,6 +187,7 @@ Merging on a local `verify` is allowed only when CI did not run (`drive-pr` step
 | Take a pull request to merged | the `drive-pr` skill |
 | Isolate, and later clean up, an agent's checkout | the `worktrees` skill |
 | Verify, commit and open a PR | `/ship`; just verify: `/gate` |
+| Release `develop` to production, hotfix, roll back | the `release` skill; `docs/releases.md` |
 | Sync this block and `.claude/` with boris or a repository built from it | the `sync-ai-layer` skill |
 
 <!-- shared:end -->

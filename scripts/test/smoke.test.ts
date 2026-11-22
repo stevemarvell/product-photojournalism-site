@@ -7,8 +7,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { apps, loadProject, type Project } from '../project.mjs';
-import { buildIsEquivalent } from '../deploy/vercel/smoke.mjs';
-import { GATE_ATTEMPTS, appUrls, gateForEvent, isCommitSha, runGit, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
+import { branchAlias, buildIsEquivalent } from '../deploy/vercel/smoke.mjs';
+import { GATE_ATTEMPTS, appUrls, isStagingPush, stagingProject, branchOfRef, notProductionBranch, gateForEvent, isCommitSha, runGit, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
 
 const project = (): Project => ({
   name: 'thing',
@@ -409,5 +409,125 @@ describe('runGit, the production wrapper', () => {
     git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'c']);
     const later = git(['rev-parse', 'HEAD']).stdout.trim();
     expect(buildIsEquivalent({ git, project: project(), name: 'back', deployedSha: deployed, sha: later })).toBe(false);
+  });
+});
+
+describe('notProductionBranch', () => {
+  const main = { ...project(), productionBranch: 'main' };
+  it('defaults to develop: a push to develop runs, a push to main is skipped', () => {
+    expect(notProductionBranch({ project: project(), ref: 'refs/heads/develop', eventName: 'push' })).toBeNull();
+    expect(notProductionBranch({ project: project(), ref: 'refs/heads/main', eventName: 'push' })).toBe(
+      'not the production branch (refs/heads/main); nothing to smoke',
+    );
+  });
+  it('with productionBranch main: main runs, develop and tags are skipped', () => {
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/main', eventName: 'push' })).toBeNull();
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/develop', eventName: 'push' })).toMatch(/^not the production branch \(refs\/heads\/develop\); nothing to smoke$/);
+    expect(notProductionBranch({ project: main, ref: 'refs/tags/main', eventName: 'push' })).toMatch(/not the production branch/);
+  });
+  it('never skips an uptime check or a manual dispatch, nor a run with no ref', () => {
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/develop', eventName: 'schedule' })).toBeNull();
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/develop', eventName: 'workflow_dispatch' })).toBeNull();
+    expect(notProductionBranch({ project: main, ref: undefined, eventName: 'push' })).toBeNull();
+  });
+  it('branchOfRef reads only branch refs', () => {
+    expect(branchOfRef('refs/heads/release/1')).toBe('release/1');
+    expect(branchOfRef('refs/tags/v1')).toBeNull();
+    expect(branchOfRef(undefined)).toBeNull();
+  });
+});
+
+describe('staging smoke', () => {
+  const main = { ...project(), productionBranch: 'main' } as Project;
+  it('a push to develop is staging only when main is the production branch', () => {
+    expect(isStagingPush({ project: main, ref: 'refs/heads/develop', eventName: 'push' })).toBe(true);
+    expect(isStagingPush({ project: project(), ref: 'refs/heads/develop', eventName: 'push' })).toBe(false);
+    expect(isStagingPush({ project: main, ref: 'refs/heads/main', eventName: 'push' })).toBe(false);
+    expect(isStagingPush({ project: main, ref: 'refs/heads/develop', eventName: 'schedule' })).toBe(false);
+  });
+  it('derives the develop alias per app from project and team', () => {
+    expect(branchAlias({ project: 'thing-back', team: 't' }, 'develop')).toBe('https://thing-back-git-develop-t.vercel.app');
+    const staged = stagingProject(main);
+    expect(staged.apps.back!.deploy!.url).toBe('https://thing-back-git-develop-t.vercel.app');
+    expect(staged.apps.front!.deploy!.url).toBe('https://thing-front-git-develop-t.vercel.app');
+    expect(staged.apps.tool!.deploy).toBeUndefined();
+    expect(main.apps.back!.deploy!.url).toBe('https://back.example'); // the input is not mutated
+  });
+  it('smoke gates and checks the staging URLs, not production', async () => {
+    const { fetchJson, asked } = server({ 'https://thing-back-git-develop-t.vercel.app/health': [NEW], 'https://thing-front-git-develop-t.vercel.app/version.json': [NEW] });
+    const urls: Record<string, string>[] = [];
+    const result = await smoke({ project: stagingProject(main), sha: NEW, fetchJson, git: gitSays(1), sleep: noSleep, run: (_s, u) => (urls.push(u), 0), log: quiet });
+    expect(result.ok).toBe(true);
+    expect(asked.every((u) => u.includes('-git-develop-t.vercel.app'))).toBe(true);
+    expect(urls[0]!.BACK).toBe('https://thing-back-git-develop-t.vercel.app');
+  });
+});
+
+describe('scripts/smoke.mjs as a process', () => {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  // Runs against a project.json written for the case (nothing deployed), never the repository's own, so the
+  // answer holds in every product whatever its productionBranch or deployed apps.
+  const run = (ref: string, manifest: object, event = 'push') =>
+    new Promise<{ code: number; out: string }>((done) => {
+      const dir = mkdtempSync(join(tmpdir(), 'smoke-proc-'));
+      dirs.push(dir);
+      const file = join(dir, 'project.json');
+      writeFileSync(file, JSON.stringify(manifest));
+      execFile(
+        'node',
+        ['scripts/smoke.mjs'],
+        { cwd: root, env: { ...process.env, SMOKE_PROJECT_JSON: file, GITHUB_REF: ref, GITHUB_EVENT_NAME: event, GITHUB_SHA: '' } },
+        (error, stdout) => done({ code: error ? ((error as { code?: number }).code ?? 1) : 0, out: stdout }),
+      );
+    });
+  const bare = { name: 'thing', apps: { svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] } } };
+  const onMain = { ...bare, productionBranch: 'main' };
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch absent, exits 0 with a one-line message on a push to another branch', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/main', bare);
+    expect(result.code).toBe(0);
+    expect(result.out.trim()).toBe('not the production branch (refs/heads/main); nothing to smoke');
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch absent, goes on to smoke on a push to develop', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/develop', bare);
+    expect(result.out).not.toMatch(/not the production branch/);
+    expect(result.out).toMatch(/nothing is deployed/);
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch main, skips a push to a feature branch', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/feature-x', onMain);
+    expect(result.code).toBe(0);
+    expect(result.out.trim()).toBe('not the production branch (refs/heads/feature-x); nothing to smoke');
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch main, goes on to smoke on a push to main', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/main', onMain);
+    expect(result.out).not.toMatch(/not the production branch/);
+    expect(result.out).toMatch(/nothing is deployed/);
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('fails naming SMOKE_PROJECT_JSON and its path when unreadable, rather than falling back to the repository project.json', { timeout: 30_000 }, async () => {
+    const missing = '/nonexistent/project.json';
+    const result = await new Promise<{ code: number; err: string }>((done) =>
+      execFile(
+        'node',
+        ['scripts/smoke.mjs'],
+        { cwd: root, env: { ...process.env, SMOKE_PROJECT_JSON: missing, GITHUB_REF: 'refs/heads/develop', GITHUB_EVENT_NAME: 'push', GITHUB_SHA: '' } },
+        (error, _stdout, stderr) => done({ code: error ? ((error as { code?: number }).code ?? 1) : 0, err: stderr }),
+      ),
+    );
+    expect(result.code).toBe(1);
+    expect(result.err).toContain('SMOKE_PROJECT_JSON');
+    expect(result.err).toContain(missing);
   });
 });

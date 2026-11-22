@@ -190,6 +190,8 @@ parsing only the subset `content_problems` allows: it must never evaluate MDX or
 
 ## What CI holds, and what voids that
 
+Releases: a push to `main` (production) or `develop` (staging) starts `smoke`, which reads no secret and only requests the deployed URLs. What reaches `main` is gated by the owner's `go` on the release or hotfix pull request (`docs/releases.md`); that gate is discipline, bounded by the merge naming the approved head sha, and nothing mechanical blocks a direct push to `main`.
+
 The engine ships workflows that read repository secrets. A new product has
 none set; the owner sets each with `gh secret set`, and until then the
 workflows that read it have nothing to read.

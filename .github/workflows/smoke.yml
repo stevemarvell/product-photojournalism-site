@@ -1,6 +1,7 @@
 name: smoke
 
-# Runs after a merge reaches develop, once Vercel has had time to redeploy.
+# Runs after a merge reaches develop or main (scripts/smoke.mjs checks only the
+# push to project.json's `productionBranch`, default develop, and exits 0 on the other), once Vercel has had time to redeploy.
 # Catches the class of failure that unit and e2e tests cannot: the deployed
 # build's configuration.
 #
@@ -30,7 +31,7 @@ name: smoke
 # commit the deployment is expected to match. Only a push does.
 on:
   push:
-    branches: [develop]
+    branches: [develop, main]
   schedule:
     # Every 6 hours, offset from the hour so it doesn't pile onto :00 with
     # everyone else's crons. Added by `npm run deploy:add`: the engine ships

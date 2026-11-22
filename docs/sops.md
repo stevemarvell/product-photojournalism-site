@@ -91,6 +91,9 @@ Three loops *are* mechanically bounded:
 
 ### What CI runs, and when
 
+The branch scheme (`main` production, `develop` staging) and the release,
+hotfix and rollback procedures are `docs/releases.md`.
+
 Actions bills every job rounded up to a whole minute, on a free allowance, so
 what a push or a merge starts is a spending decision and is written down here.
 
@@ -118,7 +121,12 @@ what a push or a merge starts is a spending decision and is written down here.
   both once more and the workflow removes it when they finish. When the driver
   adds it is defined in `drive-pr` step 4 and nowhere else. Nothing adds the
   label by itself, so no review loop can run unattended.
-- **`smoke` runs on every push to `develop`** and, once an app deploys, on a
+- **`smoke` runs on every push to `develop` and `main`**, and checks the
+  production branch (`productionBranch` in `project.json`, default `develop`).
+  With `productionBranch: "main"`, a push to `develop` checks each app's
+  `<project>-git-develop-<team>.vercel.app` staging alias instead; any other
+  push exits 0 with "not the production branch ... nothing to smoke". How a
+  change reaches `main` is `docs/releases.md`. Once an app deploys it also runs on a
   schedule every 6 hours (`SMOKE_SCHEDULE` in `scripts/deploy/add.mjs`).
 - **A deployed app rebuilds only for what it reads.** Its `reads` and
   `ignores`, `scripts/project.mjs` and the provider's ignore script are

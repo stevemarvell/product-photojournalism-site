@@ -274,3 +274,22 @@ describe('pruneHistory', () => {
     expect(removed).toEqual([]);
   });
 });
+
+describe('with productionBranch main', () => {
+  const all = [
+    preview('stg', 'develop'),
+    { uid: 'prod', target: null, meta: { githubCommitRef: 'main' } } as Deployment,
+    preview('a', 'feat/x'),
+  ];
+  const ids = (ds: Deployment[]) => ds.map((d) => d.uid);
+
+  it('keeps both a develop preview and a main build out of stale', () => {
+    expect(ids(select(all, { live: new Set() }, 'main'))).toEqual(['a']);
+  });
+
+  it('keeps both out of branch, however it is asked', () => {
+    expect(ids(select(all, { branch: 'develop' }, 'main'))).toEqual([]);
+    expect(ids(select(all, { branch: 'main' }, 'main'))).toEqual([]);
+    expect(ids(select(all, { branch: 'feat/x' }, 'main'))).toEqual(['a']);
+  });
+});
