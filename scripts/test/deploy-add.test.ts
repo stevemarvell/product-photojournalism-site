@@ -107,6 +107,10 @@ describe('ownerSteps', () => {
     expect(steps.some((s) => s.includes('VERCEL_TOKEN'))).toBe(true);
     expect(steps.some((s) => s.includes('data-governance.md'))).toBe(true);
   });
+
+  it('says to set Production Branch to main', () => {
+    expect(ownerSteps({ app: 'api', team: 't', project: 'p' }).some((s) => s.includes('Set Production Branch to `main`'))).toBe(true);
+  });
 });
 
 describe('addDeploy', () => {
@@ -415,7 +419,7 @@ describe('the scheduled smoke run (#254)', () => {
       expect(text).not.toMatch(/^\s*-?\s*cron:/m);
     }
     // The triggers that cost nothing while nothing is deployed stay either way.
-    expect(text).toMatch(/^ {2}push:\n {4}branches: \[develop\]/m);
+    expect(text).toMatch(/^ {2}push:\n {4}branches: \[develop, main\]/m);
     expect(text).toMatch(/^ {2}workflow_dispatch:/m);
   });
 

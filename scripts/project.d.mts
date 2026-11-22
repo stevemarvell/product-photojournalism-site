@@ -22,6 +22,7 @@ export interface Engine {
 export interface Project {
   name: string;
   engine?: Engine;
+  productionBranch?: string;
   apps: Record<string, App>;
 }
 export declare const ROOT: string;
@@ -47,3 +48,7 @@ export declare function buildInputsChanged(options: {
 }): 'unchanged' | 'changed' | 'failed';
 export declare function verifiedPaths(project: Project): string[];
 export declare function cli(argv: string[], project?: Project): string[];
+
+export declare const DEFAULT_PRODUCTION_BRANCH: string;
+export declare function productionBranch(project: Project): string;
+export declare const PRODUCTION_BRANCHES: string[];

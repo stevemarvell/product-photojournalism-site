@@ -39,7 +39,7 @@
 // workflow defaults it to --dry-run.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { deployed, loadProject } from '../../project.mjs';
+import { DEFAULT_PRODUCTION_BRANCH, deployed, loadProject, productionBranch } from '../../project.mjs';
 
 // Every app deployed to Vercel, from project.json: an app whose `deploy`
 // block names this provider.
@@ -60,7 +60,9 @@ export const TARGETS = VERCEL_APPS.map(([, app]) => ({ project: app.deploy.proje
 export const KEEP_PRODUCTION = 3;
 /** States a deployment is finished in; anything else is still in flight. */
 const FINISHED = new Set(['READY', 'CANCELED', 'ERROR']);
-export const PRODUCTION_BRANCH = 'develop';
+/** project.json's production branch. `develop` is protected as well (below): it is staging when this is `main`. */
+export const PRODUCTION_BRANCH = productionBranch(PROJECT);
+const protectedBranches = (production) => new Set([production, DEFAULT_PRODUCTION_BRANCH]);
 // 100 deployments a page; 20 pages is 2,000 per project, twenty times the
 // whole backlog this was written to clear. Hitting it is reported, not retried.
 export const MAX_PAGES = 20;
@@ -68,15 +70,15 @@ export const MAX_PAGES = 20;
 const API = 'https://api.vercel.com';
 
 /** Whether a deployment may be deleted at all, before any branch rule. */
-export function isPreview(deployment) {
+export function isPreview(deployment, production = PRODUCTION_BRANCH) {
   const ref = deployment.meta?.githubCommitRef;
-  return deployment.target !== 'production' && Boolean(ref) && ref !== PRODUCTION_BRANCH;
+  return deployment.target !== 'production' && Boolean(ref) && !protectedBranches(production).has(ref);
 }
 
 /** The deployments to delete, given what should be kept. */
-export function select(deployments, rule) {
+export function select(deployments, rule, production = PRODUCTION_BRANCH) {
   return deployments.filter((d) => {
-    if (!isPreview(d)) return false;
+    if (!isPreview(d, production)) return false;
     const ref = d.meta.githubCommitRef;
     return rule.branch !== undefined ? ref === rule.branch : !rule.live.has(ref);
   });

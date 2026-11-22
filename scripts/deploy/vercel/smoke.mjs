@@ -11,3 +11,8 @@ import { buildInputsChanged } from '../../project.mjs';
 export function buildIsEquivalent({ git, project, name, deployedSha, sha }) {
   return buildInputsChanged({ git, project, name, base: deployedSha, head: sha }) === 'unchanged';
 }
+
+/** The branch alias Vercel gives `branch` of an app: `<project>-git-<branch>-<team>.vercel.app`. */
+export function branchAlias({ project, team }, branch) {
+  return `https://${project}-git-${branch}-${team}.vercel.app`;
+}

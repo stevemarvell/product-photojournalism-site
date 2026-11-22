@@ -5,3 +5,4 @@
 // through this, because both are already provider-specific entry points
 // with no generic caller to look them up by name.
 export { buildIsEquivalent } from './smoke.mjs';
+export { branchAlias } from './smoke.mjs';

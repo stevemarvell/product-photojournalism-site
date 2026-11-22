@@ -160,6 +160,7 @@ export function renderTemplate(text, values) {
 export function ownerSteps({ app, team, project }) {
   return [
     `Create the Vercel project "${project}" (team "${team}") with Root Directory apps/${app}.`,
+    'Set Production Branch to `main` in the Vercel project (Settings, Environments, Production), so `develop` builds as a Preview (staging) and a release publishes production (docs/releases.md).',
     'Turn Vercel Authentication off in Deployment Protection.',
     "Copy the production URL from the project's domain list — don't infer it from the short alias — and set it as this app's deploy.url in project.json.",
     'Add a team-scoped VERCEL_TOKEN repository secret before the first pull request that deploys this app closes.',

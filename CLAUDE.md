@@ -75,7 +75,8 @@ sync. Repository-specific facts go in the sections outside this block. -->
   asking; a green PR left open is work that looks finished and is not. Never
   commit or push directly to `develop`. Whether anything mechanical enforces
   these is a repository setting, recorded under *Repository settings* below,
-  not assumed.
+  not assumed. A product that publishes production from `main` releases by
+  `docs/releases.md` and the `release` skill.
 
 - **Decide and act; report after.** The test is **recoverability, not scope**:
   stop for work nobody can get back, for money, and for anything reaching a
@@ -186,6 +187,7 @@ Merging on a local `verify` is allowed only when CI did not run (`drive-pr` step
 | Take a pull request to merged | the `drive-pr` skill |
 | Isolate, and later clean up, an agent's checkout | the `worktrees` skill |
 | Verify, commit and open a PR | `/ship`; just verify: `/gate` |
+| Release `develop` to production, hotfix, roll back | the `release` skill; `docs/releases.md` |
 | Sync this block and `.claude/` with boris or a repository built from it | the `sync-ai-layer` skill |
 
 <!-- shared:end -->

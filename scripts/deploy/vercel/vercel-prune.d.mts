@@ -28,8 +28,8 @@ export declare function pruneHistory(options: {
   targets?: { project: string; host: string }[];
   keep?: number;
 }): Promise<{ project: string; id: string; state: string }[]>;
-export declare function isPreview(deployment: Deployment): boolean;
-export declare function select(deployments: Deployment[], rule: Rule): Deployment[];
+export declare function isPreview(deployment: Deployment, production?: string): boolean;
+export declare function select(deployments: Deployment[], rule: Rule, production?: string): Deployment[];
 export declare function listDeployments(fetchJson: FetchJson, project: string, branch?: string, target?: string): Promise<Deployment[]>;
 export declare function main(argv: string[], env: Record<string, string | undefined>): Promise<void>;
 export declare function prune(options: {
