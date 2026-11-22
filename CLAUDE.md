@@ -16,9 +16,10 @@ Deployed from `develop` to free Vercel addresses:
 - staging (a long-lived `staging` branch, merged from `develop` for UAT):
   web https://photojournalism-site-git-staging-stevemarvell-team.vercel.app and API
   https://photojournalism-site-api-git-staging-stevemarvell-team.vercel.app (branch URLs,
-  confirmed after the first staging deploy). Every non-production web deployment, pull
-  request previews included, calls the API's `staging` deployment, which uses the preview
-  Neon database and Blob store (`PREVIEW_*`); a preview without them runs on memory with
+  confirmed after the first staging deploy). The web branch aliases other than `develop` (staging and pull request
+  previews) call the API's `staging` deployment, which uses the preview Neon database and Blob
+  store (`PREVIEW_*`); every other host, preview hash URLs included, calls the production API, so
+  test a preview on its branch alias. A preview API without `PREVIEW_*` runs on memory with
   uploads off
 
 The AI layer — `.claude/`, `scripts/`, `.github/`, `telemetry/` — is the

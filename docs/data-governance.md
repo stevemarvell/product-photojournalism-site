@@ -105,9 +105,10 @@ holds.
   filters on `organisation_id`). Local runs use the in-memory adapters
   (`InMemoryStoryRepository`, `InMemorySessionStore`), which lose everything on restart, and
   so does a preview without `PREVIEW_DATABASE_URL`. A preview with it uses that separate
-  preview database, migrated the same way as production's. Every non-production web
-  deployment calls the API's `staging` branch deployment (the web `vercel.json` rewrite; its production-host regex lists every production domain, and a new one must be added there),
-  which is the one preview API holding the preview credentials.
+  preview database, migrated the same way as production's. The web branch aliases other than `develop`
+  (`staging` and pull request previews) call the API's `staging` branch deployment (the web
+  `vercel.json` rewrite); every other host, per-deployment hash URLs of previews included,
+  calls the production API, so a preview is tested on its branch alias. The staging API is the preview API holding the preview credentials, shared by every pull request preview.
 - **Migrations** (yoyo-migrations, SQL files in `apps/api/src/api/migrations/`) run inside
   the API process, once per process, before its first query (not at import, so an
   unreachable database still lets `/health` answer 503). They run under a Postgres advisory
