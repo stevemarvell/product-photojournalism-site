@@ -1,6 +1,7 @@
 """Scenarios: local config, adapters by configuration, stub sign-in refused when deployed."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -167,11 +168,9 @@ def test_the_web_build_calls_the_api_same_origin_and_the_rewrite_targets_the_dep
     rewrites = json.loads((web / "vercel.json").read_text())["rewrites"]
     api_url = PROJECT["apps"]["api"]["deploy"]["url"]
     web_host = PROJECT["apps"]["web"]["deploy"]["url"].removeprefix("https://")
-    assert {
-        "source": "/api/:path*",
-        "has": [{"type": "host", "value": web_host}],
-        "destination": f"{api_url}/:path*",
-    } in rewrites
+    production = next(r for r in rewrites if r["source"] == "/api/:path*")
+    assert production["destination"] == f"{api_url}/:path*"
+    assert re.search(production["has"][0]["value"], web_host)
 
 
 def test_the_api_commit_endpoint_is_version_not_health() -> None:

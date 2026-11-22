@@ -7,7 +7,7 @@
       "has": [
         {
           "type": "host",
-          "value": "photojournalism-site-stevemarvell-team.vercel.app"
+          "value": "^(photojournalism-site-stevemarvell-team|photojournalism-portfolio-marvell)\\.vercel\\.app$"
         }
       ],
       "destination": "https://photojournalism-site-api-stevemarvell-team.vercel.app/:path*"

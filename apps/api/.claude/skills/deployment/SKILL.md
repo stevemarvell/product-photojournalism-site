@@ -63,8 +63,10 @@ pull request, or from the Vercel dashboard's deployments list for
 production stays `develop`. It is a Preview deployment (custom environments are not on this
 plan), so it has a stable branch URL: `photojournalism-site-git-staging-stevemarvell-team.vercel.app`
 (web) and `photojournalism-site-api-git-staging-stevemarvell-team.vercel.app` (API). The web
-`vercel.json` sends `/api` from the production host to the production API and from every other
-host to the API's `staging` URL. The API reads `PREVIEW_DATABASE_URL` and
+`vercel.json` sends `/api` from the web project's production domains (a host regex naming
+`photojournalism-site-stevemarvell-team.vercel.app` and `photojournalism-portfolio-marvell.vercel.app`)
+to the production API and from every other host to the API's `staging` URL. **A new production
+domain must be added to that regex**, or its `/api` goes to staging. The API reads `PREVIEW_DATABASE_URL` and
 `PREVIEW_BLOB_READ_WRITE_TOKEN` in a preview (never the production variables); they are set on
 the API project's Preview environment, scoped to the `staging` branch. The preview database is
 migrated by the API itself on first use, exactly as production's is.

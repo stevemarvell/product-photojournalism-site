@@ -21,23 +21,31 @@ describe('vercel.json rewrites', () => {
 // pull request previews) falls through to the API's staging branch. Rewrites apply in order.
 describe('vercel.json /api rewrites: production, then staging', () => {
   const apis = config.rewrites.filter((r) => r.source === '/api/:path*');
-  const productionHost = 'photojournalism-site-stevemarvell-team.vercel.app';
+  const productionHosts = ['photojournalism-site-stevemarvell-team.vercel.app', 'photojournalism-portfolio-marvell.vercel.app'];
+  const productionHost = productionHosts[0] as string;
   // What Vercel does with a rewrite: the first whose source and `has` conditions match.
   const target = (host: string): string | undefined =>
-    apis.find((r) => (r.has ?? []).every((c) => c.type === 'host' && c.value === host))?.destination;
+    apis.find((r) => (r.has ?? []).every((c) => c.type === 'host' && new RegExp(c.value).test(host)))?.destination;
 
   it('has exactly two, the host-conditioned production one first', () => {
     expect(apis).toHaveLength(2);
-    expect(apis[0]?.has).toEqual([{ type: 'host', value: productionHost }]);
+    expect(apis[0]?.has).toHaveLength(1);
+    expect(apis[0]?.has?.[0]?.type).toBe('host');
     expect(apis[1]?.has).toBeUndefined();
   });
-  it('sends the production host to the production API', () => {
+  it('sends every production domain to the production API', () => {
+    for (const host of productionHosts)
+      expect(target(host)).toBe('https://photojournalism-site-api-stevemarvell-team.vercel.app/:path*');
     expect(target(productionHost)).toBe('https://photojournalism-site-api-stevemarvell-team.vercel.app/:path*');
   });
   it('sends staging and preview hosts to the API staging branch', () => {
     const staging = 'https://photojournalism-site-api-git-staging-stevemarvell-team.vercel.app/:path*';
     expect(target('photojournalism-site-git-staging-stevemarvell-team.vercel.app')).toBe(staging);
     expect(target('photojournalism-site-git-feat-1-stevemarvell-team.vercel.app')).toBe(staging);
+  });
+  it('anchors the host pattern: lookalike hosts do not match production', () => {
+    for (const host of ['photojournalism-site-stevemarvell-teamXvercel.app', 'evil-photojournalism-portfolio-marvell.vercel.app', 'photojournalism-portfolio-marvell.vercel.app.evil.com'])
+      expect(target(host)).toContain('git-staging');
   });
   it('never sends a non-production host to the production API', () => {
     expect(target('photojournalism-site-git-x-stevemarvell-team.vercel.app')).not.toContain('photojournalism-site-api-stevemarvell');
