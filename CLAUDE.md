@@ -7,14 +7,14 @@ the *Photojournalism Site MVP: Build Spec v2* doc
 (https://claude.ai/code/artifact/7fbdc774-5dba-4a7a-a785-5f2f597c27fe); its
 build order is the issue chain #11 to #17.
 
-Branches: `main` is production, `develop` is staging for UAT, and a feature branch is
+Branches: `main` is production, `develop` is the develop preview, where the owner does UAT, and a feature branch is
 its pull request's preview. Free Vercel addresses:
 
 - web (production, from `main`): https://photojournalism-site-stevemarvell-team.vercel.app
   (the API is reached through its `/api` rewrite, so the sign-in cookie is first-party)
 - API (production, from `main`): https://photojournalism-site-api-stevemarvell-team.vercel.app,
   with a Neon Postgres database in production
-- staging (`develop`, a Preview deployment): web
+- the `develop` preview (a Preview deployment): web
   https://photojournalism-site-git-develop-stevemarvell-team.vercel.app and API
   https://photojournalism-site-api-git-develop-stevemarvell-team.vercel.app. Every web branch
   alias (`develop` and pull request previews) calls the API's `develop` alias, which uses the
@@ -22,7 +22,7 @@ its pull request's preview. Free Vercel addresses:
   included, calls the production API, so test a preview on its branch alias. A preview API
   without `PREVIEW_*` runs on memory with uploads off
 
-Promoting to production: once the owner has done UAT on staging, open a pull request
+Promoting to production: once the owner has done UAT on the develop preview, open a pull request
 `develop` into `main` and merge it with a merge commit (not a squash, so `main` and
 `develop` keep a shared history). Vercel then builds `main` to production. Nothing else
 merges to `main`.

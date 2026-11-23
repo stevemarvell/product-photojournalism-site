@@ -18,12 +18,12 @@ describe('vercel.json rewrites', () => {
 });
 
 // Issues #85 and #91: the safe default is production (`main`). Only the web project's branch
-// aliases (`develop`, which is staging, and pull request previews) go to the API's `develop`
+// aliases (`develop` and pull request previews) go to the API's `develop`
 // alias, which holds the preview credentials. Rewrites apply in order, first match wins.
 describe('vercel.json /api rewrites: branch aliases, then production', () => {
   const apis = config.rewrites.filter((r) => r.source === '/api/:path*');
   const PROD = 'https://photojournalism-site-api-stevemarvell-team.vercel.app/:path*';
-  const STAGING = 'https://photojournalism-site-api-git-develop-stevemarvell-team.vercel.app/:path*';
+  const DEVELOP_API = 'https://photojournalism-site-api-git-develop-stevemarvell-team.vercel.app/:path*';
   // What Vercel does with a rewrite: the first whose `has` conditions match; a host value is a
   // regular expression (a plain hostname matches itself, so it is anchored here to mean that).
   const target = (host: string): string | undefined =>
@@ -35,7 +35,7 @@ describe('vercel.json /api rewrites: branch aliases, then production', () => {
     expect(apis).toHaveLength(2);
     expect(apis[0]?.has).toHaveLength(1);
     expect(apis[1]?.has).toBeUndefined();
-    expect(apis.map((r) => r.destination)).toEqual([STAGING, PROD]);
+    expect(apis.map((r) => r.destination)).toEqual([DEVELOP_API, PROD]);
   });
   it('sends the production domains, a production hash URL and a custom domain to production', () => {
     for (const host of [
@@ -46,12 +46,12 @@ describe('vercel.json /api rewrites: branch aliases, then production', () => {
     ])
       expect(target(host), host).toBe(PROD);
   });
-  it('sends the develop (staging) alias and a pull request branch alias to the develop API', () => {
+  it('sends the develop alias and a pull request branch alias to the develop API', () => {
     for (const host of [
       'photojournalism-site-git-develop-stevemarvell-team.vercel.app',
       'photojournalism-site-git-feat-85-thing-stevemarvell-team.vercel.app',
     ])
-      expect(target(host), host).toBe(STAGING);
+      expect(target(host), host).toBe(DEVELOP_API);
   });
   it('anchors the branch pattern: lookalike hosts stay on production', () => {
     for (const host of [

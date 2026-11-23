@@ -132,7 +132,7 @@ describe('validate', () => {
   });
 
   it('refuses any other productionBranch, naming the allowed values', () => {
-    for (const bad of ['', 'staging', 'release/1', 'main ', 'a..b']) {
+    for (const bad of ['', 'preview', 'release/1', 'main ', 'a..b']) {
       expect(() => validate({ ...minimal(), productionBranch: bad }), bad).toThrow(/productionBranch.*develop, main/);
     }
   });

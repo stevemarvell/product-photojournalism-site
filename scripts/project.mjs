@@ -91,7 +91,7 @@ export function validate(project) {
   if (typeof project.name !== 'string' || !project.name) fail('"name" must be a non-empty string');
   // Optional: the branch a merge to which is deployed to production. Absent
   // means `develop`, so a product that never set it is unchanged. A product
-  // whose `develop` is staging (a preview) and whose `main` is production says
+  // whose `develop` is a preview and whose `main` is production says
   // "main"; smoke.yml then runs on both, and smoke.mjs checks only that branch.
   if (project.productionBranch !== undefined && !PRODUCTION_BRANCHES.includes(project.productionBranch)) {
     fail(`"productionBranch" must be one of ${PRODUCTION_BRANCHES.join(', ')} (smoke.yml triggers on those two)`);

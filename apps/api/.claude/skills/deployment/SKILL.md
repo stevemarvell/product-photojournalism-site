@@ -22,7 +22,7 @@ Load-bearing and non-obvious settings:
   but then reads this app's own lockfiles and build config relative to that
   root, not the repository root.
 - Left alone, Vercel builds on **every** push to every branch — production on
-  `main`, a preview everywhere else (`develop` is staging) — whatever the push touched.
+  `main`, a preview everywhere else (`develop` is the develop preview) — whatever the push touched.
   `apps/api/vercel.json` sets an `ignoreCommand` running
   `scripts/deploy/vercel/vercel-ignore.mjs`, which diffs
   `VERCEL_GIT_PREVIOUS_SHA` (the last *successful* deployment, so never a
@@ -57,9 +57,9 @@ predicts. Don't construct it; read it from the Vercel bot's comment on the
 pull request, or from the Vercel dashboard's deployments list for
 `photojournalism-site-api`.
 
-## Staging and preview data (issues #85, #91)
+## Preview data (issues #85, #91)
 
-`main` is production; `develop` is staging for UAT, promoted by a `develop` into `main` pull
+`main` is production; `develop` is the develop preview, where the owner does UAT, promoted by a `develop` into `main` pull
 request (merge commit) once the owner has accepted it. `develop` is a Preview deployment
 (custom environments are not on this plan), so it has a stable branch URL:
 `photojournalism-site-git-develop-stevemarvell-team.vercel.app` (web) and
@@ -87,7 +87,7 @@ docs/data-governance.md, before the first pull request that deploys this app
 closes**). Run it by hand (`gh workflow run preview-prune -f
 dry_run=false`) to delete every preview whose branch no longer exists; the
 default `dry_run=true` only lists them. Its preview modes never delete a
-production deployment or a `develop` (staging) build, whatever they are asked.
+production deployment or a `develop` preview build, whatever they are asked.
 
 Production history is trimmed the same way: every merge makes a production
 deployment and Vercel keeps them all, so each close (and each manual run)
