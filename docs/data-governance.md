@@ -237,3 +237,43 @@ ready, and again only when the `re-review` label is added. They do not re-run on
 a push, and they are advisory. That holds while one person with write access
 drives merges and adds `re-review` as `drive-pr` step 4 says; a second writer
 voids it.
+
+### The Dependabot merge job
+
+`.github/workflows/dependabot-merge.yml` squash-merges a pull request
+into `develop` once `verify` has concluded success on its head. The owner's
+decision, 2026-11-23: every Dependabot update type, majors included, with no
+hand review. It is the one job that holds a **write** token
+(`contents: write`, `pull-requests: write`, nothing else), and it is triggered
+by `workflow_run` of `verify`, so it runs from the default branch's copy of the
+file, not the pull request's.
+
+Its bounds, each in the file:
+
+- It checks out nothing and runs no pull-request code; it reads the pull
+  request's author, base and head SHA through the API. A branch name is never
+  trusted, and event text reaches the shell through `env:` only.
+- It merges only when the run concluded `success`, was a `pull_request` run,
+  the pull request's author is `dependabot[bot]` and its base is `develop`.
+- The merge passes `sha: <run head_sha>`, so a head that moved after `verify`
+  started is refused by GitHub (409) and nothing merges.
+
+What this accepts, on the owner's word: **one write account** (the owner)
+plus this job; a merge needs a green `verify` on that exact head and nothing
+else; and **a dependency compromised upstream is accepted**, because no one
+reads the update before it lands. `verify` is the only gate. A second writer,
+or `verify` ceasing to cover what an update can break, voids this.
+
+Does `smoke` run after such a merge? **No.** `smoke.yml` listens on `push` to
+`develop` and `main`, and a push made with `GITHUB_TOKEN` starts no new
+workflow runs (GitHub's documented behaviour; not exercised here). So an
+auto-merged update is not smoke-checked by the merge, and `pr-checks.yml`'s
+`push` run on `develop` is skipped for it the same way. A manual `smoke` run (`workflow_dispatch`) covers it, and
+the next ordinary merge re-checks what is live. `smoke.yml` is unchanged.
+
+Not verified here: GitHub documents that workflows a Dependabot actor starts
+get a read-only `GITHUB_TOKEN`; whether that restriction also reaches a
+`workflow_run` workflow downstream of a Dependabot-triggered `verify` has not
+been observed. If the first real Dependabot pull request answers 403 on the
+merge call, that is why, and the job needs a different token, which is the
+owner's call.
