@@ -105,11 +105,11 @@ holds.
   filters on `organisation_id`). Local runs use the in-memory adapters
   (`InMemoryStoryRepository`, `InMemorySessionStore`), which lose everything on restart, and
   so does a preview without `PREVIEW_DATABASE_URL`. A preview with it uses that separate
-  preview database, migrated the same way as production's. Every web branch alias (`develop`, which is staging for UAT, and pull request previews)
+  preview database, migrated the same way as production's. Every web branch alias (`develop`, where the owner does UAT, and pull request previews)
   calls the API's `develop` alias (the web `vercel.json` rewrite); every other host,
   per-deployment hash URLs of previews included, calls the production API, so a preview is
   tested on its branch alias. Production is `main`. The `develop` API is the preview API
-  holding the preview credentials, shared by staging and every pull request preview.
+  holding the preview credentials, shared by the `develop` preview and every pull request preview.
 - **Migrations** (yoyo-migrations, SQL files in `apps/api/src/api/migrations/`) run inside
   the API process, once per process, before its first query (not at import, so an
   unreachable database still lets `/health` answer 503). They run under a Postgres advisory
@@ -190,7 +190,7 @@ parsing only the subset `content_problems` allows: it must never evaluate MDX or
 
 ## What CI holds, and what voids that
 
-Releases: a push to `main` (production) or `develop` (staging) starts `smoke`, which reads no secret and only requests the deployed URLs. What reaches `main` is gated by the owner's `go` on the release or hotfix pull request (`docs/releases.md`); that gate is discipline, bounded by the merge naming the approved head sha, and nothing mechanical blocks a direct push to `main`.
+Releases: a push to `main` (production) or `develop` (a preview) starts `smoke`, which reads no secret and only requests the deployed URLs. What reaches `main` is gated by the owner's `go` on the release or hotfix pull request (`docs/releases.md`); that gate is discipline, bounded by the merge naming the approved head sha, and nothing mechanical blocks a direct push to `main`.
 
 The engine ships workflows that read repository secrets. A new product has
 none set; the owner sets each with `gh secret set`, and until then the

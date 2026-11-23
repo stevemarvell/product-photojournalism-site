@@ -1047,7 +1047,7 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
   };
 
   // A product starts on the release scheme in docs/releases.md: `main` is
-  // production, `develop` is staging and the default branch.
+  // production, `develop` is the default branch, built as a preview.
   const manifestFile = join(dir, 'project.json');
   const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'));
   writeFileSync(manifestFile, `${JSON.stringify({ ...manifest, productionBranch: 'main' }, null, 2)}\n`);

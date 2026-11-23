@@ -13,7 +13,7 @@ are in the root `CLAUDE.md` and hold here too.
 ## Rules
 
 - **Merging to `main` publishes it.** The Vercel project builds every
-  push to `main` to production, and `develop` to staging (a Preview); the `deployment` skill in
+  push to `main` to production, and `develop` to the `develop` preview (a Preview); the `deployment` skill in
   `apps/web/.claude/skills/` has the settings.
 
 - **Read `docs/data-governance.md` before changing what is stored, served or

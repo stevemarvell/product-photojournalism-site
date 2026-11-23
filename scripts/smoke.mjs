@@ -41,11 +41,11 @@
 // Which branch publishes production is project.json's `productionBranch`
 // (default `develop`). smoke.yml runs on a push to `develop` and to `main`, and
 // a push to any branch but that one exits 0 here with nothing checked: a
-// product whose `develop` is a staging preview has no production deployment
+// product whose `develop` is a preview has no production deployment
 // for that commit to wait for. See notProductionBranch. That push is instead
-// smoked against staging: when productionBranch is `main`, a push to `develop`
+// smoked as the develop preview: when productionBranch is `main`, a push to `develop`
 // checks each app's branch alias (the provider derives it) (same gate,
-// same app checks). See isStagingPush, stagingProject; docs/releases.md.
+// same app checks). See isDevelopPush, developProject; docs/releases.md.
 //
 // Usage (smoke.yml runs it with a full-history checkout, fetch-depth: 0):
 //     node scripts/smoke.mjs            # the commit is $GITHUB_SHA, the
@@ -128,13 +128,13 @@ export function notProductionBranch({ project, ref, eventName }) {
   return `not the production branch (${ref}); nothing to smoke`;
 }
 
-/** Whether this run is a push to `develop` while production is published from `main`: the staging case. */
-export function isStagingPush({ project, ref, eventName }) {
+/** Whether this run is a push to `develop` while production is published from `main`: the develop-preview case. */
+export function isDevelopPush({ project, ref, eventName }) {
   return eventName === 'push' && branchOfRef(ref) === 'develop' && productionBranch(project) === 'main';
 }
 
-/** `project` with every deployed app's `deploy.url` replaced by its `develop` branch alias (staging). Apps without a deploy block are untouched. */
-export function stagingProject(project) {
+/** `project` with every deployed app's `deploy.url` replaced by its `develop` branch alias. Apps without a deploy block are untouched. */
+export function developProject(project) {
   const apps = Object.fromEntries(
     Object.entries(project.apps).map(([name, app]) =>
       app.deploy ? [name, { ...app, deploy: { ...app.deploy, url: provider(app.deploy.provider).branchAlias(app.deploy, 'develop') } }] : [name, app],
@@ -196,11 +196,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     process.exit(1);
   }
   const target = { project: loaded, ref: process.env.GITHUB_REF, eventName: process.env.GITHUB_EVENT_NAME };
-  // A push to develop when main is production is staging: check the develop alias instead of skipping.
-  const staging = isStagingPush(target);
-  const project = staging ? stagingProject(loaded) : loaded;
-  if (staging) console.log('staging: checking the develop branch alias of each deployed app');
-  const skipped = staging ? null : notProductionBranch(target);
+  // A push to develop when main is production is the develop preview: check the develop alias instead of skipping.
+  const developPush = isDevelopPush(target);
+  const project = developPush ? developProject(loaded) : loaded;
+  if (developPush) console.log('develop: checking the develop branch alias of each deployed app');
+  const skipped = developPush ? null : notProductionBranch(target);
   if (skipped) {
     console.log(skipped);
     process.exit(0);

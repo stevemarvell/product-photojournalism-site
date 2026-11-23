@@ -6,7 +6,7 @@ description: How the coordinator releases a product built from this base - cut a
 # Releasing
 
 The scheme, and why, is `docs/releases.md`: `main` is production, `develop` is
-staging, and nothing reaches `main` without the owner's `go`. This skill is the
+the default branch, built as a preview, and nothing reaches `main` without the owner's `go`. This skill is the
 coordinator's procedure. All GitHub calls are REST (`gh api` or the MCP tools):
 `gh pr`, `gh release` and `gh issue` are GraphQL, which cloud sessions refuse
 (#225). Ceiling (SOP 1): wait for `go` at most one run; do not poll for it.

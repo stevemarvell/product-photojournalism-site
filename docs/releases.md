@@ -11,11 +11,11 @@ everywhere. The coordinator follows it with the `release` skill
 | Branch | Is | Vercel | Who merges into it, and how |
 | --- | --- | --- | --- |
 | `main` | **Production.** Always what readers see; every release is a tag on it. | The project's **Production Branch**: a push builds Production. | Only a release pull request (`develop` into `main`) or a hotfix pull request, and only with the owner's `go` (or the owner merging it). Merge commit. |
-| `develop` | **Staging / UAT**, and the repository's **default branch**. Feature pull requests target it. | A **Preview** at the branch alias `<project>-git-develop-<team>.vercel.app`; smoke checks that alias after each merge. | Agents: the coordinator merges a green feature pull request. Squash merge. |
+| `develop` | **UAT**, and the repository's **default branch**. Feature pull requests target it. | A **Preview** at the branch alias `<project>-git-develop-<team>.vercel.app`; smoke checks that alias after each merge. | Agents: the coordinator merges a green feature pull request. Squash merge. |
 | `feature/<slug>` (and agents' own branches) | One change, one pull request. | A per-pull-request **Preview** at the branch alias. | The branch's own pull request into `develop`; the branch is deleted on merge. |
 | `hotfix/<slug>` | An urgent fix for a defect live on production. Branched from `main`. | A Preview, like any branch. | A pull request into `main` (owner `go`, as for a release), then `main` is merged back into `develop` by a pull request the same day. |
 
-What deploys where: a merge to `develop` builds staging and nothing else; production changes only when a release or hotfix pull request is merged into `main`. The two are separate Vercel builds of separate branches, so a feature on staging cannot reach readers by itself.
+What deploys where: a merge to `develop` builds the `develop` preview and nothing else; production changes only when a release or hotfix pull request is merged into `main`. The two are separate Vercel builds of separate branches, so a feature on the `develop` preview cannot reach readers by itself.
 
 Who may merge where: agents merge into `develop` once `verify` is green. Nothing merges to `main` without the owner's `go`, a comment by the owner's login on the release or hotfix pull request, or the owner merging it themselves. A `go` from anyone else is ignored.
 
@@ -48,15 +48,15 @@ gitGraph
 
 ```mermaid
 flowchart LR
-  F[feature branch] -->|PR, squash| D[develop: staging, smoke on the develop alias]
+  F[feature branch] -->|PR, squash| D[develop: the develop preview, smoke on the develop alias]
   D -->|release PR, owner go, merge commit| M[main: production, tagged]
   H[hotfix branch from main] -->|PR, owner go| M
   M -->|back-merge PR| D
   M -.->|rollback: Instant Rollback, then revert PR| M
 ```
 
-Preview resources: a product that stores data gives previews (staging
-included) their own database and storage rather than production's, by a
+Preview resources: a product that stores data gives previews (the `develop`
+preview included) their own database and storage rather than production's, by a
 separate set of variables for the Preview environment. The `PREVIEW_*` pattern
 in product-photojournalism-site is the worked example. This is guidance for
 each product, not engine code.

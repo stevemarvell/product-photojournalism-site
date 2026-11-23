@@ -60,7 +60,7 @@ export const TARGETS = VERCEL_APPS.map(([, app]) => ({ project: app.deploy.proje
 export const KEEP_PRODUCTION = 3;
 /** States a deployment is finished in; anything else is still in flight. */
 const FINISHED = new Set(['READY', 'CANCELED', 'ERROR']);
-/** project.json's production branch. `develop` is protected as well (below): it is staging when this is `main`. */
+/** project.json's production branch. `develop` is protected as well (below): it is the `develop` preview when this is `main`. */
 export const PRODUCTION_BRANCH = productionBranch(PROJECT);
 const protectedBranches = (production) => new Set([production, DEFAULT_PRODUCTION_BRANCH]);
 // 100 deployments a page; 20 pages is 2,000 per project, twenty times the
