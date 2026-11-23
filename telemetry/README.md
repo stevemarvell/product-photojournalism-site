@@ -126,6 +126,7 @@ CI sessions are told apart from others by `OTEL_RESOURCE_ATTRIBUTES`:
 | Attribute | CI |
 | --- | --- |
 | `environment` | `ci` |
+| `repository` | `owner/name` from `GITHUB_REPOSITORY`, or `unknown`; splits usage per repo on a shared stack |
 | `workflow` | `claude-code-review`, `claude-security-review` or `claude-mention` |
 | `run_id`, `run_attempt` | the GitHub run |
 

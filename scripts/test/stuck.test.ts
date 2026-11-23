@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   MAX_MERGES_BEHIND,
@@ -585,6 +588,62 @@ describe('find', () => {
     const gitStatus = async () => null;
     const findings = await find({ gh: fakeGh, git: fakeGit, readDir, gitStatus });
     expect(findings.untrackedWorktrees).toEqual([{ name: 'not-a-checkout', entryCount: 1, hasChanges: null }]);
+  });
+});
+
+describe('find: a plain file in .claude/worktrees (#414)', () => {
+  const fakeGit: Run = async (args) => {
+    if (args[0] === 'for-each-ref') return { status: 0, stdout: '', stderr: '' };
+    if (args[0] === 'worktree') return { status: 0, stdout: 'worktree /repo\nbranch refs/heads/develop\n', stderr: '' };
+    return { status: 0, stdout: '0\n', stderr: '' };
+  };
+  const fakeGh: Run = async () => ({ status: 0, stdout: '[]', stderr: '' });
+
+  it('reports the file as a stray file and does not crash scanning it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'stuck-worktrees-'));
+    try {
+      mkdirSync(join(dir, 'agent-leftover'));
+      writeFileSync(join(dir, 'agent-leftover', 'one.txt'), 'x');
+      writeFileSync(join(dir, 'w.patch'), 'diff');
+      const findings = await find({ gh: fakeGh, git: fakeGit, worktreesDir: dir, gitStatus: async () => false });
+      expect(findings.strayFiles).toEqual(['.claude/worktrees/w.patch']);
+      expect(findings.untrackedWorktrees).toEqual([{ name: 'agent-leftover', entryCount: 1, hasChanges: false }]);
+      expect(renderFindings(findings).join('\n')).toContain('(1 entry,');
+      expect(isEmpty(findings)).toBe(false);
+      expect(renderFindings(findings)).toContain('stray file: .claude/worktrees/w.patch — delete it.');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a symlink to a file, and a dangling symlink, as stray too, and still scans a symlink to a directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'stuck-worktrees-'));
+    const target = mkdtempSync(join(tmpdir(), 'stuck-target-'));
+    try {
+      writeFileSync(join(target, 'real.txt'), 'x');
+      symlinkSync(join(target, 'real.txt'), join(dir, 'link.patch'));
+      symlinkSync(join(target, 'missing'), join(dir, 'dangling'));
+      symlinkSync(target, join(dir, 'linked-dir'));
+      const findings = await find({ gh: fakeGh, git: fakeGit, worktreesDir: dir, gitStatus: async () => false });
+      expect([...findings.strayFiles!].sort()).toEqual(['.claude/worktrees/dangling', '.claude/worktrees/link.patch']);
+      expect(findings.untrackedWorktrees.map((w: { name: string }) => w.name)).toEqual(['linked-dir']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+
+  it('is unchanged when the folder holds only directories', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'stuck-worktrees-'));
+    try {
+      mkdirSync(join(dir, 'agent-leftover'));
+      const findings = await find({ gh: fakeGh, git: fakeGit, worktreesDir: dir, gitStatus: async () => false });
+      expect(findings.strayFiles).toEqual([]);
+      expect(renderFindings(findings)).toHaveLength(1);
+      expect(renderFindings(findings)[0]).toContain('untracked worktree folder');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

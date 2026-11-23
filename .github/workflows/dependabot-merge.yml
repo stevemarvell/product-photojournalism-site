@@ -1,0 +1,61 @@
+name: dependabot-merge
+
+# Squash-merges a Dependabot pull request into develop once `verify` has
+# concluded success on its current head (#422). The owner's decision,
+# 2026-11-23: every update type, majors too, with no hand review.
+#
+# Trigger: `workflow_run` of `verify`, so this file runs from the default
+# branch with a write token. It never checks out or runs PR code: the only
+# thing it reads from the pull request is its author, base and head SHA,
+# through the API. A fork's run has no pull request listed for its head SHA,
+# so it falls out at the lookup.
+#
+# The merge is pinned to the head SHA `verify` ran on (`sha`). If the head
+# moved since, GitHub answers 409 and nothing merges.
+#
+# A merge made with GITHUB_TOKEN does not start other workflows, so `smoke`
+# (push to develop) does not run for it. docs/data-governance.md records this.
+on:
+  workflow_run:
+    workflows: [verify]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    name: merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+
+    steps:
+      - name: Merge a green Dependabot pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          # The pull request is found from the head SHA, and its author is read
+          # from the API: a branch name proves nothing.
+          prs=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            --jq '[.[] | select(.state == "open" and .base.ref == "develop" and .head.sha == "'"$HEAD_SHA"'")]')
+          count=$(jq length <<<"$prs")
+          if [ "$count" -ne 1 ]; then
+            echo "::notice::$count open pull requests into develop have head $HEAD_SHA; nothing to merge."
+            exit 0
+          fi
+          author=$(jq -r '.[0].user.login' <<<"$prs")
+          number=$(jq -r '.[0].number' <<<"$prs")
+          if [ "$author" != "dependabot[bot]" ]; then
+            echo "::notice::#$number is by $author, not dependabot[bot]; left alone."
+            exit 0
+          fi
+          gh api -X PUT "repos/$REPO/pulls/$number/merge" \
+            -f merge_method=squash -f sha="$HEAD_SHA"
+          echo "::notice::Squash-merged #$number at $HEAD_SHA."

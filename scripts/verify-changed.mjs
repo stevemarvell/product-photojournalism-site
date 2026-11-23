@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // `npm run verify:changed`: the checks for what this branch changed, not all of
-// `verify`. Changed files come from `git diff --name-only origin/develop...HEAD`
+// `verify`. Changed files come from `git diff --name-only -z origin/develop...HEAD`
 // and go through the Stop hook's own `plan()`, so the two never disagree about
 // what a change needs. A diff `plan()` maps to nothing runs the full
 // `npm run verify`, never nothing. CI (verify.yml) still runs the full thing.
@@ -35,13 +35,18 @@ export function commandsFor(changed, project) {
  * uncommitted work. Pure over the two git outputs, so it is testable.
  */
 export function unionChanged(diffOut, statusRaw) {
-  return [...new Set([...diffOut.split('\n').filter(Boolean), ...parseStatus(statusRaw)])];
+  const files = [...new Set([...diffOut.split('\0').filter(Boolean), ...parseStatus(statusRaw)])];
+  // `-z` never quotes; a leading quote means git handed back a path we cannot
+  // match to a prefix, so refuse the list and let `planFrom` run the full verify.
+  const quoted = files.find((f) => f.startsWith('"'));
+  if (quoted) throw new Error(`git listed a path it quoted: ${quoted}`);
+  return files;
 }
 
 export function changedFiles() {
   const out = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
   return unionChanged(
-    out(['diff', '--name-only', 'origin/develop...HEAD']),
+    out(['diff', '--name-only', '-z', 'origin/develop...HEAD']),
     out(['status', '--porcelain=v1', '-z', '-uall']),
   );
 }

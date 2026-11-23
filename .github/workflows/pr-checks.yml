@@ -37,6 +37,10 @@ name: PR checks
 
 on:
   pull_request:
+    # Only pull requests into develop get the write token (#373). A pull
+    # request against another branch would run this file with `base.sha` set to
+    # that branch's tip, whose scripts its author may have edited.
+    branches: [develop]
     types: [opened, synchronize, ready_for_review, reopened, edited]
   push:
     branches: [develop]
@@ -107,7 +111,16 @@ jobs:
           persist-credentials: false
 
       - name: Say which commit the scripts came from
-        run: echo "pr checks scripts run from base commit $(git -C base-scripts rev-parse HEAD)"
+        # Fails when the checkout is not exactly the base commit (#373): any
+        # modified, deleted or untracked path (or a failing `git status`) in it would mean something other
+        # than that commit's scripts is about to run with the token. It also
+        # fails when `base-scripts/` is not its own checkout (#410): without a
+        # `.git` of its own, git walks up to the workspace repository and the
+        # status below would report on that instead.
+        run: |
+          top=$(git -C base-scripts rev-parse --show-toplevel) && test "$top" = "$PWD/base-scripts"
+          echo "pr checks scripts run from base commit $(git -C base-scripts rev-parse HEAD)"
+          dirty=$(git -C base-scripts status --porcelain --ignored) && test -z "$dirty"
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -148,11 +161,14 @@ jobs:
           # No `set -e`: an API failure here should leave OPEN_PRS empty and
           # produce a run that finds nothing, not a red job on a pull request
           # that has nothing wrong with it.
+          # Scratch files live under $RUNNER_TEMP, outside the workspace: a pull
+          # request that tracks `open-prs.json` or `refs.txt` as a symlink would
+          # otherwise have the redirect write through it (#373).
           gh pr list --base develop --state open --limit 100 \
-            --json number,title,headRefOid > open-prs.json || echo '[]' > open-prs.json
+            --json number,title,headRefOid > "$RUNNER_TEMP/open-prs.json" || echo '[]' > "$RUNNER_TEMP/open-prs.json"
           {
             echo 'json<<PRS_EOF'
-            cat open-prs.json
+            cat "$RUNNER_TEMP/open-prs.json"
             echo 'PRS_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -166,8 +182,8 @@ jobs:
           # The script decides which heads, because MAX_PULL_REQUESTS is its
           # ceiling to declare. The triggering pull request is passed in because
           # it is reported on whether or not the ceiling would have kept it.
-          node base-scripts/scripts/pr-contention.mjs --refs ${{ github.event.pull_request.number || '' }} > refs.txt
-          if [ -s refs.txt ]; then
+          node base-scripts/scripts/pr-contention.mjs --refs ${{ github.event.pull_request.number || '' }} > "$RUNNER_TEMP/refs.txt"
+          if [ -s "$RUNNER_TEMP/refs.txt" ]; then
             # The checkout keeps no token in .git/config (#336), so authenticate
             # this one fetch with a header set through git's environment, which
             # unlike `-c` stays out of git's argv. This closes the
@@ -176,7 +192,7 @@ jobs:
             GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
-              git fetch --no-tags origin $(cat refs.txt)
+              git fetch --no-tags origin $(cat "$RUNNER_TEMP/refs.txt")
           fi
 
       - name: Say what collides with what

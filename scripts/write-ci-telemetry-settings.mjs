@@ -83,6 +83,18 @@ function assertValidAuthHeader(header) {
 }
 
 /**
+ * A value spliced into OTEL_RESOURCE_ATTRIBUTES: no control characters, and
+ * neither "," nor "=", either of which would forge an extra attribute.
+ */
+function resourceAttributeValue(value, name) {
+  assertClean(value, name);
+  if (/[,=]/.test(value)) {
+    throw new Error(`${name} contains "," or "=", which would break OTEL_RESOURCE_ATTRIBUTES`);
+  }
+  return value;
+}
+
+/**
  * Build the `env` block for the session. Without a credential the block exists
  * anyway and switches telemetry off: the committed settings.json enables
  * telemetry and names the Grafana gateway, so leaving the block absent would
@@ -99,14 +111,18 @@ export function ciTelemetryEnv(env = process.env) {
   assertValidEndpoint(endpoint);
   assertValidAuthHeader(auth);
 
+  // Every value below is spliced into a comma-separated key=value list, so
+  // "," or "=" in any of them would forge an extra attribute. The workflow
+  // name is a literal in the workflow files and the run ids come from the
+  // runner, which bounds them today; the check does not rely on that.
   const attributes = [
     'environment=ci',
     'ci_provider=github-actions',
-    `workflow=${env.CI_TELEMETRY_WORKFLOW || 'unknown'}`,
-    `run_id=${env.GITHUB_RUN_ID || 'unknown'}`,
-    `run_attempt=${env.GITHUB_RUN_ATTEMPT || 'unknown'}`,
+    `repository=${resourceAttributeValue(env.GITHUB_REPOSITORY || 'unknown', 'GITHUB_REPOSITORY')}`,
+    `workflow=${resourceAttributeValue(env.CI_TELEMETRY_WORKFLOW || 'unknown', 'CI_TELEMETRY_WORKFLOW')}`,
+    `run_id=${resourceAttributeValue(env.GITHUB_RUN_ID || 'unknown', 'GITHUB_RUN_ID')}`,
+    `run_attempt=${resourceAttributeValue(env.GITHUB_RUN_ATTEMPT || 'unknown', 'GITHUB_RUN_ATTEMPT')}`,
   ];
-  assertClean(attributes.join(','), 'CI_TELEMETRY_WORKFLOW');
 
   return {
     CLAUDE_CODE_ENABLE_TELEMETRY: '1',

@@ -22,7 +22,7 @@
 // the same pattern scripts/labels.mjs uses for `gh` — so the tests make no
 // network calls and touch no real worktree.
 import { execFile } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ROOT } from './project.mjs';
@@ -331,6 +331,7 @@ export function isEmpty(findings) {
   return (
     findings.orphanedBranches.length === 0 &&
     findings.untrackedWorktrees.length === 0 &&
+    (findings.strayFiles ?? []).length === 0 &&
     findings.mergedWorktrees.length === 0 &&
     findings.staleOrConflicting.length === 0 &&
     findings.noChecksRegistered.length === 0
@@ -344,10 +345,31 @@ async function defaultGitStatus(dir) {
   return result.stdout.trim().length > 0;
 }
 
-/** The default directory listing: `[]` for a directory that does not exist, never a thrown error. */
+/**
+ * The default directory listing, every entry: `[]` for a directory that does
+ * not exist, never a thrown error. Also used to count an untracked folder's
+ * contents, so it must not filter.
+ */
 function defaultReadDir(dir) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir);
+}
+
+/**
+ * The default listing of entries directly in `dir` that are not directories —
+ * plain files, FIFOs, sockets, symlinks to any of those, and dangling
+ * symlinks. A symlink is followed (`statSync`); one that cannot be resolved is
+ * stray too. `[]` when `dir` does not exist.
+ */
+function defaultReadFiles(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((name) => {
+    try {
+      return !statSync(join(dir, name)).isDirectory();
+    } catch {
+      return true;
+    }
+  });
 }
 
 /**
@@ -361,6 +383,7 @@ export async function find({
   develop = 'origin/develop',
   worktreesDir,
   readDir = defaultReadDir,
+  readFiles = defaultReadFiles,
   gitStatus = defaultGitStatus,
   sleep,
 } = {}) {
@@ -394,7 +417,10 @@ export async function find({
   const mainRoot = worktrees[0]?.path ?? ROOT;
   const dir = worktreesDir ?? join(mainRoot, '.claude', 'worktrees');
   const registeredPaths = worktrees.map((worktree) => worktree.path);
-  const diskNames = readDir(dir);
+  // Plain files are not worktree folders: scanning one is the ENOTDIR crash
+  // (#414). They are reported as strays below instead.
+  const files = new Set(readFiles(dir));
+  const diskNames = readDir(dir).filter((name) => !files.has(name));
   const untrackedNames = untrackedWorktreeFolders(diskNames, registeredPaths);
   const untracked = [];
   for (const name of untrackedNames) {
@@ -411,6 +437,9 @@ export async function find({
     untracked.push({ name, entryCount, hasChanges: hasChanges === null ? null : hasChanges === true });
   }
 
+  // Nothing should write a plain file into the worktrees folder (#414).
+  const strayFiles = [...files].map((name) => `.claude/worktrees/${name}`);
+
   const merged = mergedWorktrees(worktrees, prs);
 
   const openPrs = prs.filter((pr) => pr.state === 'OPEN');
@@ -425,6 +454,7 @@ export async function find({
   return {
     orphanedBranches: orphaned,
     untrackedWorktrees: untracked,
+    strayFiles,
     mergedWorktrees: merged,
     staleOrConflicting: stale,
     noChecksRegistered: noChecks,
@@ -450,6 +480,9 @@ export function renderFindings(findings) {
         ? `untracked worktree folder: '.claude/worktrees/${w.name}' is not in \`git worktree list\` (${entries}, uncommitted changes: unknown — not a git checkout) — inspect before deleting.`
         : `untracked worktree folder: '.claude/worktrees/${w.name}' is not in \`git worktree list\` (${entries}, ${w.hasChanges ? 'with uncommitted changes' : 'no uncommitted changes'}) — inspect it, then remove the folder by hand.`,
     );
+  }
+  for (const path of findings.strayFiles ?? []) {
+    lines.push(`stray file: ${path} — delete it.`);
   }
   for (const w of findings.mergedWorktrees) {
     lines.push(

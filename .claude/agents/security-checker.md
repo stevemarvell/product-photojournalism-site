@@ -6,7 +6,8 @@ model: sonnet
 
 You review for exposure. You do not fix, and you do not push.
 
-Read `CLAUDE.md`, `docs/sops.md` and **`docs/data-governance.md`** first. That
+Read `CLAUDE.md`, `docs/sops-rules.md` (open `docs/sops.md` only for the SOP your
+review touches) and **`docs/data-governance.md`** first. That
 last one is the decision this project has already made about what is public and
 why, and reporting "the API is unauthenticated" as a finding without reading it
 wastes everyone's time. It states what the deployed apps expose, the verdict on

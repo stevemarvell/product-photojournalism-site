@@ -6,7 +6,7 @@
 //
 // Usage (the coordinator, from a checkout of the product):
 //     node scripts/release.mjs plan   [--repo o/n] [--date YYYY-MM-DD]   # next tag and notes, as JSON
-//     node scripts/release.mjs go     --pr <n> [--repo o/n]              # exit 0 iff the owner said go or merged it
+//     node scripts/release.mjs go     --pr <n> [--repo o/n]              # exit 0 iff the owner said `go <head sha>` or merged it
 //     node scripts/release.mjs tag    --pr <n> [--repo o/n] [--date ...]  # tag the merge commit and create the GitHub Release
 // Nothing here merges: the merge of a release pull request stays with the
 // coordinator, after `go`, passing the head `sha` `go` prints. Ceiling: PAGE_LIMIT pages of 100 per walk.
@@ -59,24 +59,30 @@ export function releaseNotes(pulls, { since = null, branch = 'develop' } = {}) {
   return merged.map((p) => `- ${p.title} ([#${p.number}](${p.html_url}))`).join('\n');
 }
 
+/** The line `release.mjs go` prints. The instruction names the full head sha, the only form `ownerSaidGo` accepts. */
+export function goMessage({ given, sha }) {
+  return given ? `go given; merge with sha=${sha}` : `waiting for the owner: no valid go for head ${sha} (the owner comments \`go ${sha}\`), and not merged by them`;
+}
+
 /**
- * Whether the owner has released: a comment `go` (case-insensitive, trimmed,
- * optional trailing full stop) whose author login is `owner` and which was
- * posted after `after` (the pull request head's latest commit date), or the
- * owner having merged the pull request. Author login only: a stranger's `go`,
- * a bot's, a `go` posted before the head last moved, and a comment that merely
- * contains the word are all ignored.
+ * Whether the owner has released: a comment `go <sha>` (case-insensitive,
+ * trimmed, optional trailing full stop) whose author login is `owner` and whose
+ * `<sha>` is the full 40-hex `headSha`, the pull request's current head
+ * (exact match, never a prefix: a short prefix can be ground); or the owner having merged the pull request. The go
+ * is bound to the commit, not to a date: a commit pushed after it, whatever
+ * committer date it carries, changes the head, so the old go names a sha that
+ * is no longer the head. A bare `go`, a stranger's, a bot's, a sha for another
+ * commit, and a comment that merely contains the word are all ignored.
  */
-export function ownerSaidGo({ owner, comments, mergedBy = null, after = null }) {
+export function ownerSaidGo({ owner, comments, mergedBy = null, headSha = '' }) {
   const me = String(owner).toLowerCase();
   if (mergedBy && String(mergedBy).toLowerCase() === me) return true;
-  const afterMs = after ? Date.parse(after) : -Infinity;
-  return comments.some(
-    (c) =>
-      String(c.user?.login ?? '').toLowerCase() === me &&
-      /^go\.?$/i.test(String(c.body ?? '').trim()) &&
-      Date.parse(c.created_at ?? '') > afterMs,
-  );
+  const head = String(headSha).toLowerCase();
+  return comments.some((c) => {
+    if (String(c.user?.login ?? '').toLowerCase() !== me) return false;
+    const m = /^go\s+([0-9a-f]{40})\.?$/i.exec(String(c.body ?? '').trim());
+    return Boolean(m) && head === m[1].toLowerCase();
+  });
 }
 
 async function api(run, route, args = []) {
@@ -120,13 +126,12 @@ export async function plan({ run, repo, date }) {
   return { tag: nextTag(tags, date), last: latestTag(tags), notes: releaseNotes([...byNumber.values()]) };
 }
 
-/** `{ given, sha }`: whether the owner has said go (after the head's last commit) or merged it, and the head `sha` the merge must pass so GitHub refuses it if the head moved. */
+/** `{ given, sha }`: whether the owner has said `go <head sha>` or merged it, and the head `sha` the merge must pass so GitHub refuses it if the head moved. */
 export async function goGiven({ run, repo, pr }) {
   const owner = repo.split('/')[0];
   const pull = await api(run, `repos/${repo}/pulls/${pr}`);
-  const head = await api(run, `repos/${repo}/commits/${pull.head.sha}`);
   const comments = await pages(run, `repos/${repo}/issues/${pr}/comments`);
-  const given = ownerSaidGo({ owner, comments, mergedBy: pull.merged ? pull.merged_by?.login : null, after: head.commit.committer.date });
+  const given = ownerSaidGo({ owner, comments, mergedBy: pull.merged ? pull.merged_by?.login : null, headSha: pull.head.sha });
   return { given, sha: pull.head.sha };
 }
 
@@ -162,7 +167,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (command === 'plan') console.log(JSON.stringify(await plan({ run: exec, repo, date }), null, 2));
   else if (command === 'go') {
     const { given, sha } = await goGiven({ run: exec, repo, pr });
-    console.log(given ? `go given; merge with sha=${sha}` : 'waiting for the owner: no go from the owner since the last commit, and not merged by them');
+    console.log(goMessage({ given, sha }));
     process.exit(given ? 0 : 1);
   } else if (command === 'tag') console.log(JSON.stringify(await tagRelease({ run: exec, repo, pr, date }), null, 2));
   else throw new Error('usage: release.mjs plan|go|tag [--repo o/n] [--pr n] [--date YYYY-MM-DD]');

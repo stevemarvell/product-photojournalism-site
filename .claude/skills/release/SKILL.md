@@ -24,10 +24,14 @@ coordinator's procedure. All GitHub calls are REST (`gh api` or the MCP tools):
 ## Wait for go
 
 `node scripts/release.mjs go --pr <n>` exits 0 only when the owner's login
-commented `go` after the head's latest commit, or the owner merged it (a new
-commit after `go` voids it). A `go` from anyone else is ignored.
-Exit 1: leave the pull request open and report "release #<n> waiting for the
-owner". Never merge it yourself without a `go`. Do not assign or label
+commented `go <sha>`, where `<sha>` is the full 40-character sha of the
+pull request's current head (a short prefix is refused), or the owner merged it. The go is bound to the
+commit, not to a date: a commit pushed after it changes the head, so the old
+`go` no longer names it (commit dates can be back-dated, the sha cannot). A bare
+`go` and a `go` from anyone else are ignored. Tell the owner the sha to approve
+(`go <full head sha>`; the refusal message prints it) in the report.
+Exit 1 (it names the head sha): leave the pull request open and report "release #<n> waiting for the
+owner, head <sha>". Never merge it yourself without a `go`. Do not assign or label
 anything for this: the owner's comment is the gate.
 
 ## Merge, tag, confirm

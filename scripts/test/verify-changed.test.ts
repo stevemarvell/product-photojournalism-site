@@ -51,7 +51,7 @@ describe('verify:changed commandsFor', () => {
 
 describe('unionChanged', () => {
   it('unions the committed diff with modified, untracked and renamed working-tree files', () => {
-    const diff = 'scripts/a.mjs\napps/api/x.py\n';
+    const diff = 'scripts/a.mjs\0apps/api/x.py\0';
     const status = ' M apps/web/src/a.tsx\0?? docs/new.md\0R  apps/api/new.py\0apps/api/old.py\0 M scripts/a.mjs\0';
     expect(unionChanged(diff, status).sort()).toEqual(
       ['apps/api/new.py', 'apps/api/old.py', 'apps/api/x.py', 'apps/web/src/a.tsx', 'docs/new.md', 'scripts/a.mjs'].sort(),
@@ -59,7 +59,19 @@ describe('unionChanged', () => {
   });
 
   it('plans the app that only has uncommitted work', () => {
-    expect(commandsFor(unionChanged('scripts/a.mjs\n', ' M apps/web/src/a.tsx\0'), fixture)).toEqual([HARNESS, WEB]);
+    expect(commandsFor(unionChanged('scripts/a.mjs\0', ' M apps/web/src/a.tsx\0'), fixture)).toEqual([HARNESS, WEB]);
+  });
+
+  it('plans the web checks for a non-ASCII path in a NUL-separated diff', () => {
+    const diff = 'scripts/a.mjs\0apps/web/src/caf\u00e9.tsx\0';
+    expect(unionChanged(diff, '')).toContain('apps/web/src/caf\u00e9.tsx');
+    expect(commandsFor(unionChanged(diff, ''), fixture)).toEqual([HARNESS, WEB]);
+  });
+
+  it('throws on a quoted path, so planFrom runs the full verify', () => {
+    const diff = '"apps/web/src/caf\\303\\251.tsx"\0';
+    expect(() => unionChanged(diff, '')).toThrow(/quoted/);
+    expect(planFrom(() => unionChanged(diff, ''), fixture).commands).toEqual([FULL]);
   });
 
   it('is empty when nothing changed', () => {

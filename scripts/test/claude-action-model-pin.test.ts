@@ -35,6 +35,28 @@ describe("every claude-code-action step pins its model", () => {
     }
   }
 
+  // The action's default permission mode became `auto` in v1.0.275: a
+  // classifier decision rather than "a tool not in --allowedTools is denied".
+  // Each step names its mode so an upgrade cannot change it silently.
+  for (const file of workflows) {
+    const steps = actionSteps(readFileSync(join(DIR, file), "utf8"));
+    for (const [i, step] of steps.entries()) {
+      it(`${file} step ${i + 1} passes an explicit --permission-mode`, () => {
+        const args = step.match(/claude_args:\s*\|\n((?:[ \t]+.*\n?)+)/);
+        const lines = (args?.[1] ?? "")
+          .split("\n")
+          .filter((l) => !l.trim().startsWith("#"));
+        const mode = lines
+          .map((l) => l.match(/^\s*--permission-mode\s+(\S+)/)?.[1])
+          .find(Boolean);
+        expect(mode, "--permission-mode value").toBeDefined();
+        expect(mode).not.toBe("auto");
+        if (file === "claude-code-review.yml") expect(mode).toBe("default");
+        if (file === "claude.yml") expect(mode).toBe("acceptEdits");
+      });
+    }
+  }
+
   it("finds the steps it is meant to check", () => {
     // Counted with a plain regex, not the splitter under test, so a step
     // actionSteps fails to split out is noticed. 2 in claude-code-review.yml

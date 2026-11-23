@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -33,6 +35,7 @@ interface Defaults {
   run?: { shell?: unknown; 'working-directory'?: unknown };
 }
 interface Workflow {
+  on?: { pull_request?: { branches?: string[] } };
   env?: Record<string, unknown>;
   defaults?: Defaults;
   jobs: { checks: { env?: Record<string, unknown>; defaults?: Defaults; steps: Step[] } };
@@ -43,7 +46,7 @@ const SHELL_KEYWORDS = new Set(['{', '}', 'if', 'then', 'else', 'elif', 'fi', 'd
 const BASE_SCRIPTS = 'base-scripts/scripts/';
 const TOKEN = /GH_TOKEN|github\.token|secrets\./;
 // Plain shell variables the real workflow sets or exports.
-const ALLOWED_VARS = new Set(['BASE_SHA']);
+const ALLOWED_VARS = new Set(['BASE_SHA', 'dirty', 'top']);
 // Prefixed onto the one `git fetch` that authenticates through git's environment.
 const GIT_FETCH_VARS = new Set(['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']);
 // Env keys that change what a command resolves to or loads.
@@ -59,9 +62,9 @@ interface Command {
   redirects: string[];
 }
 
-// Where a redirect may write: nowhere, a descriptor, the runner's temp dir, and
-// the three files the real workflow writes (its own outputs, in the workspace).
-const REDIRECT_TARGETS = new Set(['/dev/null', '&1', '&2', 'open-prs.json', 'refs.txt', '"$GITHUB_OUTPUT"']);
+// Where a redirect may write: nowhere, a descriptor, the runner's temp dir, or
+// the step output file. Nothing is written into the workspace (#373).
+const REDIRECT_TARGETS = new Set(['/dev/null', '&1', '&2', '"$GITHUB_OUTPUT"']);
 const redirectOk = (t: string) =>
   REDIRECT_TARGETS.has(t) || (/^"?\$RUNNER_TEMP(\/|"|$)/.test(t) && !t.includes('..'));
 
@@ -285,12 +288,12 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   });
 
   it('rejects a branch command hidden after && among allowed ones', () => {
-    const v = violations(mutate('run: echo "pr checks scripts', 'run: echo hi && npm run x && echo "pr checks scripts'));
+    const v = violations(mutate('echo "pr checks scripts', 'echo hi && npm run x && echo "pr checks scripts'));
     expect(v.join('\n')).toContain('command not allowed: npm run x');
   });
 
   it('rejects a branch command inside $( )', () => {
-    const v = violations(mutate('run: echo "pr checks scripts', 'run: echo "$(npm run x)" "pr checks scripts'));
+    const v = violations(mutate('echo "pr checks scripts', 'echo "$(npm run x)" "pr checks scripts'));
     expect(v.join('\n')).toContain('command not allowed: npm run x');
   });
 
@@ -425,7 +428,7 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   });
 
   it('counts a token interpolated into a run: as held', () => {
-    const t = mutate('run: echo "pr checks scripts', 'run: echo "${{ github.token }}" "pr checks scripts');
+    const t = mutate('echo "pr checks scripts', 'echo "${{ github.token }}" "pr checks scripts');
     expect(tokenHolders(t)).toContain('Say which commit the scripts came from');
     expect(tokenHolders(real)).not.toContain('Say which commit the scripts came from');
   });
@@ -460,5 +463,94 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   it('asserts the checkout is credential-less', () => {
     const t = mutate('sparse-checkout: scripts\n          persist-credentials: false', 'sparse-checkout: scripts');
     expect(checkoutProblems(t)).toContain('persist-credentials is not false');
+  });
+});
+
+describe('pr-checks.yml scratch files, trigger and base-scripts cleanliness (#373)', () => {
+  const steps = () => load(real).jobs.checks.steps;
+
+  it('only pull requests into develop trigger it', () => {
+    expect(load(real).on?.pull_request?.branches).toEqual(['develop']);
+  });
+
+  it('writes open-prs.json and refs.txt under $RUNNER_TEMP, never the workspace', () => {
+    const runs = steps().map((s) => s.run ?? '').join('\n');
+    const bare = runs.split('\n').filter((l) => !l.trim().startsWith('#')).filter((l) => /(?<!RUNNER_TEMP\/)\b(open-prs\.json|refs\.txt)/.test(l));
+    expect(bare).toEqual([]);
+    expect(runs).toContain('"$RUNNER_TEMP/open-prs.json"');
+    expect(runs).toContain('"$RUNNER_TEMP/refs.txt"');
+  });
+
+  it('rejects a redirect to a workspace open-prs.json or refs.txt', () => {
+    const t = mutate('> "$RUNNER_TEMP/refs.txt"', '> refs.txt');
+    expect(violations(t).join('\n')).toContain('redirect to refs.txt not allowed');
+    const u = mutate("|| echo '[]' > \"$RUNNER_TEMP/open-prs.json\"", "|| echo '[]' > open-prs.json");
+    expect(violations(u).join('\n')).toContain('redirect to open-prs.json not allowed');
+  });
+
+  // Timeout: a real repository init, add, commit and several status runs (<=300 ms quiet); 30 s.
+  it('the real base-scripts guard passes on a clean checkout and fails on an untracked file', { timeout: 30_000 }, () => {
+    const step = steps().find((s) => s.name === 'Say which commit the scripts came from');
+    const line = (step?.run ?? '').split('\n').find((l) => l.startsWith('dirty=') && l.includes('status --porcelain --ignored'));
+    expect(line).toBeDefined();
+    const dir = mkdtempSync(join(tmpdir(), 'base-scripts-'));
+    try {
+      const repo = join(dir, 'base-scripts');
+      const git = (...a: string[]) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
+      execFileSync('git', ['init', '-q', repo]);
+      writeFileSync(join(repo, 'a.txt'), 'x');
+      writeFileSync(join(repo, '.gitignore'), 'ignored.txt\n');
+      git('add', 'a.txt', '.gitignore');
+      git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'c');
+      const run = () => spawnSync('bash', ['-e', '-c', line ?? 'false'], { cwd: dir });
+      expect(run().status).toBe(0);
+      writeFileSync(join(repo, 'untracked.txt'), 'y');
+      expect(run().status).not.toBe(0);
+      rmSync(join(repo, 'untracked.txt'));
+      expect(run().status).toBe(0);
+      // An ignored file is not the base commit either.
+      writeFileSync(join(repo, 'ignored.txt'), 'z');
+      expect(run().status).not.toBe(0);
+      // git status itself failing (not a repository) must fail the guard too.
+      rmSync(join(repo, '.git'), { recursive: true, force: true });
+      expect(run().status).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('the real guard fails when base-scripts has no .git of its own, and passes when it has one (#410)', { timeout: 30_000 }, () => {
+    const step = steps().find((s) => s.name === 'Say which commit the scripts came from');
+    const lines = (step?.run ?? '').split('\n');
+    const top = lines.find((l) => l.startsWith('top='));
+    const dirty = lines.find((l) => l.startsWith('dirty='));
+    expect(top).toBeDefined();
+    expect(dirty).toBeDefined();
+    const script = `${top ?? 'false'}\n${dirty ?? 'false'}`;
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'base-scripts-top-')));
+    try {
+      const git = (cwd: string, ...a: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, stdio: 'pipe' });
+      // The workspace repository with base-scripts/ tracked inside it and no .git
+      // of its own. The status check alone is clean here, so only the toplevel
+      // check can fail this.
+      git(dir, 'init', '-q');
+      mkdirSync(join(dir, 'base-scripts'));
+      writeFileSync(join(dir, 'base-scripts', 'a.txt'), 'x');
+      git(dir, 'add', '.');
+      git(dir, 'commit', '-q', '-m', 'c');
+      const run = () => spawnSync('bash', ['-e', '-c', script], { cwd: dir });
+      expect(run().status).not.toBe(0);
+      // The same path as its own checkout passes.
+      rmSync(join(dir, 'base-scripts'), { recursive: true, force: true });
+      const nested = join(dir, 'base-scripts');
+      git(dir, 'init', '-q', nested);
+      writeFileSync(join(nested, 'a.txt'), 'x');
+      git(nested, 'add', 'a.txt');
+      git(nested, 'commit', '-q', '-m', 'c');
+      expect(run().status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

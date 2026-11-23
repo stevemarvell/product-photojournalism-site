@@ -7,6 +7,7 @@ import {
   MAX_PAGES,
   PAGE_SIZE,
   attemptLookup,
+  loginOption,
   trustedLogins,
   claimedIssues,
   fetchOpen,
@@ -537,7 +538,46 @@ describe('recorded attempts (#395)', () => {
       if (args[1] === 'user') throw new Error('gh api user failed: HTTP 403');
       return 'owner\n';
     };
-    expect(trustedLogins(run)).toEqual(['owner']);
+    const warnings: string[] = [];
+    expect(trustedLogins(run, { warn: (m) => warnings.push(m) })).toEqual(['owner']);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('gh api user failed');
+    expect(warnings[0]).toContain('owner only');
+    expect(warnings[0]).toContain('--login');
+  });
+
+  it('trustedLogins counts the configured loop login too, and the warning names it', () => {
+    const run = (args: string[]) => {
+      if (args[1] === 'user') throw new Error('HTTP 403');
+      return 'owner\n';
+    };
+    const warnings: string[] = [];
+    expect(trustedLogins(run, { login: 'loop-bot[bot]', warn: (m) => warnings.push(m) })).toEqual(['owner', 'loop-bot[bot]']);
+    expect(warnings[0]).toContain('owner and loop-bot[bot]');
+    // no warning when the session login is readable
+    const quiet: string[] = [];
+    expect(trustedLogins((a) => (a[1] === 'user' ? 'session\n' : 'owner\n'), { login: 'loop-bot[bot]', warn: (m) => quiet.push(m) })).toEqual(['owner', 'session', 'loop-bot[bot]']);
+    expect(quiet).toEqual([]);
+  });
+
+  it('attempts by the configured login are counted in the jq', () => {
+    const loginRun = (args: string[]) => (args[1] === 'user' ? '' : 'owner\n');
+    const logins = trustedLogins(loginRun, { login: 'loop-bot[bot]', warn: () => {} });
+    let filter = '';
+    const commentsRun = (args: string[]) => {
+      filter = args[args.indexOf('--jq') + 1] ?? '';
+      return '0';
+    };
+    attemptLookup(commentsRun, logins)(1);
+    expect(filter).toContain('.user.login == "loop-bot[bot]"');
+    expect(filter).toContain('.user.login == "owner"');
+  });
+
+  it('loginOption reads --login, --login=, then BACKLOG_LOGIN', () => {
+    expect(loginOption(['node', 'x', '--login', 'a'], {})).toBe('a');
+    expect(loginOption(['node', 'x', '--login=b'], {})).toBe('b');
+    expect(loginOption(['node', 'x'], { BACKLOG_LOGIN: 'c' })).toBe('c');
+    expect(loginOption(['node', 'x'], {})).toBeUndefined();
   });
 
   it('trustedLogins adds the session login, once, when it differs', () => {
