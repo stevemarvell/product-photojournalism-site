@@ -27,7 +27,11 @@ export declare const MAX_PAGES: number;
 export declare const ATTEMPT_MARKER: string;
 export declare const MAX_ATTEMPTS: number;
 export declare function authorClause(logins: string[]): string;
-export declare function trustedLogins(run?: (args: string[]) => string): string[];
+export declare function loginOption(argv?: string[], env?: Record<string, string | undefined>): string | undefined;
+export declare function trustedLogins(
+  run?: (args: string[]) => string,
+  options?: { login?: string; warn?: (message: string) => void },
+): string[];
 export declare function attemptLookup(run?: (args: string[]) => string, logins?: string[]): (number: number) => number;
 export declare function gh(args: string[]): string;
 export declare function fetchOpen(

@@ -19,7 +19,7 @@ What deploys where: a merge to `develop` builds the `develop` preview and nothin
 
 Who may merge where: agents merge into `develop` once `verify` is green. Nothing merges to `main` without the owner's `go`, a comment by the owner's login on the release or hotfix pull request, or the owner merging it themselves. A `go` from anyone else is ignored.
 
-The owner's `go` is discipline, with one mechanical bound. Nothing blocks a push to `main` (branch protection is not available here; see `docs/sops.md` SOP 1). A `go` counts only when the owner's login posted it after the pull request head's latest commit, and the coordinator merges with that head's `sha`, so GitHub refuses the merge if the head moved after `go`. What the owner approved is therefore the head that merges; anything beyond that rests on the coordinator following this page.
+The owner's `go` is discipline, with one mechanical bound. Nothing blocks a push to `main` (branch protection is not available here; see `docs/sops.md` SOP 1). A `go` counts only when the owner's login posted `go <sha>`, naming the pull request's current head in full (all 40 characters; a short prefix or a bare `go` does not count, since a short prefix can be ground), so it is bound to the commit and not to a date a pushed commit can fake, and the coordinator merges with that head's `sha`, so GitHub refuses the merge if the head moved after `go`. What the owner approved is therefore the head that merges; anything beyond that rests on the coordinator following this page.
 
 Version: a CalVer tag `vYYYY.MM.DD` on `main`, with `-2`, `-3` for further releases the same day. There is no version file. The GitHub Release carries the same notes as the pull request.
 
@@ -71,8 +71,8 @@ each product, not engine code.
    `Release vYYYY.MM.DD`, notes as the body. If `main` lacks nothing from
    `develop`, there is nothing to release and no pull request.
 2. **Wait for the owner.** `node scripts/release.mjs go --pr <n>` exits 0 only
-   when the owner commented `go` (author login checked, posted after the head's
-   latest commit) or merged the pull request; it prints the head `sha`. Otherwise the pull request stays open and the run reports it as
+   when the owner commented `go <sha>` (author login checked; `<sha>` is the full
+   40-character current head, so a later push voids it) or merged the pull request; it prints the head `sha`. Otherwise the pull request stays open and the run reports it as
    waiting for the owner.
 3. **Merge** with a merge commit, passing the printed `sha` (never squash: `main` keeps `develop`'s
    history, so the back-merge is empty).

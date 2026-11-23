@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +39,7 @@ describe('ciTelemetryEnv', () => {
     const env = ciTelemetryEnv({
       ...CREDENTIAL,
       CI_TELEMETRY_WORKFLOW: 'claude-code-review',
+      GITHUB_REPOSITORY: 'stevemarvell/product-photojournalism-site',
       GITHUB_RUN_ID: '42',
       GITHUB_RUN_ATTEMPT: '1',
     });
@@ -47,8 +48,55 @@ describe('ciTelemetryEnv', () => {
     expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(CREDENTIAL.GRAFANA_CLOUD_OTLP_ENDPOINT);
     expect(env.OTEL_EXPORTER_OTLP_HEADERS).toBe(CREDENTIAL.GRAFANA_CLOUD_OTLP_AUTH);
     expect(env.OTEL_RESOURCE_ATTRIBUTES).toBe(
-      'environment=ci,ci_provider=github-actions,workflow=claude-code-review,run_id=42,run_attempt=1',
+      'environment=ci,ci_provider=github-actions,repository=stevemarvell/product-photojournalism-site,workflow=claude-code-review,run_id=42,run_attempt=1',
     );
+  });
+
+  it('labels the repository as unknown when GITHUB_REPOSITORY is unset', () => {
+    expect(ciTelemetryEnv(CREDENTIAL).OTEL_RESOURCE_ATTRIBUTES).toContain(',repository=unknown,');
+  });
+
+  it('rejects a repository containing a comma, which would forge an attribute', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_REPOSITORY: 'a/b,evil=1' })).toThrow(/GITHUB_REPOSITORY/);
+  });
+
+  it('rejects a repository containing an equals sign', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_REPOSITORY: 'a/b=c' })).toThrow(/GITHUB_REPOSITORY/);
+  });
+
+  it('rejects a repository containing a control character', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_REPOSITORY: 'a/b\nc' })).toThrow(/GITHUB_REPOSITORY/);
+  });
+
+  it('rejects CI_TELEMETRY_WORKFLOW containing a comma, which would forge an attribute', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, CI_TELEMETRY_WORKFLOW: 'a,evil=1' })).toThrow(/CI_TELEMETRY_WORKFLOW/);
+  });
+
+  it('rejects CI_TELEMETRY_WORKFLOW containing an equals sign', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, CI_TELEMETRY_WORKFLOW: 'a=b' })).toThrow(/CI_TELEMETRY_WORKFLOW/);
+  });
+
+  it('rejects GITHUB_RUN_ID containing a comma, which would forge an attribute', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_RUN_ID: 'a,evil=1' })).toThrow(/GITHUB_RUN_ID/);
+  });
+
+  it('rejects GITHUB_RUN_ID containing an equals sign', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_RUN_ID: 'a=b' })).toThrow(/GITHUB_RUN_ID/);
+  });
+
+  it('rejects GITHUB_RUN_ATTEMPT containing a comma, which would forge an attribute', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_RUN_ATTEMPT: 'a,evil=1' })).toThrow(/GITHUB_RUN_ATTEMPT/);
+  });
+
+  it('rejects GITHUB_RUN_ATTEMPT containing an equals sign', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_RUN_ATTEMPT: 'a=b' })).toThrow(/GITHUB_RUN_ATTEMPT/);
+  });
+
+  it('writes no settings file when a value is refused', () => {
+    expect(() =>
+      writeCiTelemetrySettings({ ...CREDENTIAL, GITHUB_RUN_ID: '1,x=2' }, settingsPath()),
+    ).toThrow(/GITHUB_RUN_ID/);
+    expect(existsSync(settingsPath())).toBe(false);
   });
 
   it('carries the temporality preference, which the action does not forward', () => {

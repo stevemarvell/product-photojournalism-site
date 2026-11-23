@@ -320,20 +320,34 @@ export function authorClause(logins) {
   return `(${logins.map((l) => `.user.login == "${l}"`).join(' or ')})`;
 }
 
+/** The loop identity from `--login <name>` or `--login=<name>`, else `BACKLOG_LOGIN`, else undefined. */
+export function loginOption(argv = process.argv, env = process.env) {
+  const at = argv.indexOf('--login');
+  const eq = argv.find((a) => a.startsWith('--login='));
+  return (at > 0 ? argv[at + 1] : eq?.slice('--login='.length)) || env.BACKLOG_LOGIN || undefined;
+}
+
 /**
- * The logins whose comments steer the loop: the repository owner's, plus this
- * session's own when `gh api user` answers. An installation or GITHUB_TOKEN
- * credential has no user, so that lookup failing falls back to the owner alone.
+ * The logins whose comments steer the loop: the repository owner's, this
+ * session's own when `gh api user` answers, and the configured loop identity
+ * (`options.login`, from `--login` or `BACKLOG_LOGIN`) when given. An
+ * installation or GITHUB_TOKEN credential has no user, so that lookup failing
+ * falls back to the owner and the configured login, and says so on
+ * `options.warn` (stderr by default): a loop commenting as a bot would
+ * otherwise go uncounted without a word.
  */
-export function trustedLogins(run = gh) {
+export function trustedLogins(run = gh, { login, warn = (m) => process.stderr.write(`${m}\n`) } = {}) {
   const owner = run(['api', 'repos/{owner}/{repo}', '--jq', '.owner.login']).trim();
   let session = '';
   try {
     session = run(['api', 'user', '--jq', '.login']).trim();
   } catch {
-    // no user behind this credential
+    warn(
+      `warning: gh api user failed; counting comments by ${[owner, login].filter(Boolean).join(' and ')} only` +
+        (login ? '' : ' (set --login <name> or BACKLOG_LOGIN if the loop comments as another login)'),
+    );
   }
-  return [...new Set([owner, session].filter(Boolean))];
+  return [...new Set([owner, session, login].filter(Boolean))];
 }
 
 /**
@@ -353,7 +367,7 @@ export function attemptLookup(run = gh, logins = []) {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     const { issues, pullRequests, truncated } = fetchOpen();
-    const plan = triage(issues, pullRequests, permissionLookup(), attemptLookup(gh, trustedLogins()));
+    const plan = triage(issues, pullRequests, permissionLookup(), attemptLookup(gh, trustedLogins(gh, { login: loginOption() })));
     process.stdout.write(
       process.argv.includes('--json') ? JSON.stringify({ ...plan, truncated }, null, 2) + '\n' : render(plan, { truncated }),
     );

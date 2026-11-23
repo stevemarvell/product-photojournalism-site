@@ -15,7 +15,7 @@ The reason is cost and independence. An implementer runs on Sonnet in its own
 context; a coordinator writing code spends its own, larger context on it, and
 a coordinator that wrote the code is no longer checking it.
 
-`.claude/agents/` holds three roles. Each file is the agent's *standing*
+`.claude/agents/` holds four roles. Each file is the agent's *standing*
 instructions; it knows nothing about the task until the brief says so. The
 role file carries the rules, the brief carries the task, the spawn carries the
 model (each is pinned to Sonnet; pass `model` only for a deliberate trial;
@@ -26,17 +26,24 @@ the comparison behind that choice is recorded in the base repository).
 | `implementer` | One change end to end: code, tests, `verify`, pull request — or continues an existing pull request. Never merges. | yes, in its own worktree |
 | `code-checker` | Correctness and quality review of a diff or pull request. | nothing |
 | `security-checker` | Exposure review against `docs/data-governance.md`. | nothing |
+| `pr-watcher` | Polls a pull request's checks and reads its reviews for `drive-pr`; returns `clean`, `red`, `findings` or `ceiling` with the head SHA. Read-only tools. | nothing |
 
 CI runs both checkers once per pull request, when it is opened, reopened or
 marked ready, and again only when the `re-review` label is added; it does not
 re-run on a push (`claude-code-review.yml`; when the driver asks for one is in
 `drive-pr` step 4). Spawn one by hand only for a review CI cannot do — a pull
 request that edits `.github/workflows/`, where `claude-code-action` refuses to
-run, or one authored by `dependabot[bot]`. Give it **one combined hand review**:
+run. Give it **one combined hand review**:
 a single brief to one `security-checker` agent that tells it to apply
 `.claude/agents/security-checker.md` in full and then `code-checker.md`, and
 to report the two sets of findings separately. It is one agent, not two, and
 the security rubric is never cut down.
+
+A pull request authored by `dependabot[bot]` gets **no hand review**: the
+owner decided on 2026-11-23 that every Dependabot update, majors included,
+merges on a green `verify` (#422). `.github/workflows/dependabot-merge.yml`
+squash-merges it, pinned to the head SHA `verify` ran on; nobody spawns a
+checker for it and nobody merges it by hand.
 
 Never hand over an issue labelled `human`, `do not automate`, `blocked…` or
 `template`. `scripts/triage.mjs` already excludes them; a hand-picked task gets
@@ -49,7 +56,7 @@ parallel only on issues whose paths do not overlap**
 than the remaining usage window can finish**: an agent killed at a usage limit
 wastes everything it spent. Each costs about 105k–165k tokens (SOP 4). Issues
 that touch the same files go in **one brief and one PR**. The coordinator
-relays only each agent's final report, not its progress (SOP 1).
+relays only each agent's final report, not its progress.
 
 **On a usage limit** (an agent or a review run stops on one): record what is
 in flight (issues, PRs, agents) in the run's report, schedule one resume after

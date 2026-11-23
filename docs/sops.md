@@ -1,5 +1,7 @@
 # Standard operating procedures
 
+The rules alone, short enough to load every time, are in [`docs/sops-rules.md`](sops-rules.md).
+
 How agent work is run in this repository. These are the procedures that govern
 *how* work is done rather than *what* the code does — the things that are true
 across every task, and that nobody should have to rediscover.
@@ -43,8 +45,8 @@ so a loop under its attempt ceiling can still run long.
 | Sending an agent back for rework | 2 rounds | this document |
 | Agents running at once | 3 unless the owner sets another number for the run, on non-overlapping paths only; fewer as usage nears its limit, and none started that the remaining usage window cannot finish | `.claude/skills/delegate/SKILL.md` |
 | Polling a deployment in `smoke` | 40 × 15s per app for the freshness gate; 30 × 15s per app check | `scripts/smoke.mjs` (`GATE_ATTEMPTS`); each app's `smoke` script, per loop |
-| Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
-| Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
+| Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `scripts/wait-checks.mjs` |
+| Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `scripts/wait-smoke.mjs` |
 | Issues worked in one `work-backlog` run | No count. The maximum is the usage window: the run re-triages after each merge and continues until triage lists nothing, or usage reaches its limit, then records what is in flight and schedules one resume after the reset | `.claude/skills/work-backlog/SKILL.md`, `.claude/skills/delegate/SKILL.md` ("On a usage limit") |
 | Pull requests parked at a `drive-pr` ceiling in one `work-backlog` run | No count; the run goes on to the next independent issue and reports each parked pull request | `.claude/skills/work-backlog/SKILL.md` (step 3), `scripts/parked.mjs` |
 | Failed attempts (no pull request) recorded on one issue by `work-backlog` | 2, counted from `<!-- backlog-attempt -->` comments on the issue, then it is labelled `human` and `do not automate` and triage lists it under Skip whatever its labels. Enforced in `scripts/triage.mjs` (tested), so a resumed run cannot lose the tally; writing the comment and label is the loop's discipline | `.claude/skills/work-backlog/SKILL.md` (steps 2 and 3), `scripts/triage.mjs` |

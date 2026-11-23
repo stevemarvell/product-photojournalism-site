@@ -13,8 +13,8 @@ task itself and the files you own.
 
 Read `CLAUDE.md` at the repository root. Its rules bind you, and it is the
 authority on this project's data model, deployment, and conventions. Read
-`docs/sops.md` too — the standing procedures, including the iteration ceiling
-you work under.
+`docs/sops-rules.md` too — the standing procedures, including the iteration
+ceiling you work under. Open `docs/sops.md` only for the SOP your task touches.
 
 You have your own git worktree. Run `npm run bootstrap` in it first. It
 installs both toolchains and the Playwright browser, takes a few minutes, and
@@ -42,7 +42,7 @@ the ceiling is the procedure working. Say what you tried and what is still red.
 
 Controls here have shipped present, running, and doing either nothing or far
 less than they claimed to, each with a green test suite at the time. SOP 3 in
-`docs/sops.md` catalogues them and is the one place that count lives.
+`docs/sops.md` catalogues them; read it if your change adds a control.
 
 So: **a passing test is not evidence that a control works.** If your change
 adds or alters anything that is supposed to *prevent* something, exercise it

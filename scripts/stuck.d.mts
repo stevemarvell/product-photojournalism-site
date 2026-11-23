@@ -52,6 +52,8 @@ export interface StalePullRequest {
 export interface Findings {
   orphanedBranches: OrphanedBranch[];
   untrackedWorktrees: UntrackedWorktree[];
+  /** Plain files directly in `.claude/worktrees/`, as repo-relative paths (#414). */
+  strayFiles?: string[];
   mergedWorktrees: MergedWorktree[];
   staleOrConflicting: StalePullRequest[];
   noChecksRegistered: PullRequest[];
@@ -92,6 +94,7 @@ export declare function find(options?: {
   develop?: string;
   worktreesDir?: string;
   readDir?: (dir: string) => string[];
+  readFiles?: (dir: string) => string[];
   gitStatus?: (dir: string) => Promise<boolean | null>;
   sleep?: (ms: number) => Promise<void>;
 }): Promise<Findings>;

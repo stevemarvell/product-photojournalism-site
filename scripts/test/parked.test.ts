@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { MAX_PULLS, isParked, listParked, overlaps, render, stopFilter } from '../parked.mjs';
+import { MAX_PULLS, isParked, namesPath, listParked, overlaps, render, stopFilter } from '../parked.mjs';
 
 const hasJq = (process.env.PATH ?? '').split(':').some((d) => existsSync(`${d}/jq`));
 
@@ -27,6 +27,25 @@ describe('stopFilter', () => {
   });
 });
 
+describe('isParked by head SHA', () => {
+  const sha = 'a'.repeat(40);
+  const stop = { created_at: '2026-01-02T00:00:00Z', body: `drive-pr stopped: 2 fix rounds\nhead: ${sha}` };
+  it('is parked while the head is the recorded SHA', () => {
+    expect(isParked([stop], ['2026-01-01T00:00:00Z'], sha)).toBe(stop);
+  });
+  it('a 7-char head in the comment matches the full head, and not a different full head', () => {
+    const short = { created_at: '2026-01-02T00:00:00Z', body: 'drive-pr stopped\nhead: abcdef1' };
+    expect(isParked([short], [], 'abcdef1' + '0'.repeat(33))).toBe(short);
+    expect(isParked([short], [], 'abcdef2' + '0'.repeat(33))).toBeNull();
+  });
+  it('a push after the stop un-parks, even with commit dates older than the stop', () => {
+    expect(isParked([stop], ['2025-12-01T00:00:00Z'], 'b'.repeat(40))).toBeNull();
+  });
+  it('a recorded SHA with no known head is not parked', () => {
+    expect(isParked([stop], [], undefined)).toBeNull();
+  });
+});
+
 describe('isParked', () => {
   const stop = { created_at: '2026-01-02T00:00:00Z', body: 'drive-pr stopped' };
   it('is parked when the stop is newer than the last commit', () => {
@@ -40,15 +59,15 @@ describe('isParked', () => {
   });
 });
 
-function fakeRun(pulls: Record<number, { stop?: string; commit: string; files: string[]; body?: string }>) {
+function fakeRun(pulls: Record<number, { stop?: string; commit: string; files: string[]; body?: string; head?: string; stopHead?: string }>) {
   return (args: string[]) => {
     const url = args.find((a) => a.startsWith('repos/')) ?? '';
     if (/\/pulls\?state=open/.test(url)) {
-      return JSON.stringify(Object.keys(pulls).map((n) => ({ number: Number(n), body: pulls[Number(n)]!.body ?? '' })));
+      return JSON.stringify(Object.keys(pulls).map((n) => ({ number: Number(n), body: pulls[Number(n)]!.body ?? '', head: { sha: pulls[Number(n)]!.head ?? 'h' } })));
     }
     const n = Number(/\/(?:issues|pulls)\/(\d+)\//.exec(url)?.[1]);
     const p = pulls[n]!;
-    if (url.includes('/comments')) return p.stop ? JSON.stringify({ created_at: p.stop, body: 'drive-pr stopped: 2 fix rounds' }) + '\n' : '';
+    if (url.includes('/comments')) return p.stop ? JSON.stringify({ created_at: p.stop, body: 'drive-pr stopped: 2 fix rounds' + (p.stopHead ? `\nhead: ${p.stopHead}` : '') }) + '\n' : '';
     if (url.includes('/commits')) return p.commit + '\n';
     if (url.includes('/files')) return p.files.join('\n') + '\n';
     throw new Error(`unexpected ${url}`);
@@ -79,6 +98,29 @@ describe('listParked', () => {
     expect(overlaps(undefined, parked)).toEqual([]);
   });
 
+  it('a PR pushed after its stop (older committer dates) is not listed, one unchanged is', () => {
+    const r = fakeRun({
+      20: { stop: '2026-01-02T00:00:00Z', commit: '2025-06-01T00:00:00Z', files: ['x.md'], head: 'c'.repeat(40), stopHead: 'd'.repeat(40) },
+      21: { stop: '2026-01-02T00:00:00Z', commit: '2025-06-01T00:00:00Z', files: ['y.md'], head: 'c'.repeat(40), stopHead: 'c'.repeat(40) },
+    });
+    expect(listParked(r, ['owner']).parked.map((p) => p.number)).toEqual([21]);
+  });
+
+  it('whole paths only: apps/web/project.json does not overlap a parked project.json', () => {
+    const { parked } = listParked(fakeRun({ 30: { stop: '2026-01-02T00:00:00Z', commit: '2026-01-01T00:00:00Z', files: ['project.json'] } }), ['owner']);
+    expect(overlaps('Edit apps/web/project.json', parked)).toEqual([]);
+    expect(overlaps('Edit `project.json`.', parked)).toEqual([30]);
+    expect(overlaps('see project.json, then', parked)).toEqual([30]);
+    expect(overlaps('see (project.json)', parked)).toEqual([30]);
+    expect(overlaps('project.jsonl', parked)).toEqual([]);
+    expect(overlaps('**project.json**', parked)).toEqual([30]);
+    expect(overlaps('_project.json_', parked)).toEqual([30]);
+    expect(overlaps('| project.json |', parked)).toEqual([30]);
+    expect(overlaps('|project.json|', parked)).toEqual([30]);
+    expect(overlaps('./project.json', parked)).toEqual([30]);
+    expect(overlaps('../project.json', parked)).toEqual([]);
+  });
+
   it('says so when more than the cap of pull requests are open', () => {
     const many = Object.fromEntries(Array.from({ length: MAX_PULLS + 1 }, (_, i) => [i + 1, { commit: '2026-01-01T00:00:00Z', files: [] }]));
     const result = listParked(fakeRun(many), ['owner']);
@@ -88,5 +130,12 @@ describe('listParked', () => {
 
   it('renders the off-limits files', () => {
     expect(render(listParked(run, ['owner']))).toContain('  scripts/triage.mjs');
+  });
+});
+
+describe('namesPath', () => {
+  it('escapes regex characters in the path', () => {
+    expect(namesPath('x a.b', 'a.b')).toBe(true);
+    expect(namesPath('x axb', 'a.b')).toBe(false);
   });
 });

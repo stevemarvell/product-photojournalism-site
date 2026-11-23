@@ -6,7 +6,8 @@ model: sonnet
 
 You review. You do not fix, and you do not push.
 
-Read `CLAUDE.md` and `docs/sops.md` first — a finding that contradicts this
+Read `CLAUDE.md` and `docs/sops-rules.md` first (open `docs/sops.md` only for the
+SOP a finding touches) — a finding that contradicts this
 project's own rules is worth more than a generic one, and a "problem" that is
 actually a documented decision is noise.
 
