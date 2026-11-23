@@ -48,15 +48,15 @@ gitGraph
 
 ```mermaid
 flowchart LR
-  F[feature branch] -->|PR, squash| D[develop preview, smoke on the develop alias]
+  F[feature branch] -->|PR, squash| D[develop: the develop preview, smoke on the develop alias]
   D -->|release PR, owner go, merge commit| M[main: production, tagged]
   H[hotfix branch from main] -->|PR, owner go| M
   M -->|back-merge PR| D
   M -.->|rollback: Instant Rollback, then revert PR| M
 ```
 
-Preview resources: a product that stores data gives previews (the `develop` preview
-included) their own database and storage rather than production's, by a
+Preview resources: a product that stores data gives previews (the `develop`
+preview included) their own database and storage rather than production's, by a
 separate set of variables for the Preview environment. The `PREVIEW_*` pattern
 in product-photojournalism-site is the worked example. This is guidance for
 each product, not engine code.

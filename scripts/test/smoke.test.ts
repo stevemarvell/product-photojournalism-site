@@ -439,7 +439,7 @@ describe('notProductionBranch', () => {
 
 describe('develop smoke', () => {
   const main = { ...project(), productionBranch: 'main' } as Project;
-  it('a push to develop is a develop push only when main is the production branch', () => {
+  it('a push to develop is the develop preview only when main is the production branch', () => {
     expect(isDevelopPush({ project: main, ref: 'refs/heads/develop', eventName: 'push' })).toBe(true);
     expect(isDevelopPush({ project: project(), ref: 'refs/heads/develop', eventName: 'push' })).toBe(false);
     expect(isDevelopPush({ project: main, ref: 'refs/heads/main', eventName: 'push' })).toBe(false);
