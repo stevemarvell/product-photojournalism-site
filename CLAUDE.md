@@ -7,7 +7,7 @@ the *Photojournalism Site MVP: Build Spec v2* doc
 (https://claude.ai/code/artifact/7fbdc774-5dba-4a7a-a785-5f2f597c27fe); its
 build order is the issue chain #11 to #17.
 
-Branches: `main` is production, `develop` is the develop preview, where the owner does UAT, and a feature branch is
+Branches: `main` is production, `develop` is the default branch, whose preview is where the owner does UAT, and a feature branch is
 its pull request's preview. Free Vercel addresses:
 
 - web (production, from `main`): https://photojournalism-site-stevemarvell-team.vercel.app
