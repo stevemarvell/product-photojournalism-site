@@ -25,7 +25,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ROOT } from './project.mjs';
+import { DEFAULT_PRODUCTION_BRANCH, ROOT, loadProject, productionBranch as projectProductionBranch } from './project.mjs';
 
 /**
  * More than this many merges behind `develop` is reported. Not a retry
@@ -110,6 +110,21 @@ export async function aheadCount(run, develop, ref) {
   if (result.status !== 0) return null;
   const n = Number(result.stdout.trim());
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Whether `ref` carries content `develop` lacks: `git diff --quiet
+ * develop...ref` compares `ref` against its merge base with `develop`, so a
+ * release merge commit (develop merged into the production branch, docs/
+ * releases.md step 3) is no change, and develop moving on afterwards does not
+ * count either. `true` when the trees differ, `false` when they do not, `null`,
+ * never a guess, when git cannot say.
+ */
+export async function contentAhead(run, develop, ref) {
+  const result = await run(['diff', '--quiet', `${develop}...${ref}`]);
+  if (result.status === 0) return false;
+  if (result.status === 1) return true;
+  return null;
 }
 
 /**
@@ -239,17 +254,23 @@ export async function openPullRequestDetail(run, pr, { sleep = realSleep, attemp
 export function orphanedBranches({ local = [], remote = [] } = {}, prs = []) {
   const prHeads = new Set(prs.map((pr) => pr.headRefName));
   const byName = new Map();
-  const add = (name, ahead, where) => {
+  const add = (name, ahead, where, backMerge) => {
     if (ahead == null || ahead <= 0 || prHeads.has(name)) return;
     const entry = byName.get(name) ?? { name, ahead, where: new Set() };
     entry.ahead = Math.max(entry.ahead, ahead);
+    if (backMerge) entry.backMerge = true;
     entry.where.add(where);
     byName.set(name, entry);
   };
-  for (const { name, ahead } of local) add(name, ahead, 'local');
-  for (const { name, ahead } of remote) add(name, ahead, 'remote');
+  for (const { name, ahead, backMerge } of local) add(name, ahead, 'local', backMerge);
+  for (const { name, ahead, backMerge } of remote) add(name, ahead, 'remote', backMerge);
   return [...byName.values()]
-    .map((entry) => ({ name: entry.name, ahead: entry.ahead, where: [...entry.where].sort().join(' and ') }))
+    .map((entry) => ({
+      name: entry.name,
+      ahead: entry.ahead,
+      where: [...entry.where].sort().join(' and '),
+      ...(entry.backMerge ? { backMerge: true } : {}),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -338,6 +359,15 @@ export function isEmpty(findings) {
   );
 }
 
+/** The production branch project.json names; `develop` (today's behaviour) when it cannot be read. */
+function defaultProductionBranch() {
+  try {
+    return projectProductionBranch(loadProject());
+  } catch {
+    return DEFAULT_PRODUCTION_BRANCH;
+  }
+}
+
 /** The default check for uncommitted changes in a folder `git worktree list` no longer tracks. */
 async function defaultGitStatus(dir) {
   const result = await git(['-C', dir, 'status', '--porcelain']);
@@ -386,6 +416,7 @@ export async function find({
   readFiles = defaultReadFiles,
   gitStatus = defaultGitStatus,
   sleep,
+  productionBranch = defaultProductionBranch(),
 } = {}) {
   const [local, remoteNames, worktrees, listed] = await Promise.all([
     localBranches(gitRun),
@@ -399,12 +430,18 @@ export async function find({
     ),
   );
 
-  const localWithAhead = await Promise.all(
-    local.map(async (name) => ({ name, ahead: await aheadCount(gitRun, develop, name) })),
-  );
-  const remoteWithAhead = await Promise.all(
-    remoteNames.map(async (name) => ({ name, ahead: await aheadCount(gitRun, develop, `origin/${name}`) })),
-  );
+  // A released production branch is not stranded work: it is one merge commit
+  // ahead of develop by design. Only its content decides (`contentAhead`); a
+  // repository whose production branch is develop, or unknown, is unaffected.
+  const withAhead = async (name, ref) => {
+    const ahead = await aheadCount(gitRun, develop, ref);
+    if (name !== productionBranch || name === DEFAULT_PRODUCTION_BRANCH || !ahead) return { name, ahead };
+    const differs = await contentAhead(gitRun, develop, ref);
+    if (differs === false) return { name, ahead: 0 };
+    return differs ? { name, ahead, backMerge: true } : { name, ahead };
+  };
+  const localWithAhead = await Promise.all(local.map((name) => withAhead(name, name)));
+  const remoteWithAhead = await Promise.all(remoteNames.map((name) => withAhead(name, `origin/${name}`)));
   const orphaned = orphanedBranches({ local: localWithAhead, remote: remoteWithAhead }, prs);
 
   // `.claude/worktrees/` lives under the *main* working tree, not under
@@ -465,6 +502,12 @@ export async function find({
 export function renderFindings(findings) {
   const lines = [];
   for (const b of findings.orphanedBranches) {
+    if (b.backMerge) {
+      lines.push(
+        `back-merge needed: '${b.name}' (${b.where}) has ${b.ahead} commit${b.ahead === 1 ? '' : 's'} whose content develop lacks (an unmerged hotfix?) — open a back-merge pull request into develop (docs/releases.md).`,
+      );
+      continue;
+    }
     lines.push(
       `orphaned branch: '${b.name}' (${b.where}) is ${b.ahead} commit${b.ahead === 1 ? '' : 's'} ahead of develop with no pull request, open or closed — open one, or delete the branch if the work is abandoned.`,
     );
