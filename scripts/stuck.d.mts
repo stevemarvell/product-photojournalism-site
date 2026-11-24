@@ -15,12 +15,16 @@ export interface PullRequest {
 export interface BranchWithAhead {
   name: string;
   ahead: number | null;
+  /** The production branch carries content `develop` lacks. */
+  backMerge?: boolean;
 }
 
 export interface OrphanedBranch {
   name: string;
   ahead: number;
   where: string;
+  /** Set on the production branch when its content differs from develop: it needs a back-merge pull request. */
+  backMerge?: boolean;
 }
 
 export interface Worktree {
@@ -70,6 +74,7 @@ export declare function git(args: string[]): Promise<RunResult>;
 export declare function localBranches(run: Run): Promise<string[]>;
 export declare function remoteBranches(run: Run): Promise<string[]>;
 export declare function aheadCount(run: Run, develop: string, ref: string): Promise<number | null>;
+export declare function contentAhead(run: Run, develop: string, ref: string): Promise<boolean | null>;
 export declare function behindMergeCount(run: Run, develop: string, ref: string): Promise<number | null>;
 export declare function parseWorktreeList(porcelain: string): Worktree[];
 export declare function worktreeList(run: Run): Promise<Worktree[]>;
@@ -97,6 +102,7 @@ export declare function find(options?: {
   readFiles?: (dir: string) => string[];
   gitStatus?: (dir: string) => Promise<boolean | null>;
   sleep?: (ms: number) => Promise<void>;
+  productionBranch?: string;
 }): Promise<Findings>;
 export declare function renderFindings(findings: Findings): string[];
 export declare function render(findings: Findings): string;

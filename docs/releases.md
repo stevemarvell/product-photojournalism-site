@@ -69,7 +69,10 @@ each product, not engine code.
    links (so one merged while a release pull request is open waits for the
    next release). It opens a pull request `develop` into `main` titled
    `Release vYYYY.MM.DD`, notes as the body. If `main` lacks nothing from
-   `develop`, there is nothing to release and no pull request.
+   `develop`, there is nothing to release and no pull request. A release
+   pull request gets no `pr checks` run: `pr-checks.yml` runs only on pull
+   requests into `develop` (#373), where every change in the release already
+   had its contention and census checks. `verify` still runs on it.
 2. **Wait for the owner.** `node scripts/release.mjs go --pr <n>` exits 0 only
    when the owner commented `go <sha>` (author login checked; `<sha>` is the full
    40-character current head, so a later push voids it) or merged the pull request; it prints the head `sha`. Otherwise the pull request stays open and the run reports it as
@@ -92,7 +95,8 @@ A defect is live and cannot wait for the next release.
    Merge with a merge commit, tag as a release (`node scripts/release.mjs tag`),
    and confirm production smoke.
 3. The same day, open a pull request merging `main` into `develop` (the
-   back-merge) so the fix is not lost at the next release, and merge it.
+   back-merge) so the fix is not lost at the next release, and merge it with a
+   merge commit, never a squash, so `main` becomes reachable from `develop`.
 
 ## Rollback
 

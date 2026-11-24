@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -655,5 +656,118 @@ describe('gh / git', () => {
 
     const gitResult = await git(['for-each-ref', '--bogus-flag']);
     expect(gitResult.status).not.toBe(0);
+  });
+});
+
+describe('find: a released production branch (#430)', () => {
+  // Real git in a throwaway repository: `main` and `develop` as a release leaves them.
+  const repo = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'stuck-release-'));
+    const g = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
+        cwd: dir,
+        encoding: 'utf8',
+      });
+    g('init', '-q', '-b', 'develop');
+    writeFileSync(join(dir, 'a.txt'), 'one\n');
+    g('add', '.');
+    g('commit', '-q', '-m', 'first');
+    g('branch', 'main');
+    writeFileSync(join(dir, 'b.txt'), 'two\n');
+    g('add', '.');
+    g('commit', '-q', '-m', 'work on develop');
+    // The release: a merge commit on main (docs/releases.md step 3).
+    g('checkout', '-q', 'main');
+    g('merge', '--no-ff', '-q', '-m', 'Release', 'develop');
+    g('checkout', '-q', 'develop');
+    const run: Run = async (args) => {
+      try {
+        return { status: 0, stdout: execFileSync('git', args, { cwd: dir, encoding: 'utf8' }), stderr: '' };
+      } catch (e) {
+        const err = e as { status?: number; stdout?: string; stderr?: string };
+        return { status: err.status ?? 1, stdout: String(err.stdout ?? ''), stderr: String(err.stderr ?? '') };
+      }
+    };
+    return { dir, g, run };
+  };
+  const noPrs: Run = async (args) => ({ status: 0, stdout: args[1]!.includes('/pulls?') ? '[]' : '0', stderr: '' });
+  const options = (run: Run, productionBranch?: string) => ({
+    gh: noPrs,
+    git: run,
+    develop: 'develop',
+    worktreesDir: join(tmpdir(), 'stuck-no-such-dir'),
+    gitStatus: async () => false,
+    ...(productionBranch ? { productionBranch } : {}),
+  });
+
+  it('reports nothing for main when it is ahead of develop only by the release merge', async () => {
+    const { dir, g, run } = repo();
+    try {
+      expect(g('rev-list', '--count', 'develop..main').trim()).toBe('1');
+      expect(g('diff', '--stat', 'develop', 'main').trim()).toBe('');
+      const findings = await find(options(run, 'main'));
+      expect(findings.orphanedBranches).toEqual([]);
+      expect(isEmpty(findings)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('still reports nothing after develop moves on past the release', async () => {
+    const { dir, g, run } = repo();
+    try {
+      writeFileSync(join(dir, 'c.txt'), 'three\n');
+      g('add', '.');
+      g('commit', '-q', '-m', 'later work on develop');
+      expect((await find(options(run, 'main'))).orphanedBranches).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports main as needing a back-merge pull request when it carries a change develop lacks', async () => {
+    const { dir, g, run } = repo();
+    try {
+      g('checkout', '-q', 'main');
+      writeFileSync(join(dir, 'hotfix.txt'), 'fix\n');
+      g('add', '.');
+      g('commit', '-q', '-m', 'hotfix');
+      g('checkout', '-q', 'develop');
+      const findings = await find(options(run, 'main'));
+      expect(findings.orphanedBranches).toEqual([{ name: 'main', ahead: 2, where: 'local', backMerge: true }]);
+      expect(isEmpty(findings)).toBe(false);
+      expect(render(findings)).toMatch(/back-merge pull request into develop \(docs\/releases\.md\)/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports nothing for main once a hotfix is back-merged into develop with a merge commit', async () => {
+    const { dir, g, run } = repo();
+    try {
+      g('checkout', '-q', 'main');
+      writeFileSync(join(dir, 'hotfix.txt'), 'fix\n');
+      g('add', '.');
+      g('commit', '-q', '-m', 'hotfix');
+      // The back-merge (docs/releases.md, Hotfix step 3): main into develop, merge commit.
+      g('checkout', '-q', 'develop');
+      g('merge', '--no-ff', '-q', '-m', 'Back-merge', 'main');
+      const findings = await find(options(run, 'main'));
+      expect(findings.orphanedBranches).toEqual([]);
+      expect(isEmpty(findings)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps today\'s behaviour when no production branch other than develop is configured', async () => {
+    const { dir, run } = repo();
+    try {
+      // Explicit, not read from project.json: a product built from this base sets `productionBranch: main`.
+      const findings = await find(options(run, 'develop'));
+      expect(findings.orphanedBranches).toEqual([{ name: 'main', ahead: 1, where: 'local' }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
